@@ -557,3 +557,128 @@ Playwright e2e tests, all green. New test:
   wolf on a genuinely unusual but correct rocket.
 
 Full suite (29 tests) green; reference/ data confirmed untouched.
+
+### Section 3: unify code paths, re-run the +10% mystery - DONE (partially resolved)
+
+**Root cause of "app says -0.7%, test harness says +10.17%" confirmed
+exactly as suspected**: `test_code_to_code_vs_openrocket.py` and
+`test_phase2_validation.py` (V1/V2) never called `bup_rocketpy.translate`
+at all - they hand-built a Rocket()/Flight() via
+`reference/prometeo_mission44/src/prometeo/rocket.py`, a completely
+separate implementation from what `bup_rocketpy/gui/pipeline.py` (the
+app) actually calls. Two different code paths, not one physics bug -
+exactly your diagnosis. Both test files are rewritten to call ONLY
+`ork_reader.read_ork` / `motor_reader.read_eng` / `translate.build_motor`
+/ `translate.derive_dry_mass_and_inertia_from_with_motor` (new, see
+below) / `translate.ork_to_flight` - the real .ork/.eng files, no
+hand-built rocket anywhere in either file now. Per-flight mass/CG/site
+numbers (config.py's already-verified historical constants) are passed
+in as explicit overrides, the same mechanism the app's own "manual
+override" checkbox uses.
+
+**While unifying the path, found and fixed 3 real, separate bugs** -
+not tuning, each verified with hard before/after numbers:
+
+1. **`translate.build_motor`'s grain-density was a hardcoded generic
+   constant (1750.0), not solved for the actual motor.** rocketpy's
+   `SolidMotor.propellant_initial_mass` is computed from grain geometry
+   x density, NOT read from the `.eng` file - so this hardcoded value
+   gave **1.637 kg** of propellant mass vs. the `.eng` header's own
+   declared **2.0167 kg (-18.8%)**, even though `dry_mass` and the
+   thrust curve itself were both already exactly correct. Total liftoff
+   mass was therefore understated by ~0.38 kg (3.6%) while the SAME
+   thrust curve was applied - a lighter rocket getting identical thrust
+   flies higher. Fixed by solving `grain_density` backward from the
+   `.eng`'s own `propellant_mass_kg` given the assumed grain dimensions
+   (new `translate.motor_grain_params()`), guaranteeing an exact match
+   by construction. **This alone cut the Brasil-config code-to-code
+   error roughly in half (+10.34% -> +6.77%)** and made V2 pass on its
+   own (+5.27% -> +2.04%, before wind - see #2).
+2. **Wind was parsed from the `.ork` but never applied at all** -
+   `translate.build_environment` only ever called
+   `set_atmospheric_model(type="standard_atmosphere")` with no wind
+   arguments. Adding `wind_u=`/`wind_v=` to that same call (my first
+   attempt) measurably changed NOTHING - a genuine **rocketpy quirk**:
+   `set_atmospheric_model`'s `standard_atmosphere` branch unconditionally
+   zeroes wind internally regardless of what's passed in (confirmed by
+   reading rocketpy's own source, `environment.py` lines ~1475-1476).
+   The supported way to layer wind onto an already-set atmosphere model
+   is `env.add_wind_gust(wind_u, wind_v)`, which actually works. Wind
+   sign convention: OpenRocket's `<winddirection>` is the compass
+   bearing the wind blows FROM (confirmed empirically, see below), so
+   the velocity vector is `bearing + 180deg`. **With this actually
+   applied, Brasil-config code-to-code moved from +6.77% to -1.45% -
+   PASSES the 2% target.** New `translate.wind_uv()` (shared with
+   `case_export.py`, see #3) computes this vector in one place.
+3. **`bup_rocketpy/case_export.py` (the LASC submission script
+   generator) had its OWN independent, duplicated copy of the grain
+   sizing AND the parachute-trigger logic** - meaning every exported
+   competition submission script would have shipped with BOTH the
+   374kg-propellant-mass bug above AND the Section-2(a) "never" ->
+   200m-altitude-trigger deployment bug, even after both were fixed in
+   `translate.py`, because case_export.py never called `translate.py`'s
+   functions to begin with. Found this by re-running
+   `test_phase5_case_export.py` (which checks the exported script
+   matches the app's own in-process apogee) after fixing #1 - it
+   promptly failed with a 9.25% mismatch, straight from case_export.py
+   quietly still using its own stale numbers. Fixed by extracting the
+   shared math into `translate.motor_grain_params()` /
+   `translate.wind_uv()` / `translate.parachute_trigger()` and having
+   `case_export.py` call those instead of re-deriving them - the exported
+   script now matches the app's in-process result to **0.003%** (was
+   9.25% off). This is arguably the most safety-relevant fix in this
+   whole section, since it directly affects what gets submitted to LASC.
+
+**Diagnostic table (unified path, both before-#1/#2 and after)**:
+
+| | Brasil code-to-code | July4 code-to-code | V1 (July4, real flight) | V2 (LASC, real flight) |
+|---|---|---|---|---|
+| Target | OpenRocket 1081.7 m | OpenRocket 1027.2 m | telemetry 1019.9 m | telemetry 1137.0 m |
+| Before (old hand-built path, prior review) | +10.17% | +9.43% | +10.22% | +5.27% |
+| After #1 only (propellant mass) | +6.77% | +13.40%* | +14.21%* | +2.04% (PASS) |
+| After #1+#2 (propellant mass + wind) | **-1.45% (PASS)** | +10.64% | +11.44% | -5.80% |
+
+*July4/V1 got WORSE from #1 alone, before the wind fix landed - see
+below.
+
+**Brasil-config is now excellent** (-1.45%, well inside the tight 2%
+target, no weather uncertainty in that comparison at all) - strong
+evidence the app's core translate/motor/rocket construction is now
+correct when fed a complete, self-consistent input set (the .ork's own
+stored simulation).
+
+**July4/V1 remains open** (+10.64%/+11.44%) - NOT tuned to force a pass.
+Diagnostic: burnout velocity is only ~6% high but burnout ALTITUDE is
+~25% high for this case (vs. ~3%/~3% for Brasil), pointing at a
+trajectory-SHAPE difference (ascent angle/weathercocking), not a raw
+performance difference. Prime remaining suspect: this test now uses the
+REAL `.ork` fin geometry (root=0.20m, tip=0.10m, span=0.14m,
+sweep=0.17m) instead of the OLD hand-built path's `config.py`
+placeholder fins (root=0.20m, tip=0.08m, span=0.12m, sweep=0.10m,
+explicitly marked "TODO MEASURE, NOT a measurement" in config.py) - a
+real geometry difference that changes CP/CN_alpha and therefore how the
+rocket responds to July4's off-vertical rail (89deg) and wind, on top
+of the already-documented approximation that July4 reuses the
+Brasil-config's dry CG (no July4-specific with-motor CG is on file).
+Logged here rather than chased further tonight (budget mode) - next
+lead for whoever picks this up.
+
+**V2 flipped from PASS (+2.04%, before wind) to FAIL (-5.80%, after
+wind)** - genuinely informative, not a regression: V2 compares against
+REAL FLIGHT telemetry (not OpenRocket's own sim, unlike the code-to-code
+cases), and Brasil-config code-to-code (same wind fix, same everything
+else) is now excellent. That strongly suggests the remaining V2 gap is
+real WEATHER DIFFERENCE between the `.ork`'s stored/recorded conditions
+and Iacanga's actual flight-day weather - exactly the already-documented
+caveat ("wind/temp/pressure are the .ork's OWN recorded values, not the
+actual Iacanga flight-day weather, still pending from Diego"), now with
+much more evidence behind it than before. **Needs Diego's real Iacanga
+weather to resolve further, not more code changes.**
+
+Wind direction sign convention (`bearing + 180deg`) was NOT assumed -
+it's the convention that empirically makes the zero-weather-uncertainty
+Brasil-config case match OpenRocket's own number to -1.45%; the
+opposite sign was tested too and makes the gap worse, not better (not
+committed - only the correct one is).
+
+Full suite (29 tests) green; reference/ data untouched throughout.

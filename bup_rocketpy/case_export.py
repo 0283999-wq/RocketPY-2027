@@ -42,22 +42,31 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a("")
     a("HERE = os.path.dirname(os.path.abspath(__file__))")
     a("")
+    from bup_rocketpy.translate import motor_grain_params, wind_uv
+
     a("# --- Environment ---")
     a(f"env = Environment(latitude={_fmt(parsed.launch.latitude)}, longitude={_fmt(parsed.launch.longitude)}, elevation={_fmt(parsed.launch.altitude_m)})")
     a('env.set_atmospheric_model(type="standard_atmosphere")  # OpenRocket-recorded conditions - see PROGRESS.md; replace with real launch-day weather before submission')
+    wind_u, wind_v = wind_uv(parsed.launch)
+    if wind_u or wind_v:
+        # rocketpy's set_atmospheric_model silently ignores wind_u/wind_v
+        # for type="standard_atmosphere" - add_wind_gust is the supported
+        # way to layer wind on top (see translate.build_environment).
+        a(f"env.add_wind_gust({_fmt(wind_u)}, {_fmt(wind_v)})")
     a("")
     a("# --- Motor (from the .eng file - see CRS 10.1.9) ---")
     h = parsed_eng.header
+    grain_outer_r, grain_inner_r, grain_height, grain_density = motor_grain_params(h)
     a("motor = SolidMotor(")
     a('    thrust_source=os.path.join(HERE, "' + eng_filename + '"),')
     a(f"    dry_mass={_fmt(h.total_mass_kg - h.propellant_mass_kg)},")
     a("    dry_inertia=(0.01, 0.01, 0.001),  # not recoverable from a RASP .eng header - approximate, see reference/prometeo_mission44/src/prometeo/motor.py for the same convention")
     a(f"    nozzle_radius={_fmt((h.diameter_mm / 1000.0) * 0.15)},")
     a("    grain_number=1,")
-    a("    grain_density=1750.0,")
-    a(f"    grain_outer_radius={_fmt((h.diameter_mm / 1000.0) / 2.0 * 0.95)},")
-    a(f"    grain_initial_inner_radius={_fmt((h.diameter_mm / 1000.0) / 2.0 * 0.25)},")
-    a(f"    grain_initial_height={_fmt((h.length_mm / 1000.0) * 0.9)},")
+    a(f"    grain_density={_fmt(grain_density)},  # solved to exactly match the .eng header's declared propellant mass, see translate.motor_grain_params")
+    a(f"    grain_outer_radius={_fmt(grain_outer_r)},")
+    a(f"    grain_initial_inner_radius={_fmt(grain_inner_r)},")
+    a(f"    grain_initial_height={_fmt(grain_height)},")
     a("    grain_separation=0.005,")
     a(f"    grains_center_of_mass_position={_fmt((h.length_mm / 1000.0) / 2.0)},")
     a(f"    center_of_dry_mass_position={_fmt((h.length_mm / 1000.0) / 2.0)},")
@@ -92,13 +101,18 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
         a(f"rocket.set_rail_buttons(upper_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.upper_position_m)}, lower_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.lower_position_m)})")
     a("")
     if include_recovery:
+        from bup_rocketpy.translate import parachute_trigger
+
         a("# --- Recovery (CRS 10.1.9: trigger, phase, size, Cd) ---")
         for chute in parsed.parachutes:
             if chute.cd is None:
                 a(f"# SKIPPED parachute {chute.name!r}: Cd was 'auto' in OpenRocket, not resolvable from the .ork file - add it manually")
                 continue
             cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-            trigger = '"apogee"' if chute.deploy_event == "apogee" else _fmt(chute.deploy_altitude)
+            trigger_value, trigger_warning = parachute_trigger(chute)
+            if trigger_warning:
+                a(f"# NOTE: {trigger_warning}")
+            trigger = '"apogee"' if trigger_value == "apogee" else _fmt(trigger_value)
             a(f'rocket.add_parachute(name="{chute.name}", cd_s={_fmt(cd_s)}, trigger={trigger}, sampling_rate=100, lag={_fmt(chute.deploy_delay)})')
     else:
         a("# --- Recovery: NONE (Ballistic case, CRS 10.1.11 - free-fall under drag alone) ---")

@@ -131,6 +131,7 @@ class LaunchConditions:
     latitude: float
     longitude: float
     wind_average_ms: float
+    wind_direction_deg: float = 0.0  # compass bearing the wind blows FROM, degrees (OpenRocket <winddirection> is in radians - converted here)
 
     @property
     def inclination_deg(self):
@@ -505,6 +506,7 @@ def parse_launch_conditions(root):
         latitude=_child_text_num(cond, "launchlatitude", 0.0),
         longitude=_child_text_num(cond, "launchlongitude", 0.0),
         wind_average_ms=_child_text_num(cond, "windaverage", 0.0),
+        wind_direction_deg=math.degrees(_child_text_num(cond, "winddirection", 0.0)),
     )
 
 

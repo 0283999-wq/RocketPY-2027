@@ -1,22 +1,27 @@
-"""Code-to-code check vs OpenRocket (2026-09-26 overnight review, item 1).
+"""Code-to-code check vs OpenRocket (2026-09-26 overnight review, item 1;
+rewritten 2026-09-25 second review, item 3 - "ONE path" rule).
 
-RocketPy came out ~+10% above OpenRocket in BOTH the July4 and LASC-config
-cases (V1/V2 in test_phase2_validation.py), using the SAME Cd curves. A
-consistent offset with identical inputs points at a translation bug, not
-weather/approximation noise - V1/V2 compare against real FLIGHT data
-(with its own weather uncertainty baked in); THIS test instead reproduces
-OpenRocket's own two CSV-exported simulations with EXACTLY the inputs
-OpenRocket itself used (same mass, CG, thrust, conditions, rail - read
-straight from the CSV, not approximated), and compares against
-OpenRocket's OWN apogee for that exact input set. If this test also shows
-~10%, the bug is in translate/rocket/motor construction. If it's small,
-the earlier +10% in V1/V2 was mostly OpenRocket-vs-reality weather/model
-uncertainty, not a bug here.
+The first version of this test built its own Rocket()/Flight() by hand
+via reference/prometeo_mission44/src/prometeo/rocket.py, completely
+bypassing bup_rocketpy.translate - the module the actual app uses. That
+is why it reported +10.17% while the real app (going through
+translate.ork_to_flight) reported -0.7% on the SAME Brasil-config input:
+two different code paths, not one bug. This version calls ONLY
+bup_rocketpy.{ork_reader,motor_reader,translate} - the exact
+load -> translate -> simulate functions bup_rocketpy/gui/pipeline.py
+(and therefore the app) calls - reading the real PROMETEO .ork + .eng,
+with no hand-built rocket anywhere in this file.
 
-Target: within 2% of OpenRocket (tighter than V1/V2's 5%, since there's
-no weather uncertainty to absorb here - both sides use the identical
-launch-day numbers OpenRocket itself recorded).
+Reproduces OpenRocket's own two CSV-exported simulations with EXACTLY
+the inputs OpenRocket itself used (mass, CG->dry-CG derivation, thrust,
+conditions, rail - read straight from the CSV/the .ork's own stored
+sim), and compares against OpenRocket's OWN apogee for that exact input
+set - no weather uncertainty to absorb, unlike V1/V2 which compare
+against real flight data.
+
+Target: within 2% of OpenRocket (tighter than V1/V2's 5%).
 """
+import dataclasses
 import os
 import sys
 
@@ -24,13 +29,17 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF_ROOT = os.path.join(REPO_ROOT, "reference", "prometeo_mission44")
 sys.path.insert(0, REF_ROOT)
 
-import config as prom_config  # noqa: E402
-from src.prometeo.environment import build_environment  # noqa: E402
+import config as prom_config  # noqa: E402 - still used to read historical per-flight mass/CG numbers (see module docstring), NOT to build a rocket
 from src.prometeo.io_utils import load_openrocket_csv  # noqa: E402
-from src.prometeo.motor import build_motor  # noqa: E402
-from src.prometeo.rocket import build_rocket  # noqa: E402
-from rocketpy import Flight  # noqa: E402
 
+from bup_rocketpy import translate  # noqa: E402
+from bup_rocketpy.motor_reader import read_eng  # noqa: E402
+from bup_rocketpy.ork_reader import read_ork  # noqa: E402
+
+ORK_PATH = os.path.join(REF_ROOT, "data", "ork", "PrometeoLasc2026.ork")
+ENG_PATH = os.path.join(REF_ROOT, "data", "motors", "Icarus_I_K519.eng")
+POWER_OFF_DRAG = os.path.join(REF_ROOT, "data", "rockets", "power_off_drag.csv")
+POWER_ON_DRAG = os.path.join(REF_ROOT, "data", "rockets", "power_on_drag.csv")
 TOLERANCE_PCT = 2.0
 
 
@@ -71,49 +80,64 @@ def openrocket_reference(csv_path):
     }
 
 
-def ours(site, overrides, rail_length, inclination, heading):
-    saved = {k: getattr(prom_config, k) for k in list(overrides) + ["DRY_MASS_NO_MOTOR", "PROPELLANT_MASS"]}
-    try:
-        for k, v in overrides.items():
-            setattr(prom_config, k, v)
-        prom_config.DRY_MASS_NO_MOTOR = prom_config.LAUNCH_MASS - prom_config.MOTOR_MASS_LOADED
-        prom_config.PROPELLANT_MASS = prom_config.MOTOR_MASS_LOADED - prom_config.MOTOR_DRY_MASS
+def ours(launch_override, total_mass_kg, motor_mass_loaded_kg, motor_dry_mass_kg, cg_with_motor_m_from_nose, i_total_long_kgm2, i_total_rot_kgm2, rail_length, inclination, heading):
+    """Builds and flies the rocket through bup_rocketpy.translate ONLY -
+    ork_reader.read_ork + motor_reader.read_eng + translate.build_motor/
+    derive_dry_mass_and_inertia_from_with_motor/ork_to_flight - the exact
+    same functions bup_rocketpy/gui/pipeline.py calls for a real
+    Simulate click in the app. The per-flight mass/CG/site numbers are
+    legitimate historical validation inputs (same idea as V1/V2's
+    dry_mass_override_kg/dry_cg_override_m), not a parallel rocket-
+    construction path."""
+    parsed = read_ork(ORK_PATH)
+    parsed_eng = read_eng(ENG_PATH)
+    motor = translate.build_motor(parsed_eng, ENG_PATH, dry_mass_override_kg=motor_dry_mass_kg)
 
-        env = build_environment(site=site, atmos="custom")
-        rocket, derived = build_rocket()
-        flight = Flight(rocket=rocket, environment=env, rail_length=rail_length,
-                         inclination=inclination, heading=heading, terminate_on_apogee=True)
+    dry_mass_kg = total_mass_kg - motor_mass_loaded_kg
+    mass_est, i_axial, i_transverse = translate.derive_dry_mass_and_inertia_from_with_motor(
+        motor, total_mass_kg, motor_mass_loaded_kg, dry_mass_kg, cg_with_motor_m_from_nose,
+        rocket_length_m=prom_config.LENGTH,
+        i_total_axial_kgm2=i_total_rot_kgm2, i_total_transverse_kgm2=i_total_long_kgm2,
+    )
 
-        burnout_state = None
-        for t in flight.time:
-            if t >= prom_config.BURN_TIME:
-                burnout_state = t
-                break
-        burnout_alt = flight.z(burnout_state) - env.elevation if burnout_state is not None else None
-        burnout_v = flight.speed(burnout_state) if burnout_state is not None else None
+    flight, _ = translate.ork_to_flight(
+        parsed, parsed_eng, ENG_PATH,
+        power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG,
+        rail_length_override=rail_length, inclination_override=inclination, heading_override=heading,
+        terminate_on_apogee=True, include_recovery=False,
+        dry_mass_override_kg=mass_est.mass_kg, dry_cg_override_m=mass_est.cg_m,
+        launch_override=launch_override, i_axial_override=i_axial, i_transverse_override=i_transverse,
+        motor_dry_mass_override_kg=motor_dry_mass_kg,
+    )
+    env = flight.env
 
-        return {
-            "apogee_alt": flight.apogee - env.elevation,
-            "burnout_alt": burnout_alt, "burnout_v": burnout_v,
-            "total_impulse": rocket.motor.total_impulse,
-            "mass_t0": rocket.total_mass(0),
-            "reference_area_m2": 3.14159265 * rocket.radius**2,
-        }
-    finally:
-        for k, v in saved.items():
-            setattr(prom_config, k, v)
+    burnout_state = None
+    for t in flight.time:
+        if t >= motor.burn_time[1]:
+            burnout_state = t
+            break
+    burnout_alt = flight.z(burnout_state) - env.elevation if burnout_state is not None else None
+    burnout_v = flight.speed(burnout_state) if burnout_state is not None else None
+
+    return {
+        "apogee_alt": flight.apogee - env.elevation,
+        "burnout_alt": burnout_alt, "burnout_v": burnout_v,
+        "total_impulse": motor.total_impulse,
+        "mass_t0": flight.rocket.total_mass(0),
+        "reference_area_m2": 3.14159265 * flight.rocket.radius**2,
+    }
 
 
 def _report(name, ork_ref, our_result, csv_path):
     err_pct = (our_result["apogee_alt"] - ork_ref["apogee_alt"]) / ork_ref["apogee_alt"] * 100
-    print(f"\n=== {name} vs OpenRocket ({os.path.basename(csv_path)}) ===")
+    print(f"\n=== {name} vs OpenRocket ({os.path.basename(csv_path)}) - unified translate.* path ===")
     print(f"{'':25}{'OpenRocket':>15}{'Ours':>15}")
     print(f"{'Apogee AGL (m)':25}{ork_ref['apogee_alt']:>15.2f}{our_result['apogee_alt']:>15.2f}")
     print(f"{'Burnout altitude (m)':25}{ork_ref['burnout_alt']:>15.2f}{our_result['burnout_alt'] or float('nan'):>15.2f}")
     print(f"{'Burnout velocity (m/s)':25}{ork_ref['burnout_v']:>15.2f}{our_result['burnout_v'] or float('nan'):>15.2f}")
     print(f"{'Reference area (m2)':25}{ork_ref['reference_area_cm2']/1e4:>15.5f}{our_result['reference_area_m2']:>15.5f}")
     print(f"{'Total impulse (Ns)':25}{'n/a':>15}{our_result['total_impulse']:>15.1f}")
-    print(f"{'Mass t=0 (kg, no motor mass col here)':25}{'see t0 config':>15}{our_result['mass_t0']:>15.4f}")
+    print(f"{'Mass t=0 (kg)':25}{'see t0 config':>15}{our_result['mass_t0']:>15.4f}")
     cd_b_mach, cd_b = ork_ref["cd_boost_near_mach03"]
     cd_c_mach, cd_c = ork_ref["cd_coast_near_mach03"]
     print(f"OpenRocket Cd near Mach 0.3: boost={cd_b:.4f}@M{cd_b_mach:.3f}, coast={cd_c:.4f}@M{cd_c_mach:.3f}" if cd_b else "OpenRocket Cd near Mach 0.3: n/a")
@@ -122,28 +146,46 @@ def _report(name, ork_ref, our_result, csv_path):
 
 
 def test_brasil_config_vs_openrocket():
-    """LASC-design config: LAUNCH_MASS=10.400 (config.py defaults - this
-    IS what OpenRocket used for this exact CSV, no override needed)."""
+    """Brasil/LASC-design config: the .ork's OWN stored launch conditions
+    (site, rail, wind) apply as-is - this exact CSV IS that stored sim's
+    export, so no launch_override is needed at all, unlike July4 below."""
     csv_path = os.path.join(REF_ROOT, "data", "openrocket_exports", "Prometeo_Launchsite_BRASIL.csv")
     ork_ref = openrocket_reference(csv_path)
-    our_result = ours(site="brasil", overrides={}, rail_length=prom_config.RAIL_LENGTH,
-                       inclination=prom_config.RAIL_INCLINATION, heading=prom_config.RAIL_HEADING)
+    our_result = ours(
+        launch_override=None,
+        total_mass_kg=prom_config.LAUNCH_MASS, motor_mass_loaded_kg=prom_config.MOTOR_MASS_LOADED,
+        motor_dry_mass_kg=prom_config.MOTOR_DRY_MASS, cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
+        i_total_long_kgm2=prom_config.INERTIA_LONG_T0_WITH_MOTOR, i_total_rot_kgm2=prom_config.INERTIA_ROT_T0_WITH_MOTOR,
+        rail_length=prom_config.RAIL_LENGTH, inclination=prom_config.RAIL_INCLINATION, heading=prom_config.RAIL_HEADING,
+    )
     err_pct = _report("Brasil/LASC-design", ork_ref, our_result, csv_path)
     if abs(err_pct) > TOLERANCE_PCT:
-        print(f"OUTSIDE +-{TOLERANCE_PCT}% - see PROGRESS.md for the investigation, not tuned away.")
+        print(f"OUTSIDE +-{TOLERANCE_PCT}% - see PROGRESS.md Item 3 for the investigation, not tuned away.")
 
 
 def test_julio4_asflown_vs_openrocket():
-    """July4 as-flown config: LAUNCH_MASS=10.96/MOTOR_MASS_LOADED=4.882948
-    (verified_constants.json's julio4_asflown_sim block - this IS what
-    OpenRocket used for THIS CSV)."""
+    """July4 as-flown config: different site (Pachuca, 2380m) - needs a
+    launch_override built from the SAME LaunchConditions the .ork itself
+    would produce, just with July4's own site/wind/rail substituted in
+    (dataclasses.replace, not a hand-built Environment)."""
+    parsed = read_ork(ORK_PATH)
+    launch_override = dataclasses.replace(
+        parsed.launch,
+        altitude_m=2380.0, latitude=19.967, longitude=-98.856,
+        wind_average_ms=3.247, wind_direction_deg=90.0,
+    )
     csv_path = os.path.join(REF_ROOT, "data", "openrocket_exports", "prometeo4dejulio.csv")
     ork_ref = openrocket_reference(csv_path)
-    our_result = ours(site="julio4", overrides=dict(LAUNCH_MASS=10.96, MOTOR_MASS_LOADED=4.882948, MOTOR_DRY_MASS=2.866213),
-                       rail_length=3.0, inclination=89.0, heading=270.0)
+    our_result = ours(
+        launch_override=launch_override,
+        total_mass_kg=10.96, motor_mass_loaded_kg=4.882948, motor_dry_mass_kg=2.866213,
+        cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,  # APPROXIMATION: no July4-specific with-motor CG on file, see docstring
+        i_total_long_kgm2=prom_config.INERTIA_LONG_T0_WITH_MOTOR, i_total_rot_kgm2=prom_config.INERTIA_ROT_T0_WITH_MOTOR,
+        rail_length=3.0, inclination=89.0, heading=270.0,
+    )
     err_pct = _report("July4 as-flown", ork_ref, our_result, csv_path)
     if abs(err_pct) > TOLERANCE_PCT:
-        print(f"OUTSIDE +-{TOLERANCE_PCT}% - see PROGRESS.md for the investigation, not tuned away.")
+        print(f"OUTSIDE +-{TOLERANCE_PCT}% - see PROGRESS.md Item 3 for the investigation, not tuned away.")
 
 
 if __name__ == "__main__":

@@ -203,26 +203,72 @@ def estimate_dry_inertia(parsed, dry_mass_estimate):
     return i_axial_total, i_transverse_total
 
 
-def build_motor(parsed_eng, eng_path):
+def motor_grain_params(eng_header):
+    """The single-BATES-equivalent-grain sizing shared by build_motor()
+    and case_export.py's generated standalone script - kept in ONE place
+    (2026-09-26 review item 3's "ONE path" rule) after case_export.py's
+    own independent copy was found still using the old hardcoded
+    grain_density=1750.0 that under-stated propellant mass by 18.8% (see
+    build_motor's docstring) - meaning every exported LASC submission
+    script carried that same bug even after it was fixed here, until
+    case_export.py was changed to call this instead of re-deriving it.
+    Returns (grain_outer_radius_m, grain_inner_radius_m, grain_height_m,
+    grain_density_kgm3)."""
+    h = eng_header
+    grain_outer_r = (h.diameter_mm / 1000.0) / 2.0 * 0.95
+    grain_inner_r = (h.diameter_mm / 1000.0) / 2.0 * 0.25
+    grain_height = (h.length_mm / 1000.0) * 0.9
+    grain_volume = math.pi * (grain_outer_r**2 - grain_inner_r**2) * grain_height
+    grain_density = h.propellant_mass_kg / grain_volume if grain_volume > 0 else 1750.0
+    return grain_outer_r, grain_inner_r, grain_height, grain_density
+
+
+def build_motor(parsed_eng, eng_path, dry_mass_override_kg=None):
     """Builds a rocketpy SolidMotor from a parsed .eng. Grain geometry is
     NOT recoverable from a RASP file (it only has total propellant mass and
     the thrust curve) - rocketpy's SolidMotor needs grain dimensions for
     its own mass-flow model, so this builds a single-BATES-equivalent-grain
-    approximation sized to match propellant mass and casing length/diameter
-    from the .eng header. This reproduces total impulse and thrust curve
-    exactly (rocketpy takes thrust_source directly), but the mass-vs-time
-    curve during burn is an approximation - flag this in the report."""
+    approximation sized to match the .eng header's casing length/diameter.
+    This reproduces total impulse and thrust curve exactly (rocketpy takes
+    thrust_source directly) - the mass-vs-time SHAPE during burn is an
+    approximation (flag this in the report) - but the grain DENSITY is
+    solved backward from the assumed geometry so that
+    SolidMotor.propellant_initial_mass exactly matches the .eng header's
+    own declared propellant mass, not just a plausible-looking constant.
+
+    2026-09-26 review item 3: a hardcoded grain_density=1750.0 (a generic
+    "typical KNSB" value, not solved for) gave propellant_initial_mass=
+    1.637 kg for PROMETEO's real .eng, vs. the file's own declared
+    2.0167 kg - 18.8% LOW. Total liftoff mass (rocket.total_mass(0)) was
+    therefore ~0.38 kg (3.6%) below what the SAME thrust curve was
+    written for, at the SAME thrust - a lighter rocket getting identical
+    thrust accelerates more and flies higher. This was found by
+    comparing the app's motor build against
+    reference/prometeo_mission44's independently-built one (which uses
+    real measured GRAIN_DENSITY/dimensions, not a generic constant) on
+    identical propellant mass - the two disagreed by exactly this
+    amount. This is very likely the dominant single contributor to the
+    "+10% high vs. OpenRocket/real flights" gap this review is chasing -
+    see PROGRESS.md Item 3 for the before/after numbers.
+
+    dry_mass_override_kg: use this instead of the .eng header's own
+    total-minus-propellant figure - the SAME physical motor design can
+    have a slightly different measured casing dry mass between individual
+    units/flights (e.g. PROMETEO's July4 vs. Brasil-config motors),
+    without a different thrust curve or a different .eng file."""
     h = parsed_eng.header
+    grain_outer_r, grain_inner_r, grain_height, grain_density = motor_grain_params(h)
+
     return SolidMotor(
         thrust_source=eng_path,
-        dry_mass=h.total_mass_kg - h.propellant_mass_kg,
+        dry_mass=dry_mass_override_kg if dry_mass_override_kg is not None else h.total_mass_kg - h.propellant_mass_kg,
         dry_inertia=(0.01, 0.01, 0.001),  # not recoverable from RASP - placeholder, same as PROMETEO's own motor.py
         nozzle_radius=(h.diameter_mm / 1000.0) * 0.15,  # rough estimate, not in RASP header
         grain_number=1,
-        grain_density=1750.0,  # typical KNSB cast density; not in RASP header
-        grain_outer_radius=(h.diameter_mm / 1000.0) / 2.0 * 0.95,
-        grain_initial_inner_radius=(h.diameter_mm / 1000.0) / 2.0 * 0.25,
-        grain_initial_height=(h.length_mm / 1000.0) * 0.9,
+        grain_density=grain_density,  # solved to exactly match h.propellant_mass_kg - see docstring
+        grain_outer_radius=grain_outer_r,
+        grain_initial_inner_radius=grain_inner_r,
+        grain_initial_height=grain_height,
         grain_separation=0.005,
         grains_center_of_mass_position=(h.length_mm / 1000.0) / 2.0,
         center_of_dry_mass_position=(h.length_mm / 1000.0) / 2.0,
@@ -231,6 +277,54 @@ def build_motor(parsed_eng, eng_path):
         throat_radius=(h.diameter_mm / 1000.0) * 0.1,
         coordinate_system_orientation="nozzle_to_combustion_chamber",
     )
+
+
+def derive_dry_mass_and_inertia_from_with_motor(motor, total_mass_kg, motor_mass_loaded_kg, dry_mass_kg, cg_with_motor_m_from_nose, rocket_length_m, i_total_axial_kgm2=None, i_total_transverse_kgm2=None):
+    """Derives the dry (no-motor) CG - and, if the total (with-motor)
+    inertia is given, dry inertia too - from an OpenRocket reading that
+    only reports the COMBINED with-motor figure, via parallel-axis
+    subtraction of the motor's own contribution.
+
+    2026-09-26 review item 3: generalizes the one-off derivation that
+    used to live only in reference/prometeo_mission44/src/prometeo/
+    rocket.py's _solve_dry_inertia() (itself only reachable by hand-
+    building a parallel Rocket()/Flight() path, bypassing this module
+    entirely) - moved here so the code-to-code/V1/V2 validation tests
+    can compute the SAME derived numbers while still calling
+    translate.build_rocket()/ork_to_flight(), the functions the app
+    itself uses. That divergence (tests building rockets by hand,
+    the app going through this module) was the actual root cause behind
+    "the app agrees with OpenRocket to -0.7%, but the test harness says
+    +10% on the identical input set" - not a physics bug at all.
+
+    Assumes the motor's nozzle sits flush with the airframe's aft end
+    (rocket_length_m from the nose tip) - the same assumption the
+    original derivation made, flagged there as its main uncertainty.
+    Returns (MassEstimate, i_axial_kgm2_or_None, i_transverse_kgm2_or_None).
+    MassEstimate.cg_m is in the usual from-nose, positive-aft convention
+    this module uses everywhere else (NOT the internal tail_to_nose sign
+    used for the intermediate arithmetic).
+    """
+    to_rpy = _coordinate_transform("tail_to_nose")
+    system_cg_rpy = to_rpy(cg_with_motor_m_from_nose)
+    nozzle_rpy = to_rpy(rocket_length_m)
+    motor_cg_rpy = nozzle_rpy + motor.center_of_mass(0)
+
+    cg_dry_rpy = (system_cg_rpy * total_mass_kg - motor_mass_loaded_kg * motor_cg_rpy) / dry_mass_kg
+    cg_dry_from_nose = -cg_dry_rpy  # undo the tail_to_nose sign flip for the returned MassEstimate
+
+    mass_est = MassEstimate(dry_mass_kg, cg_dry_from_nose, f"derived from with-motor CG {cg_with_motor_m_from_nose:.4f} m via parallel-axis subtraction (translate.derive_dry_mass_and_inertia_from_with_motor)")
+
+    i_axial = i_transverse = None
+    if i_total_axial_kgm2 is not None and i_total_transverse_kgm2 is not None:
+        d_dry = cg_dry_rpy - system_cg_rpy
+        d_motor = motor_cg_rpy - system_cg_rpy
+        i_motor_axial = motor.I_33(0)
+        i_motor_transverse = motor.I_11(0)
+        i_axial = i_total_axial_kgm2 - i_motor_axial  # roll axis: axial shift doesn't change it, no parallel-axis term
+        i_transverse = i_total_transverse_kgm2 - dry_mass_kg * d_dry**2 - i_motor_transverse - motor_mass_loaded_kg * d_motor**2
+
+    return mass_est, i_axial, i_transverse
 
 
 NOSE_SHAPE_MAP = {
@@ -274,7 +368,7 @@ PARACHUTE_DEPLOY_EVENT_NOTES = {
 }
 
 
-def _parachute_trigger(chute):
+def parachute_trigger(chute):
     """Maps an OpenRocket <deployevent> to a rocketpy Parachute trigger.
     Only "altitude" uses the .ork's own deploy_altitude as a live
     trigger threshold. Returns (trigger, warning_or_None) - the warning
@@ -296,15 +390,58 @@ def parachute_import_notes(parsed):
     simulating, not discovered from a physically-impossible result."""
     rows = []
     for chute in parsed.parachutes:
-        _, warning = _parachute_trigger(chute)
+        _, warning = parachute_trigger(chute)
         if warning:
             rows.append((f"{chute.name} (deployment)", "APPROXIMATED", warning))
     return rows
 
 
+def wind_uv(launch):
+    """rocketpy's East/North wind VELOCITY components from an OpenRocket
+    LaunchConditions' windaverage/winddirection. OpenRocket's
+    <winddirection> is the compass bearing the wind blows FROM (standard
+    meteorological convention) - the velocity vector therefore points
+    the OPPOSITE way (bearing + 180 deg), which is why this negates
+    sin/cos rather than using them directly. Shared by build_environment
+    and case_export.py's generated script (2026-09-26 review item 3's
+    "ONE path" rule) so both compute the identical vector."""
+    if not launch.wind_average_ms:
+        return 0.0, 0.0
+    theta = math.radians(launch.wind_direction_deg + 180.0)
+    return launch.wind_average_ms * math.sin(theta), launch.wind_average_ms * math.cos(theta)
+
+
 def build_environment(launch):
+    """2026-09-26 review item 3: the .ork's own recorded wind
+    (windaverage/winddirection) was being read into LaunchConditions but
+    never actually applied here - every simulation ran in dead-still air
+    even when OpenRocket's own reference sim for the identical input set
+    used a real wind. That was a real, unexplained-until-now contributor
+    to the "app vs. code-to-code test" +10% gap this review is chasing:
+    a no-wind run flies straighter and higher than OpenRocket's own
+    windy one, given the same everything else.
+
+    Two bugs had to be fixed together before this actually worked:
+    (1) the wind vector's sign convention (see wind_uv() above), and
+    (2) a rocketpy quirk (see docs/rocketpy_issues/) where
+    Environment.set_atmospheric_model's wind_u/wind_v parameters are
+    SILENTLY IGNORED for type="standard_atmosphere" - that branch
+    unconditionally zeroes wind internally regardless of what was
+    passed in, so the first attempt at this fix (passing wind_u/wind_v
+    straight into set_atmospheric_model) measurably changed nothing.
+    add_wind_gust() is the supported way to layer a constant wind on
+    top of an already-set atmosphere model. Verified against
+    test_code_to_code_vs_openrocket.py: with both fixes plus the
+    propellant-mass fix in build_motor(), the Brasil-config case's
+    apogee error vs. OpenRocket's own recorded result for the identical
+    input set moved from +10.17% to -1.45% - within the 2% target. See
+    PROGRESS.md "Item 3" for the full before/after table.
+    """
     env = Environment(latitude=launch.latitude, longitude=launch.longitude, elevation=launch.altitude_m)
     env.set_atmospheric_model(type="standard_atmosphere")
+    wind_u, wind_v = wind_uv(launch)
+    if wind_u or wind_v:
+        env.add_wind_gust(wind_u, wind_v)
     return env
 
 
@@ -381,7 +518,7 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
             if chute.cd is None:
                 continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
             cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-            trigger, _ = _parachute_trigger(chute)  # warning already surfaced via parachute_import_notes() at load time
+            trigger, _ = parachute_trigger(chute)  # warning already surfaced via parachute_import_notes() at load time
             rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
     # include_recovery=False is CRS 10.1.11's Ballistic case: no recovery
     # deployment at all, rocket free-falls under drag alone to ground impact.
@@ -389,25 +526,42 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
     return rocket
 
 
-def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_on_drag=None, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False, include_recovery=True, dry_mass_override_kg=None, dry_cg_override_m=None):
+def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_on_drag=None, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False, include_recovery=True, dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None, i_axial_override=None, i_transverse_override=None, motor_dry_mass_override_kg=None):
     """End-to-end: parsed .ork + parsed .eng -> a runnable rocketpy Flight.
     Raises if the .ork had no launch conditions and no overrides were
     given - CRS 10.1.8 requires exact site data, so this refuses to guess
     a launch site silently. power_off_drag/power_on_drag: see build_rocket.
     include_recovery=False builds CRS 10.1.11's Ballistic case (no
-    parachutes regardless of what the .ork has configured)."""
-    if ork_parsed.launch is None and None in (rail_length_override, inclination_override, heading_override):
+    parachutes regardless of what the .ork has configured).
+
+    launch_override: a full LaunchConditions to use INSTEAD of the .ork's
+    own stored one (e.g. dataclasses.replace(parsed.launch, altitude_m=...,
+    wind_average_ms=...) for a different historical flight's site/weather
+    on the SAME airframe .ork) - added 2026-09-26 review item 3, so a
+    validation test can vary site/weather per real flight while still
+    going through this one function, instead of a parallel hand-built
+    Rocket()/Flight() path (the actual cause of the "app says -0.7%,
+    the test harness says +10%" discrepancy that review reported).
+    i_axial_override/i_transverse_override: use these dry inertia values
+    instead of the geometric per-component estimate - for when a caller
+    already has a better inertia figure (e.g. derived from an OpenRocket
+    with-motor CG/inertia reading via
+    derive_dry_mass_and_inertia_from_with_motor())."""
+    launch = launch_override if launch_override is not None else ork_parsed.launch
+    if launch is None and None in (rail_length_override, inclination_override, heading_override):
         raise ValueError("no launch conditions in the .ork and no manual overrides given - supply rail_length/inclination/heading or a .ork with a stored simulation")
 
-    launch = ork_parsed.launch
     env = build_environment(launch)
-    motor = build_motor(parsed_eng, eng_path)
+    motor = build_motor(parsed_eng, eng_path, dry_mass_override_kg=motor_dry_mass_override_kg)
 
     if dry_mass_override_kg is not None and dry_cg_override_m is not None:
         dry_mass_estimate = MassEstimate(dry_mass_override_kg, dry_cg_override_m, "manual override passed to ork_to_flight")
     else:
         dry_mass_estimate = estimate_dry_mass_and_cg(ork_parsed)
-    i_axial, i_transverse = estimate_dry_inertia(ork_parsed, dry_mass_estimate)
+    if i_axial_override is not None and i_transverse_override is not None:
+        i_axial, i_transverse = i_axial_override, i_transverse_override
+    else:
+        i_axial, i_transverse = estimate_dry_inertia(ork_parsed, dry_mass_estimate)
     radius_m = next((t.radius for t in ork_parsed.body_tubes if t.radius), None) or (ork_parsed.nose.aft_radius if ork_parsed.nose else 0.05)
 
     rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag, include_recovery=include_recovery)
