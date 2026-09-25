@@ -138,14 +138,18 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
         stochastic_rocket = StochasticRocket(
             rocket=rocket,
             mass=(dry_mass_kg, u["dry_mass_kg"].std_dev) if "dry_mass_kg" in u else None,
-            # center_of_mass_without_motor MUST be passed explicitly - rocketpy's
-            # StochasticRocket.create_object() does not preserve an externally
-            # overridden CG otherwise (it falls back to the Rocket's own
-            # geometric/component-based CG, which for a rocket built via
-            # translate.build_rocket - aero surfaces added with no material
-            # density - is wildly wrong). Found empirically 2026-09-26: every
-            # sampled rocket came out ~-8.5 cal unstable, consistently, until
-            # this was added. See PROGRESS.md.
+            # center_of_mass_without_motor is passed explicitly, matching
+            # the Rocket's own value, as a defensive habit - kept even
+            # after 2026-09-25's re-check (docs/rocketpy_issues/02_*.py)
+            # found this is NOT itself a bug: in isolation, a
+            # StochasticRocket with no CG factor given preserves the
+            # nominal CG exactly. The original ~-8.5 cal "every sampled
+            # rocket unstable" symptom (2026-09-26, first review pass)
+            # was actually caused by docs/rocketpy_issues/03_*.py's bug
+            # (add_nose()/add_trapezoidal_fins() silently failing to
+            # attach any aerosurface - see add_nose/add_trapezoidal_fins
+            # below), which alone produces cp_position()==0 regardless
+            # of CG. See PROGRESS.md Item 6 for the full correction.
             # NOTE the sign: translate.build_rocket() converts dry_cg_m (positive,
             # m from nose) to the rocket's own "tail_to_nose" frame (negated)
             # before passing it to Rocket() - the override here must match that

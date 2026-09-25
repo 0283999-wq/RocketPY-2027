@@ -817,3 +817,48 @@ right after Load, no Simulate needed.
 Full suite (31 tests) green. Screenshots confirm both render correctly
 in a real browser (`docs/screenshots/01_simulate_results.png`'s new tab
 row, `docs/screenshots/05_rocket.png`'s new Rocket info section).
+
+### Section 6: rocketpy bug minimal repros + GH issue drafts - DONE
+
+New `docs/rocketpy_issues/`: 5 self-contained repro scripts (only
+`rocketpy` + a tiny inline-data rocket, no `bup_rocketpy` import), each
+actually run and its output captured, checking every one of the "4
+rocketpy bugs" claimed after the first review pass rather than assuming
+they were all real:
+
+1. **Confirmed, but corrected**: `MonteCarlo.simulate()` doesn't crash
+   on "any unstable sample" (the original description) - it crashes
+   specifically when a sample never reaches a recognized apogee event
+   (`Flight.apogee_x`/`apogee_y` are never populated in that case), and
+   that `AttributeError` isn't caught by whatever per-sample error
+   handling `MonteCarlo` has.
+2. **Retracted**: re-tested "StochasticRocket drops an overridden CG"
+   in isolation against a complete, well-formed rocket - it does NOT
+   reproduce. The original ~-8.5 cal symptom was actually caused by #3
+   below (zero aerosurfaces -> cp_position() stuck near 0), not a CG
+   bug at all. Updated `bup_rocketpy/monte_carlo.py`'s own comment to
+   stop overstating this as a confirmed bug.
+3. **Confirmed, exact root cause**: `StochasticRocket._add_surfaces()`
+   hardcodes `stochastic_type(component=surfaces)`, but
+   `StochasticNoseCone`/`StochasticTrapezoidalFins` want
+   `nosecone=`/`trapezoidal_fins=` - found the exact line in rocketpy's
+   own source.
+4. **Confirmed**: none of the 4 Stochastic classes accept `seed=`, and
+   `numpy.random.seed()` (legacy global RNG) has zero effect on their
+   sampling (they use `numpy.random.Generator(PCG64)` internally) -
+   arguably reasonable design, more a missing feature than a bug.
+5. **Confirmed** (new tonight, from Item 3's wind investigation):
+   `Environment.set_atmospheric_model`'s `wind_u`/`wind_v` are silently
+   discarded for `type="standard_atmosphere"` - documented only in a
+   docstring nobody calling `set_atmospheric_model()` would see, no
+   warning raised.
+
+Draft GitHub issue text for all 4 confirmed findings (not #2, which was
+retracted) is in `docs/rocketpy_issues/README.md`, ready for Diego to
+review/submit - **could not cross-check against rocketpy's existing
+GitHub issues** (no web/API access in this session, only git
+clone/fetch), flagged explicitly so Diego knows to search first before
+submitting.
+
+Full suite (31 tests) still green (one comment-only change to shipped
+code, `bup_rocketpy/monte_carlo.py`).
