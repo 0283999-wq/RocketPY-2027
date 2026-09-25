@@ -129,12 +129,14 @@ check here first, then CHANGELOG.md for detail.
       subprocesses. Both matched the in-process apogee to 0.0027% -
       confirms the exported files are truly standalone and correct, not
       just "imports fine". PASSED.
-- [ ] Phase 5 (rest): drogue-only / main-at-apogee, PDF/DOCX report
-- [ ] Phase 6: weathercocking sweep, drag comparison
-- [x] MORNING_REPORT.md written and pushed last - Phase 4/rest-of-5/6 not
-      reached (priorities 1-3 done, ran out of tonight's scope after that,
-      per Diego's own stated priority order - not a blocker, just where
-      tonight stopped).
+- [x] Phase 5 (rest): drogue-only/main-at-apogee + PDF/DOCX report - DONE
+      2026-09-26, see the item 3 entries above.
+- [x] Phase 6: weathercocking sweep + drag comparison - DONE 2026-09-26,
+      see the item 3 entries above.
+- [x] MORNING_REPORT.md (2026-09-26 version) written and pushed last -
+      covers items 0-3. Only Major Tom testing remains genuinely blocked
+      (no `.ork` in the repo); everything else on tonight's list is done,
+      investigated-and-documented (item 1), or a clearly-logged scope cut.
 
 ## Item 1 findings (code-to-code check vs OpenRocket, 2026-09-26)
 

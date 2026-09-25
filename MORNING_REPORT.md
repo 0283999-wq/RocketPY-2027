@@ -1,28 +1,60 @@
-# Morning report - autonomous overnight run, 2026-09-25
+# Morning report - autonomous overnight run, 2026-09-26
 
-## Status by phase
+Follow-up to your review: item 0 (upload bug) fixed, item 1 (code-to-code
+bug hunt) investigated deeply, item 2 (UI redesign) built, item 3 (all
+remaining phases) built. Everything below is genuinely tested against
+your real `PrometeoLasc2026.ork` + `Icarus_I_K519.eng` - not just written.
 
-| Phase | Status | One line |
-|---|---|---|
-| 0 - repo restructure | **Done** | `common/` -> `stella_flight/`, design_search.py removed |
-| 1 - `.ork`/`.eng` readers + translation | **Done** | Real `.ork` acceptance test passing (CP/diameter <0.5% err); dry-mass gap (19%) found, explained, not hidden |
-| 2 - V1/V2 validation | **Done, both PROVISIONAL** | V1 +10.2% err, V2 +5.3% err (see below) - honest results, not tuned |
-| 3 - NiceGUI app + `start.bat` | **Done** | Upload -> table -> Simulate -> numbers/plots/CSV; headless-tested, **not** browser-tested (no display here) |
-| 5 - Ballistic + Nominal export | **Done** | Self-contained `.py` files proven in a genuinely clean venv, 0.003% match |
-| 4 - Monte Carlo + landing ellipse | **Not started** | Your lowest priority; ran out of tonight's budget after 1-3 |
-| 5 (rest) - drogue-only/main-at-apogee, PDF/DOCX report, `.zip` packaging | **Not started** | Same |
-| 6 - weathercocking, drag comparison | **Not started** | Needs Phase 4's Monte Carlo first |
+## Status by item/phase
 
-Full detail, every approximation and its source: `PROGRESS.md`. Every commit tonight: `CHANGELOG.md`.
+| # | Item | Status | One line |
+|---|---|---|---|
+| 0 | Upload bug | **Fixed** | Real cause: NiceGUI 3.17.1's `e.file` API, not `e.content`; handlers needed to be `async`. Permanent Playwright test added, runs real Chromium. |
+| 1 | Code-to-code vs OpenRocket | **Investigated, not resolved** | Confirmed real (+10.2%/+9.4%, not weather - see below). Reference area/Cd/impulse/density all ruled out with hard numbers. Root cause NOT isolated - see PROGRESS.md. |
+| 2 | UI redesign | **Done** | Gold/wine theme, sidebar, all 8 pages, dark mode, 8 real screenshots in `docs/screenshots/`. |
+| 3 | Phase 4 - Monte Carlo | **Done** | Found & fixed 3 real bugs in rocketpy's own Stochastic classes (see below). N=20 works, 0 excluded, sane 90% interval. |
+| 3 | Phase 5 - 4 RCSM cases | **Done** | Ballistic/Nominal/Drogue-only/Main-at-apogee all build; single-deploy warns cleanly (your rule), doesn't crash. |
+| 3 | Phase 5 - report + LASC zip | **Done** | PDF+DOCX (validation section first, correct wording), zip proven runnable in a clean venv. |
+| 3 | Phase 6 - weathercocking + drag comparison | **Done** | Found & fixed a 4th Stochastic-class bug (seeding). Common-random-numbers comparison verified exact (0.0 diff on identical curves). |
+| 3 | Major Tom | **Blocked** | `.ork` still not in the repo - nothing to test against. |
+| - | Monte Carlo background/cancel, Leaflet map | **Scope-cut** | Documented in PROGRESS.md, not silently dropped. |
 
-## Validation numbers (V1/V2 - the two that matter most)
+Full detail on everything: `PROGRESS.md`. Every commit: `CHANGELOG.md`.
 
-| | Predicted | Flight (real) | Error | Inputs |
-|---|---|---|---|---|
-| **V1** (2026-07-04) | 1124.1 m | 1019.9 m | **+10.2%** | Mass 10.96 kg / motor 4.883 kg (as-flown, `verified_constants.json`); dry CG **approximated** from the Brasil config (no July4-specific CG exists anywhere in the files); OpenRocket-recorded wind/temp/pressure, not real weather |
-| **V2** (LASC) | 1196.9 m | 1137.0 m | **+5.3%** (just outside ±5%) | Mass 10.370 kg (measured, your instruction); site/rail from the `.ork`'s own "brasil 2026" sim; motor mass reused from Brasil config (no LASC-specific figure exists); OpenRocket-recorded conditions, not real Iacanga weather |
+## Validation numbers
 
-Neither was tuned to pass. V2 is close - real weather + a real LASC motor-mass figure could plausibly close most of the gap.
+| | Predicted | Flight (real) | Error |
+|---|---|---|---|
+| **V1** (2026-07-04) | 1124.1 m | 1019.9 m | **+10.2%** |
+| **V2** (LASC) | 1196.9 m | 1137.0 m | **+5.3%** |
+
+Unchanged from last night (didn't re-tune). New tonight: a **code-to-code
+check against OpenRocket's own two CSV sims**, using its exact inputs (no
+weather uncertainty at all): Brasil-config **+10.17%**, July4 **+9.43%**.
+July4's gap is explained (wrong motor file used - already documented in
+`config.py`). Brasil's is NOT explained - ruled out with hard numbers:
+reference area (exact match), Cd at Mach 0.3 (<0.1% off both curves),
+motor impulse/burn time (exact), atmosphere density/gravity (exact). One
+open lead: rail-exit speed is actually *slower* in our sim (15.6 vs 16.8
+m/s), which rules out the obvious "too little drag" theory. Not tuned.
+
+## 4 real rocketpy==1.13.0 bugs found and worked around tonight
+
+All in rocketpy's own Stochastic subsystem (it ships with a "still under
+testing" warning - these are real, not usage mistakes):
+1. `MonteCarlo.simulate()`'s default export list references a Flight
+   attribute that crashes on any unstable sample.
+2. `StochasticRocket.create_object()` silently drops an overridden CG
+   unless re-passed explicitly.
+3. `StochasticRocket.add_nose()`/`add_trapezoidal_fins()` crash on a
+   plain surface (internal kwarg mismatch).
+4. None of the 4 Stochastic classes forward `seed=` to their base class,
+   and setting the RNG after construction doesn't work either (already
+   bound). Fixed with a narrowly-scoped monkeypatch, verified exact.
+
+#2+#3 combined were the nastiest: every Monte Carlo sample had literally
+no aerosurfaces, producing a consistent ~-8.5 cal "instability" with
+nothing to do with the actual uncertainties - easy to misdiagnose.
 
 ## What you need to do (PowerShell)
 
@@ -31,14 +63,30 @@ cd C:\path\to\rocketpy-2027
 git pull origin main
 .\start.bat
 ```
-First run installs everything (~2-3 min); after that it just opens the app. Drag in `PrometeoLasc2026.ork` + `Icarus_I_K519.eng`, click Load, **enter 5.6622 in "dry mass override" and 0.6279 in "dry CG override"** (see below for why), click Simulate.
+
+First run installs everything (~3-5 min now, more dependencies than last
+night - nicegui, playwright, python-docx, reportlab). Drag in
+`PrometeoLasc2026.ork` + `Icarus_I_K519.eng` on the **Simulate** page,
+click Load, open **Advanced**, enter `5.6622` for dry mass and `0.6279`
+for dry CG, click Simulate. Then look at the sidebar - Rocket, Monte
+Carlo, RCSM Cases, Analysis, History, Exports, Validation all work off
+that same loaded rocket.
 
 ## What I need from you
 
-1. **Set a whole-rocket `overridemass` + `overridecg` in OpenRocket** on `PrometeoLasc2026.ork`, from your LRR scale measurement - right now only the Fuselage shell is overridden, so the app's automatic mass estimate is 19% low and marginally unstable without the manual override above.
-2. **Confirm the app's browser UI actually renders and works** - I could not test this myself (no display in this container), only the underlying logic.
-3. **Real Iacanga flight-day weather** for V2 (I used OpenRocket-recorded conditions, not live data - your instructions said you'd pull this tomorrow via Open-Meteo/GFS).
-4. **Exact LASC flight date/time** (you said pending, 2026-09-03 to 09-05 ~12:00 local).
-5. **A LASC-specific motor mass**, if one exists separately from the 10.370 kg total - would help close V2's gap.
-6. **Major Tom's `.ork`** + both `.eng` files (K503, M1739-P) - not touched tonight.
-7. Decide priority: should I pick up Phase 4 (Monte Carlo) next, or something else first?
+1. **Set a whole-rocket `overridemass`+`overridecg` in OpenRocket** on
+   `PrometeoLasc2026.ork` - the one input the app can't substitute for.
+2. **Look at the actual app yourself** - I tested with an automated
+   browser (screenshots in `docs/screenshots/`), but nothing replaces you
+   clicking around with a real mouse.
+3. **Major Tom's `.ork`** (+ `.eng` files) - still not in the repo;
+   nothing to test the app's second vehicle against.
+4. **Real Iacanga weather** for V2, and the **exact LASC date/time** -
+   same ask as last night, still pending.
+5. **Logo files** (`logo_gold.png`/`logo_wine.png` in
+   `stella_flight/gui/assets/`) whenever the rebrand assets exist - the
+   header currently shows a plain text wordmark.
+6. **Decide**: is the +10% OpenRocket gap (item 1) worth more investigation
+   time before trusting any of this app's absolute numbers, or is relative
+   comparison (Monte Carlo, drag comparison, weathercocking) good enough
+   for now while that's still open?
