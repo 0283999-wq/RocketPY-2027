@@ -1,0 +1,109 @@
+{
+  "brasil": {
+    "events": {
+      "IGNITION": 0.0,
+      "LAUNCH": 0.0,
+      "LIFTOFF": 0.06,
+      "LAUNCHROD": 0.52,
+      "BURNOUT": 3.57,
+      "APOGEE": 16.014,
+      "RECOVERY_DEVICE_DEPLOYMENT": 16.015,
+      "SIM_WARN": 16.064,
+      "GROUND_HIT": 207.791,
+      "SIMULATION_END": 207.791
+    },
+    "elevation_m": 495.0,
+    "launch_mass_kg": 10.4,
+    "motor_mass_loaded_kg": 4.737823000000001,
+    "motor_dry_mass_kg": 2.7210880000000004,
+    "cg_t0_cm": 97.966,
+    "reference_length_cm": 10.96,
+    "reference_area_cm2": 94.343,
+    "inertia_long_t0": 1.612,
+    "inertia_rot_t0": 0.02,
+    "zenith_deg": 80.0,
+    "azimuth_deg": 90.0,
+    "wind_vel_ms": 2.594,
+    "wind_dir_deg": 90.0,
+    "air_temp_C": 11.783,
+    "air_pressure_mbar": 955.195,
+    "motor": {
+      "total_impulse_Ns": 1871.5452864999997,
+      "burn_time_s": 3.57,
+      "peak_thrust_N": 566.557,
+      "avg_thrust_N": 524.2423771708683
+    },
+    "rail_exit": {
+      "t_s": 0.52,
+      "velocity_ms": 16.784,
+      "stability_cal": 1.502
+    },
+    "max_stability_cal": 2.785,
+    "cp_range_cm": [
+      0.0,
+      121.706
+    ],
+    "apogee": {
+      "altitude_m": 1081.694,
+      "t_s": 16.014
+    },
+    "landing": {
+      "t_s": 207.791,
+      "vertical_vel_ms": -5.515,
+      "lateral_dist_m": 193.929
+    },
+    "thrust_to_weight": {
+      "weight_N": 101.98916,
+      "avg_thrust_over_weight": 5.140177418569467,
+      "peak_thrust_over_weight": 5.555070754578232
+    },
+    "apogee_lateral_velocity_ms": 43.587,
+    "apogee_total_velocity_ms": 43.587,
+    "drag_curve_points": {
+      "power_on_n": 93,
+      "power_off_n": 250
+    },
+    "drag_cd_range_subsonic": [
+      0.431,
+      0.463
+    ]
+  },
+  "pachuca_design_sim": {
+    "elevation_m": 2224.9,
+    "zenith_deg": 89.0,
+    "azimuth_deg": 270.0,
+    "apogee_m": 1272.529,
+    "apogee_t_s": 17.465,
+    "landing_vertical_vel_ms": -6.192,
+    "landing_lateral_dist_m": 394.95
+  },
+  "julio4_asflown_sim": {
+    "elevation_m": 2380.0,
+    "launch_mass_kg": 10.96,
+    "motor_mass_loaded_kg": 4.882948000000001,
+    "motor_dry_mass_kg": 2.866213,
+    "zenith_deg": 89.0,
+    "azimuth_deg": 270.0,
+    "apogee_m": 1027.196,
+    "apogee_t_s": 15.789,
+    "landing_vertical_vel_ms": -6.437,
+    "landing_lateral_dist_m": 266.512,
+    "total_impulse_Ns": 1732.3598035,
+    "burn_time_s": 3.12,
+    "peak_thrust_N": 652.966
+  },
+  "telemetry": {
+    "ignition_tiempo_ms": 1702723,
+    "n_packets_total": 69,
+    "n_packets_used_for_validation": 68,
+    "apogee_altitude_m": 1019.9,
+    "apogee_t_s": 16.2,
+    "max_velocity_ms": 121.4,
+    "max_velocity_t_s": 1.4,
+    "max_acceleration_ms2": 136.2,
+    "max_acceleration_t_s": 0.0,
+    "deploy_altitude_m": 1017.6,
+    "signal_loss_t_s": 19.4,
+    "signal_loss_altitude_m": 992.6
+  }
+}
