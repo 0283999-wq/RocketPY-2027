@@ -50,7 +50,10 @@ check here first, then CHANGELOG.md for detail.
       just "imports fine". PASSED.
 - [ ] Phase 5 (rest): drogue-only / main-at-apogee, PDF/DOCX report
 - [ ] Phase 6: weathercocking sweep, drag comparison
-- [ ] MORNING_REPORT.md written and pushed last
+- [x] MORNING_REPORT.md written and pushed last - Phase 4/rest-of-5/6 not
+      reached (priorities 1-3 done, ran out of tonight's scope after that,
+      per Diego's own stated priority order - not a blocker, just where
+      tonight stopped).
 
 ## Phase 2 findings
 
