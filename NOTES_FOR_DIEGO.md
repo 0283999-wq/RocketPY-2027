@@ -1,5 +1,36 @@
 # Notes for Diego (plain language, no code)
 
+## Autonomous overnight run - Phase 1 corrections
+
+Thanks for the review, all 4 corrections are in. Short version:
+
+- **Your real `.ork` is in and tested.** I moved it to
+  `reference/prometeo_mission44/data/ork/PrometeoLasc2026.ork` (it landed at
+  the repo root when you uploaded it). The geometry reading is solid: CP
+  position matches OpenRocket's own number to 0.5%, diameter to 0.4%.
+- **Mass doesn't match yet, and I know exactly why, and it's on you to
+  fix, not me to guess around:** your `.ork`'s override only covers the
+  Fuselage tube's own shell mass (1.475 kg). It does NOT cover the whole
+  rocket. Several real parts (bulkheads/centering rings near the motor
+  mount) don't have a resolvable size in the file, so the app can't
+  compute their mass either. Result: my estimate comes out ~19% light,
+  and a full flight built from it is borderline unstable - not because
+  the physics is wrong, but because the mass input is incomplete. **Fix:**
+  in OpenRocket, set a mass and CG override on the ROCKET itself (top
+  level), typed in from your LRR scale measurement, with "override
+  subcomponents" checked. That's the one thing I can't substitute for you.
+- **Real drag curves are wired in now** - no more flat Cd=0.5 placeholder
+  anywhere in the default path.
+- **Coordinate convention (tail_to_nose vs nose_to_tail)**: I proved both
+  give the identical answer (same CP, same static margin, to 9 decimal
+  places) when used consistently, which is what the code now guarantees.
+  Non-issue, just needed to show the proof.
+
+See `CHANGELOG.md` for the exact numbers and every bug found along the way
+(there were a few real ones - rail buttons, nose cone shape names, nested
+payload-bay masses - all caught specifically because I finally had a real
+file to test against instead of guessing from the format spec).
+
 ## Phase 1: the file readers work
 
 **I built the file readers.** `stella_flight/` can now:

@@ -415,8 +415,38 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             log.append(ImportRow(cname, "IMPORTED", f"mass={mass:.4f} kg @ {fore:.4f} m"))
             prev_aft = fore
 
-        elif tag in ("shockcord", "innertube", "centeringring", "launchlug"):
-            log.append(ImportRow(cname, "IGNORED", f"<{tag}> is a structural/mounting part with negligible or hard-to-isolate mass - not added as a point mass; add manually if it's significant"))
+        elif tag in ("innertube", "centeringring", "launchlug", "tubefin"):
+            # These can themselves carry <subcomponents> (an inner tube is a
+            # very common payload/recovery-bay mount in a real competition
+            # rocket, e.g. PROMETEO's "Tubo interior") - recurse using THIS
+            # component's own fore/aft as the parent frame, not the outer
+            # tube's. Getting this wrong silently mis-places every mass
+            # nested inside (caught via a real .ork, not an invented case).
+            length = _child_text_num(comp, "length", 0.0)
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
+            log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            _parse_subcomponents_of(comp, fore, fore + length, parsed, log)
+            prev_aft = fore + length
+
+        elif tag == "shockcord":
+            log.append(ImportRow(cname, "IGNORED", "<shockcord> is a structural/mounting part with negligible or hard-to-isolate mass - not added as a point mass; add manually if it's significant"))
+
+        elif tag == "bulkhead":
+            # A bulkhead IS a real, often non-trivial mass (a solid disk) -
+            # unlike innertube/centeringring/launchlug it has no
+            # subcomponents of its own, so approximate its mass from
+            # material density x disk volume rather than dropping it.
+            length = _child_text_num(comp, "length", 0.0)
+            outer_r = _child_text_num(comp, "outerradius")
+            density = _material_density(comp)
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
+            if outer_r is not None and density is not None and length > 0:
+                mass = math.pi * outer_r**2 * length * density
+                parsed.point_masses.append(PointMass(name=cname, mass=mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "APPROXIMATED", f"mass={mass:.4f} kg (solid disk: r={outer_r}, length={length}, density={density}) @ {fore + length/2.0:.4f} m"))
+            else:
+                log.append(ImportRow(cname, "IGNORED", f"<bulkhead> radius was 'auto'/unresolvable or no material density - cannot estimate mass, add manually if significant"))
+            prev_aft = fore + length
 
         elif tag == "parachute":
             cd_elem = _find(comp, "cd")
@@ -476,6 +506,91 @@ def parse_launch_conditions(root):
         longitude=_child_text_num(cond, "launchlongitude", 0.0),
         wind_average_ms=_child_text_num(cond, "windaverage", 0.0),
     )
+
+
+@dataclass
+class SimulationReference:
+    """OpenRocket's own numbers for one stored <simulation> - used as the
+    "OpenRocket reference" for Phase 1's acceptance check (mass/CG/CP within
+    1%). This is NOT flight data and must never be called "validated" -
+    only a check against real telemetry earns that word (see CLAUDE.md
+    Sec 3.1's wording rule and Phase 2's V1/V2 tests)."""
+    name: str
+    mass_with_motor_t0_kg: float
+    motor_mass_t0_kg: float
+    cg_with_motor_t0_m: float  # m from nose tip, t=0 (on the pad, includes motor)
+    cp_asymptotic_m: float  # m from nose tip, max stored CP (before AoA/Mach noise)
+    i_long_t0: float  # kg m2, "Longitudinal moment of inertia" @ t=0, with motor
+    i_rot_t0: float  # kg m2, "Rotational moment of inertia" @ t=0, with motor
+    reference_length_m: float
+    reference_area_m2: float
+    apogee_agl_m: float
+    max_velocity_ms: float
+    rail_exit_velocity_ms: float
+
+
+def parse_stored_simulation_references(path):
+    """Returns {simulation_name: SimulationReference} for every stored
+    <simulation><flightdata><databranch> in the file. Reads the raw XML
+    text directly (not the ElementTree root) since a databranch can hold
+    tens of thousands of <datapoint> rows - regex-scanning the text for
+    the handful of numbers needed is far cheaper than parsing every
+    datapoint into an Element."""
+    import re
+
+    with open(path, "rb") as f:
+        head = f.read(2)
+    if head == b"PK":
+        with zipfile.ZipFile(path) as z:
+            inner_name = next((n for n in z.namelist() if n.endswith(".ork") or n == "rocket.ork"), None)
+            data = z.read(inner_name).decode("utf-8")
+    else:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            data = f.read()
+
+    header_m = re.search(r'types="([^"]+)"', data)
+    if header_m is None:
+        return {}
+    header = header_m.group(1).split(",")
+    idx = {name: i for i, name in enumerate(header)}
+
+    out = {}
+    for branch_m in re.finditer(r'<simulation[^>]*>\s*<name>([^<]+)</name>.*?<flightdata ([^>]*)>(.*?)</simulation>', data, re.S):
+        sim_name, attrs, body = branch_m.group(1), branch_m.group(2), branch_m.group(3)
+
+        def attr(a, default=None):
+            m = re.search(a + r'="([^"]+)"', attrs)
+            return float(m.group(1)) if m else default
+
+        points = re.findall(r"<datapoint>([^<]+)</datapoint>", body)
+        if not points:
+            continue
+        t0 = points[0].split(",")
+
+        def val(row, col, cast=float):
+            try:
+                v = row[idx[col]]
+                return cast(v) if v != "NaN" else None
+            except (KeyError, ValueError, IndexError):
+                return None
+
+        cps = [v for row in points if (v := val(row.split(","), "CP location")) is not None]
+
+        out[sim_name] = SimulationReference(
+            name=sim_name,
+            mass_with_motor_t0_kg=val(t0, "Mass"),
+            motor_mass_t0_kg=val(t0, "Motor mass"),
+            cg_with_motor_t0_m=val(t0, "CG location"),
+            cp_asymptotic_m=max(cps) if cps else None,
+            i_long_t0=val(t0, "Longitudinal moment of inertia"),
+            i_rot_t0=val(t0, "Rotational moment of inertia"),
+            reference_length_m=val(t0, "Reference length"),
+            reference_area_m2=val(t0, "Reference area"),
+            apogee_agl_m=attr("maxaltitude"),
+            max_velocity_ms=attr("maxvelocity"),
+            rail_exit_velocity_ms=attr("launchrodvelocity"),
+        )
+    return out
 
 
 def read_ork(path):

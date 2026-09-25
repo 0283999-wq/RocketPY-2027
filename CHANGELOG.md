@@ -1,5 +1,85 @@
 # Changelog
 
+## Phase 1 corrections (autonomous overnight run, real PROMETEO .ork now in repo)
+
+Diego reviewed last night's report and corrected 4 things; all addressed:
+
+1. **The old 0.000% mass/CG check was circular** (synthetic data built from
+   the same numbers it was checked against) - now called a smoke test, not
+   an acceptance test. The REAL PROMETEO `.ork` (Diego uploaded it -
+   `reference/prometeo_mission44/data/ork/PrometeoLasc2026.ork`) is now the
+   acceptance-test input. `tests/test_phase1_acceptance.py`, 5/5 pass:
+   - CP position: 0.48% error vs. OpenRocket's own stored sim (pure
+     Barrowman geometry check - the reader's geometry parsing is correct).
+   - Diameter: 0.36% error.
+   - Dry mass (geometric fallback): **19.2% error, honestly reported, not
+     tuned away.** Root cause found and documented: the .ork's own
+     `<overridemass>` only covers the Fuselage shell (1.475 kg), not the
+     whole rocket - several real bulkheads have `<outerradius>auto</>`
+     that never resolves without inheriting the parent tube's inner
+     radius, so this reader correctly declines to invent a number for
+     them (Rule 2) rather than guess. **Actionable for Diego:** set a
+     whole-rocket `overridemass`+`overridecg` in OpenRocket from the LRR
+     scale measurement - CRS 10.1.8 wants exact masses anyway, and it's
+     the one input this pipeline can't substitute for.
+   - Full flight with corrected total mass (but NOT a corrected CG, since
+     no overridecg exists to correct it with) comes out marginally
+     unstable (-0.01 to -0.11 cal) - not hidden, explained: the missing
+     mass is concentrated aft (bulkheads near the motor mount, 1.8-2.3 m
+     from nose), so fixing only the total without fixing the CG leaves it
+     biased too far forward relative to CP.
+2. **Real drag curves now required, Cd=0.5 placeholder removed as a
+   default.** `translate.build_rocket`/`ork_to_flight` raise if
+   `power_off_drag`/`power_on_drag` aren't passed - no more silent
+   fallback. `DRAG_CURVE_PLACEHOLDER_CD` still exists but must be passed
+   explicitly, and the caller (not this module) is responsible for
+   flagging that choice to the user.
+3. **"Validated" now means flight-data-compared, everywhere.** Added
+   `ork_reader.SimulationReference`/`parse_stored_simulation_references()`
+   which extracts OpenRocket's OWN stored-simulation numbers (mass/CG/CP/
+   inertia at t=0, apogee, rail-exit velocity) directly from a `.ork` -
+   explicitly documented and printed as "OpenRocket reference", never
+   "validated". Only Phase 2's V1/V2 (compared against real telemetry)
+   earn that word.
+4. **Coordinate convention: `tail_to_nose` kept (matches the validated
+   reference code), but now selectable and proven equivalent.**
+   `translate._coordinate_transform()` is the one conversion point;
+   `build_rocket()` takes `coordinate_system_orientation=` (defaults to
+   `"tail_to_nose"`). `tests/test_coordinate_convention.py` builds the same
+   real PROMETEO geometry both ways and confirms identical CP (1.211185 m,
+   both conventions, to 1e-9 m) and static margin (1.014458 cal, both, to
+   1e-9 cal) - it's a style choice, not a source of error.
+
+**Other real bugs found and fixed while building the acceptance test**
+(these would not have surfaced without a real `.ork` file):
+- `<overridecg>`/`<overridesubcomponentscg>` weren't parsed at all before
+  tonight - added to `ork_reader.MassOverride`.
+- A **per-component** override (e.g. just one bodytube's shell mass, with
+  `override_subcomponents_mass=False` - exactly what PROMETEO's real `.ork`
+  does for its Fuselage) was being ignored entirely; only a whole-rocket
+  override was ever applied. `translate._geometric_components()` now
+  substitutes a per-component override where one exists.
+- OpenRocket rail-button **pairs are ONE `<railbutton>` element** with
+  `instancecount`/`instanceseparation`, not two separate elements - the
+  original parser only ever recorded one button position twice.
+- **Nose cone shape names don't map directly**: OpenRocket's `<shape>` is
+  vocabulary (`ellipsoid`, `ogive`, `haack`...) that isn't the same string
+  rocketpy's `NoseCone(kind=...)` wants (`elliptical`, `tangent`,
+  `vonkarman`...) - `ellipsoid` would have raised `ValueError` on literally
+  the first real nose cone tested. Added `translate.NOSE_SHAPE_MAP`.
+- Point masses/bulkheads nested inside an `<innertube>` (a real, common
+  payload/recovery-bay mounting pattern) were resolved against the OUTER
+  tube's position frame instead of the inner tube's own - fixed by making
+  `_parse_subcomponents_of` recurse into `innertube`/`centeringring`/
+  `launchlug`/`tubefin`, not just log them as ignored. (PROMETEO's specific
+  file didn't happen to nest anything inside its one `<innertube>`, so this
+  didn't change PROMETEO's own numbers, but it's a correctness fix for any
+  `.ork` that does - including, plausibly, Major Tom's.)
+- `<bulkhead>` was previously dropped entirely (logged IGNORED, no mass).
+  It's now approximated as a solid disk (material density x volume) when
+  the geometry resolves, and honestly logged as unresolvable when it
+  doesn't (this is most of where the 19.2% mass gap above comes from).
+
 ## Phase 1 - .ork/.eng readers and translation into rocketpy objects
 
 - Added `stella_flight/ork_reader.py`: pure-Python `.ork` reader (zip or bare

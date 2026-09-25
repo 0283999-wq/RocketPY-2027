@@ -90,15 +90,33 @@ def _fin_set_mass_cg(fin, body_radius):
 def _geometric_components(parsed):
     """Every structural component's own (mass, cg_m, i_axial, i_transverse),
     from material bulk density where present. Used both to estimate a total
-    mass/CG when there's no override, and - regardless of any mass override
-    - to estimate the *relative* mass distribution an override doesn't by
-    itself provide (an override replaces the total, not the shape)."""
+    mass/CG when there's no whole-rocket override, and - regardless of any
+    override - to estimate the *relative* mass distribution an override
+    doesn't by itself provide (a rocket-wide override replaces the total,
+    not the shape).
+
+    A PER-COMPONENT override (e.g. a single bodytube's <overridemass> with
+    override_subcomponents_mass=False - a real pattern: PROMETEO's own .ork
+    overrides just the Fuselage shell's own mass, not the whole rocket) is
+    applied here by substituting that one component's geometric mass with
+    the override value, at its geometric CG/shape (inertia scaled by the
+    mass ratio - an approximation, since the override doesn't say how the
+    mass redistributed, only that the total for this component changed)."""
+    per_component_override = {o.component: o.override_mass for o in parsed.mass_overrides if o.override_mass is not None and not o.override_subcomponents_mass}
+
+    def apply_override(name, mass, cg, i_ax, i_tr):
+        override = per_component_override.get(name)
+        if override is None or mass <= 0:
+            return mass, cg, i_ax, i_tr
+        ratio = override / mass
+        return override, cg, i_ax * ratio, i_tr * ratio
+
     components = []
     if parsed.nose is not None:
         radius = parsed.nose.aft_radius or 0.0
-        components.append(_cone_shell_mass_cg(parsed.nose.length, radius, parsed.nose.material_density, parsed.nose.position_m))
+        components.append(apply_override(parsed.nose.name, *_cone_shell_mass_cg(parsed.nose.length, radius, parsed.nose.material_density, parsed.nose.position_m)))
     for tube in parsed.body_tubes:
-        components.append(_shell_cylinder_mass_cg_inertia(tube.length, tube.radius, tube.thickness, tube.material_density, tube.position_m))
+        components.append(apply_override(tube.name, *_shell_cylinder_mass_cg_inertia(tube.length, tube.radius, tube.thickness, tube.material_density, tube.position_m)))
     for tr in parsed.transitions:
         r = tr.aft_radius or tr.fore_radius or 0.0
         components.append(_cone_shell_mass_cg(tr.length, r, tr.material_density, tr.position_m))
@@ -215,34 +233,83 @@ def build_motor(parsed_eng, eng_path):
     )
 
 
+NOSE_SHAPE_MAP = {
+    # OpenRocket XML <shape> value -> rocketpy NoseCone kind. Found by
+    # feeding this translator a real .ork (PROMETEO's) - "ellipsoid" isn't
+    # a string rocketpy recognizes at all (it wants "elliptical"), so this
+    # would have failed silently->loudly on the very first real nose cone.
+    "conical": "conical",
+    "ogive": "tangent",  # OpenRocket's plain "ogive" is a tangent ogive; shapeparameter=1 confirms tangent
+    "ellipsoid": "elliptical",
+    "power": "powerseries",
+    "parabolic": "parabolic",
+    "haack": "vonkarman",  # OpenRocket's "haack" + shapeparameter selects the Haack variant; vonkarman (param=0.5) is the common default - TODO CONFIRM against shapeparameter when a non-default one is seen
+}
+
+
+def rocketpy_nose_kind(openrocket_shape):
+    kind = NOSE_SHAPE_MAP.get(openrocket_shape.lower())
+    if kind is None:
+        raise ValueError(f"unrecognized OpenRocket nose shape {openrocket_shape!r} - add it to translate.NOSE_SHAPE_MAP rather than guessing")
+    return kind
+
+
 def build_environment(launch):
     env = Environment(latitude=launch.latitude, longitude=launch.longitude, elevation=launch.altitude_m)
     env.set_atmospheric_model(type="standard_atmosphere")
     return env
 
 
-def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m):
-    """Builds the rocketpy Rocket in the "tail_to_nose" frame (see module
-    docstring for why, over CLAUDE.md's nose_to_tail prose)."""
+DRAG_CURVE_PLACEHOLDER_CD = 0.5  # last resort per CLAUDE.md Sec 4.2 point 4 - only used if the caller explicitly has no curve at all
 
-    def to_rpy(x_m_from_nose):
-        return -x_m_from_nose
+
+def _coordinate_transform(coordinate_system_orientation):
+    """The ONE place the OpenRocket (nose-tip-origin, distance-increases-
+    aft) frame gets converted to a rocketpy frame. CLAUDE.md Sec 4.3 says
+    RocketPy uses "nose_to_tail"; the validated PROMETEO reference code
+    uses "tail_to_nose" (see module docstring). Both are valid rocketpy
+    conventions - this function supports either, and
+    test_coordinate_convention_equivalence (tests/) proves they give the
+    same physical answer (same CP, same static margin) when used
+    consistently, so this is a style choice, not a correctness bug."""
+    if coordinate_system_orientation == "tail_to_nose":
+        return lambda x_m_from_nose: -x_m_from_nose
+    elif coordinate_system_orientation == "nose_to_tail":
+        return lambda x_m_from_nose: x_m_from_nose
+    raise ValueError(f"unknown coordinate_system_orientation {coordinate_system_orientation!r}")
+
+
+def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=None, power_on_drag=None, coordinate_system_orientation="tail_to_nose"):
+    """Builds the rocketpy Rocket. Defaults to "tail_to_nose" (the
+    validated reference code's convention, not CLAUDE.md Sec 4.3's prose -
+    see module docstring); pass coordinate_system_orientation="nose_to_tail"
+    for the other one. See _coordinate_transform for why both are fine.
+
+    power_off_drag/power_on_drag: path to a 2-column (Mach, Cd) CSV, per
+    CLAUDE.md Sec 4.2's source-preference order. Required - there is no
+    silent default. Pass DRAG_CURVE_PLACEHOLDER_CD explicitly (a float, not
+    a path) only when no curve exists at all, per Sec 4.2 point 4 - and the
+    caller must flag that choice to the user, this function does not."""
+    if power_off_drag is None or power_on_drag is None:
+        raise ValueError("power_off_drag/power_on_drag are required - pass a real Cd-vs-Mach CSV path, or DRAG_CURVE_PLACEHOLDER_CD explicitly if truly none exists (CLAUDE.md Sec 4.2: never default to a constant silently)")
+
+    to_rpy = _coordinate_transform(coordinate_system_orientation)
 
     rocket = Rocket(
         radius=radius_m,
         mass=dry_mass_estimate.mass_kg,
         inertia=(i_transverse, i_transverse, i_axial),
-        power_off_drag=0.5,  # PLACEHOLDER - see CLAUDE.md Sec 4.2, must be replaced with a real Cd curve before this is used for a real flight
-        power_on_drag=0.5,
+        power_off_drag=power_off_drag,
+        power_on_drag=power_on_drag,
         center_of_mass_without_motor=to_rpy(dry_mass_estimate.cg_m),
-        coordinate_system_orientation="tail_to_nose",
+        coordinate_system_orientation=coordinate_system_orientation,
     )
 
     nose_tip_rpy = to_rpy(0.0)
     rocket.add_motor(motor, position=to_rpy(parsed.body_tubes[-1].position_m + parsed.body_tubes[-1].length) if parsed.body_tubes else nose_tip_rpy)
 
     if parsed.nose is not None:
-        rocket.add_nose(length=parsed.nose.length, kind=parsed.nose.shape, position=nose_tip_rpy)
+        rocket.add_nose(length=parsed.nose.length, kind=rocketpy_nose_kind(parsed.nose.shape), position=nose_tip_rpy)
 
     for fin in parsed.fins:
         rocket.add_trapezoidal_fins(
@@ -271,11 +338,11 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
     return rocket
 
 
-def ork_to_flight(ork_parsed, parsed_eng, eng_path, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False):
+def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_on_drag=None, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False):
     """End-to-end: parsed .ork + parsed .eng -> a runnable rocketpy Flight.
     Raises if the .ork had no launch conditions and no overrides were
     given - CRS 10.1.8 requires exact site data, so this refuses to guess
-    a launch site silently."""
+    a launch site silently. power_off_drag/power_on_drag: see build_rocket."""
     if ork_parsed.launch is None and None in (rail_length_override, inclination_override, heading_override):
         raise ValueError("no launch conditions in the .ork and no manual overrides given - supply rail_length/inclination/heading or a .ork with a stored simulation")
 
@@ -287,7 +354,7 @@ def ork_to_flight(ork_parsed, parsed_eng, eng_path, rail_length_override=None, i
     i_axial, i_transverse = estimate_dry_inertia(ork_parsed, dry_mass_estimate)
     radius_m = next((t.radius for t in ork_parsed.body_tubes if t.radius), None) or (ork_parsed.nose.aft_radius if ork_parsed.nose else 0.05)
 
-    rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m)
+    rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag)
 
     flight = Flight(
         rocket=rocket,
