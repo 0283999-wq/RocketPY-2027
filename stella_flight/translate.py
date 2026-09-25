@@ -279,7 +279,7 @@ def _coordinate_transform(coordinate_system_orientation):
     raise ValueError(f"unknown coordinate_system_orientation {coordinate_system_orientation!r}")
 
 
-def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=None, power_on_drag=None, coordinate_system_orientation="tail_to_nose"):
+def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=None, power_on_drag=None, coordinate_system_orientation="tail_to_nose", include_recovery=True):
     """Builds the rocketpy Rocket. Defaults to "tail_to_nose" (the
     validated reference code's convention, not CLAUDE.md Sec 4.3's prose -
     see module docstring); pass coordinate_system_orientation="nose_to_tail"
@@ -328,21 +328,26 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
             lower_button_position=to_rpy(parsed.rail_buttons.lower_position_m),
         )
 
-    for chute in parsed.parachutes:
-        if chute.cd is None:
-            continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
-        cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-        trigger = "apogee" if chute.deploy_event == "apogee" else chute.deploy_altitude
-        rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
+    if include_recovery:
+        for chute in parsed.parachutes:
+            if chute.cd is None:
+                continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
+            cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+            trigger = "apogee" if chute.deploy_event == "apogee" else chute.deploy_altitude
+            rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
+    # include_recovery=False is CRS 10.1.11's Ballistic case: no recovery
+    # deployment at all, rocket free-falls under drag alone to ground impact.
 
     return rocket
 
 
-def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_on_drag=None, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False):
+def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_on_drag=None, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False, include_recovery=True, dry_mass_override_kg=None, dry_cg_override_m=None):
     """End-to-end: parsed .ork + parsed .eng -> a runnable rocketpy Flight.
     Raises if the .ork had no launch conditions and no overrides were
     given - CRS 10.1.8 requires exact site data, so this refuses to guess
-    a launch site silently. power_off_drag/power_on_drag: see build_rocket."""
+    a launch site silently. power_off_drag/power_on_drag: see build_rocket.
+    include_recovery=False builds CRS 10.1.11's Ballistic case (no
+    parachutes regardless of what the .ork has configured)."""
     if ork_parsed.launch is None and None in (rail_length_override, inclination_override, heading_override):
         raise ValueError("no launch conditions in the .ork and no manual overrides given - supply rail_length/inclination/heading or a .ork with a stored simulation")
 
@@ -350,11 +355,14 @@ def ork_to_flight(ork_parsed, parsed_eng, eng_path, power_off_drag=None, power_o
     env = build_environment(launch)
     motor = build_motor(parsed_eng, eng_path)
 
-    dry_mass_estimate = estimate_dry_mass_and_cg(ork_parsed)
+    if dry_mass_override_kg is not None and dry_cg_override_m is not None:
+        dry_mass_estimate = MassEstimate(dry_mass_override_kg, dry_cg_override_m, "manual override passed to ork_to_flight")
+    else:
+        dry_mass_estimate = estimate_dry_mass_and_cg(ork_parsed)
     i_axial, i_transverse = estimate_dry_inertia(ork_parsed, dry_mass_estimate)
     radius_m = next((t.radius for t in ork_parsed.body_tubes if t.radius), None) or (ork_parsed.nose.aft_radius if ork_parsed.nose else 0.05)
 
-    rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag)
+    rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag, include_recovery=include_recovery)
 
     flight = Flight(
         rocket=rocket,

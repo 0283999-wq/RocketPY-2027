@@ -1,5 +1,21 @@
 # Notes for Diego (plain language, no code)
 
+## Phase 5 (partial): the actual LASC submission files now generate correctly
+
+The app can now export `Mission44_Ballistic_RocketPy_v1.py` and
+`Mission44_Nominal_RocketPy_v1.py` - these are the literal files you'd zip
+up and submit. I proved they actually work standalone: built a brand new,
+empty Python environment, installed only `rocketpy` into it (nothing else
+from this repo), ran both files, and their answers matched the app's own
+prediction to 0.003%. That's the real CRS requirement (someone else can
+run it with nothing but `pip install rocketpy`), not just "it doesn't
+crash."
+
+Still missing for a real submission: the drogue-only/main-at-apogee
+cases (only mandatory for >1500m vehicles, so less urgent for PROMETEO),
+the PDF/DOCX report, and zipping everything together. Didn't get to those
+tonight - see the priority order in PROGRESS.md.
+
 ## Phase 3: the app itself is up - please test it on your machine
 
 `start.bat` is there. Double-click it: first time it sets up Python and

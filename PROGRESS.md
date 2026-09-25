@@ -38,8 +38,16 @@ check here first, then CHANGELOG.md for detail.
       display server in this container) - only the pipeline layer (no
       NiceGUI import) and a clean import of app.py are verified headlessly.
 - [ ] Phase 4: Monte Carlo + landing ellipse
-- [ ] Phase 5: Ballistic + Nominal cases, per-case .py export (CRS 10.1.6),
-      tested in a clean venv
+- [x] Phase 5 (Ballistic+Nominal, priority 3): translate.build_rocket/
+      ork_to_flight now take include_recovery= (False = Ballistic, no
+      parachutes regardless of .ork config). stella_flight/case_export.py
+      generates self-contained Mission44_{Ballistic,Nominal}_RocketPy_v1.py
+      (no stella_flight import - CRS 10.1.5/10.1.6).
+      tests/test_phase5_case_export.py: built a genuinely clean venv, `pip
+      install rocketpy==1.13.0` fresh, ran both exported scripts as
+      subprocesses. Both matched the in-process apogee to 0.0027% -
+      confirms the exported files are truly standalone and correct, not
+      just "imports fine". PASSED.
 - [ ] Phase 5 (rest): drogue-only / main-at-apogee, PDF/DOCX report
 - [ ] Phase 6: weathercocking sweep, drag comparison
 - [ ] MORNING_REPORT.md written and pushed last

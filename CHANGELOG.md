@@ -1,5 +1,30 @@
 # Changelog
 
+## Phase 5 (partial) - Ballistic + Nominal cases, self-contained .py export
+
+- `translate.build_rocket`/`ork_to_flight` gained `include_recovery=`
+  (`False` builds CRS 10.1.11's Ballistic case - no parachutes at all,
+  regardless of what the `.ork` has configured).
+- `stella_flight/case_export.py`: generates a fully self-contained
+  `Mission[ID]_[Case]_RocketPy_v[N].py` per CRS 10.1.6 - every geometry/
+  mass/motor/launch value baked in as a literal, **no import of
+  `stella_flight`** (CRS 10.1.5: must run with just `pip install
+  rocketpy`). The `.eng` and the two drag-curve CSVs stay as sibling files
+  referenced by relative path (they're required deliverables in their own
+  right per CRS 10.1.9, not something to inline).
+- `tests/test_phase5_case_export.py`: builds a genuinely clean venv (not
+  reusing the dev one), installs `rocketpy==1.13.0` fresh, runs both
+  `Mission44_Ballistic_RocketPy_v1.py` and `Mission44_Nominal_RocketPy_v1.py`
+  as real subprocesses, and diffs their printed apogee against the app's
+  own in-process result for the same inputs. **Both matched to 0.0027%.**
+  This is the actual CLAUDE.md Sec 5 requirement ("Add an automated test
+  that runs each exported .py in a clean environment and compares its
+  apogee to the app's") - not just confirming the file parses.
+- Not done yet: Drogue-only/Main-at-apogee cases (CRS 10.1.10-13, mandatory
+  only for >1500m vehicles - PROMETEO is single-deploy, so these matter
+  more once Major Tom's 3km `.ork` is in), the PDF/DOCX report, and the
+  LASC `.zip` packaging step. See PROGRESS.md priorities.
+
 ## Phase 3 - NiceGUI app, start.bat, headless smoke test
 
 - `stella_flight/gui/pipeline.py`: load/simulate logic with **no NiceGUI
