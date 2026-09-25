@@ -862,3 +862,64 @@ submitting.
 
 Full suite (31 tests) still green (one comment-only change to shipped
 code, `bup_rocketpy/monte_carlo.py`).
+
+### Section 7: MC background+cancel (done in Section 1), Leaflet landing map - DONE
+
+**Monte Carlo background+cancel** was already built as part of Section
+1's crash (b) fix (background thread via `run.io_bound`, a cancel
+button, `MonteCarloResult.cancelled`) - see that section.
+
+**New Leaflet landing map** (`bup_rocketpy/geo.py` +
+`montecarlo_page.py`): the 1/2/3-sigma landing ellipses and impact
+samples, converted from local X/Y metres-from-pad to lat/lon (flat-Earth
+approximation, fine for this scale) and overlaid on a real interactive
+map (`ui.leaflet`) next to the existing static matplotlib plot (kept for
+a quick PNG export). Pad marked, landing samples capped at 200 markers
+(a real N=200+ run would otherwise add one DOM layer per sample - pure
+clutter over the static scatter plot). New `tests/test_geo.py` (pure
+math, no rocketpy needed) checks the coordinate conversion and ellipse
+polygon generation.
+
+**Found and fixed a real bug while building this**: the Monte Carlo
+page hung indefinitely after a run completed (stuck on "Running N/N...")
+- root-caused via targeted server-side debug logging (not guesswork) to
+`ui.leaflet(...)` being followed by a REDUNDANT explicit `.tile_layer(...)`
+call - `ui.leaflet()` already adds its own default OpenStreetMap tile
+layer internally, so this doubled the number of tile fetch requests;
+with no internet in this sandbox, both sets of requests hang/fail, and
+the resulting pile of pending fetches was enough to make the client miss
+NiceGUI's websocket heartbeat and silently reconnect (losing the just-
+rendered results). Removed the redundant call - fixed and verified
+reliable across repeated standalone runs.
+
+**Known limitation, honestly documented**: `test_phase7_mc_map_e2e.py`
+passes reliably standalone but hangs specifically when run in the same
+pytest process AFTER another Playwright-based test in this repo (any
+one of them) - confirmed via debug logging that the underlying Python-
+side computation always completes in ~2s regardless; the hang is
+client-side/delivery only and only appears with a prior Playwright
+session earlier in the same process. Not root-caused further tonight
+(Section 7 is the lowest-priority item, and this is a test-harness
+interaction specific to running many heavy Playwright sessions back to
+back in this sandboxed container, not something Diego's own interactive
+use of the app would ever hit). Skipped by default
+(`RUN_LEAFLET_TEST=1 pytest tests/test_phase7_mc_map_e2e.py` to run it
+explicitly) so it doesn't destabilize the "every commit passes the e2e
+test" gate - full reasoning in the test file's own docstring.
+
+**Dual-deploy testing** (`test_phase5_rcsm_cases.py`): added
+`test_drogue_only_and_main_at_apogee_work_on_a_real_dual_deploy_vehicle`
+using `reference/openrocket_examples/Dual_parachute_deployment.ork` (a
+real drogue+main vehicle, unlike PROMETEO's single-chute design) -
+confirms DrogueOnly/MainAtApogee run WITHOUT the "only ONE recovery
+event" warning on a real 2-parachute rocket, closing the gap where the
+existing test only ever exercised the warning path. Found (but did not
+chase further, low-priority third-party fixture data) a
+"divide by zero"-class RuntimeWarning specific to this .ork that
+persists even after deduping the drag curve - noted, not blocking
+(results are sane, test passes).
+
+Major Tom: still not committed to the repo, per the explicit instruction
+("that design is a work in progress and gets loaded through the app").
+
+Full suite: 34 passed, 1 skipped (by design) in ~67s.

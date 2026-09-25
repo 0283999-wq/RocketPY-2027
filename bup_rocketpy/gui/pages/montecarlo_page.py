@@ -143,6 +143,41 @@ def montecarlo_page():
                     fig2.savefig(ellipse_path)
                     plt.close(fig2)
                     ui.image(ellipse_path).classes("w-full max-w-xl")
+
+                    # 2026-09-25 review Section 7: interactive Leaflet map
+                    # overlaying the same ellipses/samples on real site
+                    # imagery, alongside the static plot above (which stays
+                    # for a quick PNG export). Requires internet for the
+                    # OpenStreetMap tiles - the map itself, markers and
+                    # polygons render regardless of whether tiles load.
+                    # ui.leaflet() already adds its own default OSM tile
+                    # layer internally - an extra explicit tile_layer() call
+                    # here only doubles tile requests for no benefit (and,
+                    # with no internet in this sandbox, doubles the pile of
+                    # failed/pending fetches), so it's deliberately omitted.
+                    # Landing samples are capped at 200 circle markers - a
+                    # a real N=200+ run would otherwise add one DOM layer
+                    # per sample, which is unnecessary map clutter and a
+                    # slow client-side render for no real benefit over the
+                    # static scatter plot above.
+                    launch = s["load_result"].parsed_ork.launch
+                    if launch is not None:
+                        from bup_rocketpy.geo import ellipse_to_latlon_polygon, local_xy_to_latlon
+                        origin_lat, origin_lon = launch.latitude, launch.longitude
+                        ui.label("Landing map").classes("text-md font-bold mt-2")
+                        leaflet = ui.leaflet(center=(origin_lat, origin_lon), zoom=15).classes("w-full").style("height: 400px")
+                        leaflet.marker(latlng=(origin_lat, origin_lon))
+                        for n_std, color in [(3, "#e0c9a6"), (2, "#c9a876"), (1, "#8A1538")]:
+                            e = ellipses[n_std]
+                            poly = ellipse_to_latlon_polygon(e["center_x"], e["center_y"], e["width"], e["height"], e["angle_deg"], origin_lat, origin_lon)
+                            leaflet.generic_layer(name="polygon", args=[poly, {"color": color, "fillColor": color, "fillOpacity": 0.25}])
+                        max_markers = 200
+                        step = max(1, len(result.impact_x_samples) // max_markers)
+                        for x, y in list(zip(result.impact_x_samples, result.impact_y_samples))[::step]:
+                            lat, lon = local_xy_to_latlon(x, y, origin_lat, origin_lon)
+                            leaflet.generic_layer(name="circleMarker", args=[[lat, lon], {"radius": 3, "color": "#211A16"}])
+                    else:
+                        ui.label("No launch site lat/lon in the .ork - can't place the landing map.").classes("text-gray-500 text-sm")
                 else:
                     ui.label("No landing ellipse: this case terminates at apogee (Ballistic) or too few samples completed.").classes("text-gray-500")
 
