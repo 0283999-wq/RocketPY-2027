@@ -59,10 +59,30 @@ check here first, then CHANGELOG.md for detail.
       just the 4 constructor calls (stella_flight/monte_carlo.py's
       _seeded_rng). stella_flight/analysis.py,
       tests/test_phase6_analysis.py, 3/3 pass.
-- [ ] Item 3 (rest): Major Tom testing (`.ork` not yet in the repo - see
-      BLOCKED below), full UI wiring for all pages (Simulate/Rocket/
-      Monte Carlo/RCSM/Analysis/History/Exports/Validation), Playwright
-      screenshots of every page.
+- [x] Item 2: UI redesign - `stella_flight/gui/theme.py` (gold #B79357 /
+      wine #8A1538, dark mode, WCAG AA contrast notes, one file to swap
+      for a rebrand), `layout.py` (header + left sidebar, 8 pages), and
+      all 8 pages built: Simulate (4-step: Load->Review->Simulate->
+      Results, PROVISIONAL badge, KPI cards, rocket drawing, tabbed
+      plots, Advanced panel for overrides/Cd CSVs), Rocket (side-profile
+      + dimensions/CG/margin), Monte Carlo (uncertainty table + histogram
+      + landing ellipse plot), RCSM Cases (4 buttons + compliance table),
+      Analysis (weathercocking + drag comparison UI), History (auto-save
+      every run to `runs/`, list/compare/delete), Exports (CSV/PNG/PDF/
+      DOCX/LASC zip), Validation (V1/V2 status display).
+      `tests/test_phase0_e2e_full.py`: real headless-Chromium run through
+      every page, screenshots saved to `docs/screenshots/` (8 files).
+      Both E2E tests pass. No logo files exist yet - using the text
+      wordmark fallback, see BLOCKED below.
+- [x] Item 3 / History backend: `stella_flight/run_history.py` - auto-
+      saves every Simulate run to `runs/<timestamp>/` (record.json +
+      copies of .eng/CSV/plots), list/get/delete. Not committed to git
+      (`.gitignore`d, per-machine local data, like `outputs/`).
+- [ ] Item 3 (still not done): Major Tom testing (`.ork` not yet in the
+      repo - see BLOCKED below). Monte Carlo is NOT cancellable and does
+      NOT run in a background thread (blocks the UI during the run) -
+      CLAUDE.md Sec 6 Phase 4 asked for both; scope-cut for time, see
+      BLOCKED below.
 
 
 
@@ -273,10 +293,34 @@ not a stand-in.
   to 09-05 around 12:00 local) - needed once real weather is pulled.
 - **Major Tom's `.ork`** and both `.eng` files (K503, M1739-P) - not
   touched tonight, PROMETEO validation was the priority.
-- **No live browser test of the NiceGUI app** - this container has no
-  display server. Diego should double-click `start.bat` and confirm the
-  UI actually renders and the upload/Simulate flow works end to end on
-  his machine; only the underlying pipeline is verified here.
+- ~~**No live browser test of the NiceGUI app**~~ RESOLVED 2026-09-26:
+  Playwright + pre-installed headless Chromium now drive the real app
+  through real browser sessions (`tests/test_phase0_e2e.py`,
+  `test_phase0_e2e_full.py`). Diego should still confirm it looks/feels
+  right on his own machine with a real mouse - automated screenshots
+  (`docs/screenshots/`) aren't a substitute for actually using it.
+- **No logo files** at `stella_flight/gui/assets/logo_gold.png` or
+  `logo_wine.png` - the header shows a text wordmark ("Stella Ignis /
+  stella-flight") instead. Drop the real logo files in that folder
+  whenever the rebrand assets are ready; `theme.py`/`layout.py` will pick
+  them up automatically, no other code changes needed.
+- **Monte Carlo doesn't run in the background and isn't cancellable** -
+  CLAUDE.md Sec 6 Phase 4 asked for both ("runs in the background, with
+  progress, cancellable, saving partial results"). Tonight's
+  implementation runs synchronously on the UI thread with a progress
+  LABEL (updates between simulations) but no true background
+  thread/cancel button and no partial-results save if interrupted mid-run
+  - a real scope cut for time, not forgotten.
+- **Monte Carlo/drag-comparison N is capped low in practice for UI
+  responsiveness** - each sample is a full 6-DOF flight; N=200 (CLAUDE.md's
+  default) will take real wall-clock time synchronously blocking the
+  page. Works correctly, just slow at the full default N without the
+  background-thread work above.
+- **Landing ellipse is a static matplotlib plot, not the Leaflet map on
+  site imagery CLAUDE.md Sec 6 Phase 4 asked for** - shows the correct
+  1/2/3-sigma ellipses and impact scatter in X/Y meters from the pad, but
+  not overlaid on an actual map. A reasonable scope cut given the time
+  left, not a hidden gap.
 
 ## Log
 

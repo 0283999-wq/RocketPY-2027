@@ -25,6 +25,14 @@ PAGES = [
 
 @contextlib.contextmanager
 def layout(title, current_path="/"):
+    # theme.apply() must run INSIDE a page function, not at module import
+    # time - this NiceGUI version raises "ui.page cannot be used ... when
+    # UI is defined in the global scope" if any ui.* call happens outside
+    # a @ui.page-decorated function once multiple pages exist. Calling it
+    # here (every page already goes through layout()) means it runs once
+    # per page load - harmless repetition of the same <style>/ui.colors()
+    # setup, and the only place in this codebase it's now called from.
+    theme.apply(ui)
     ui.add_head_html(f'<title>stella-flight - {title}</title>')
     with ui.header().classes("stella-header items-center justify-between"):
         with ui.row().classes("items-center gap-3"):

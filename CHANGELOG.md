@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-26 overnight run, item 2 - UI redesign
+
+- `stella_flight/gui/theme.py`: gold #B79357 / wine #8A1538 palette, one
+  file, WCAG AA contrast notes for each pairing actually used (gold is
+  AA-safe for large text/UI accents only, not body text - documented, not
+  guessed). Dark mode via `ui.dark_mode()`. Logo files (if dropped into
+  `gui/assets/`) picked up automatically; falls back to a text wordmark
+  otherwise (no logo exists yet - see PROGRESS.md NEEDS DIEGO).
+- `stella_flight/gui/layout.py`: header + left sidebar, 8 pages.
+- All 8 pages built: Simulate (rewritten as the 4-step Load->Review->
+  Simulate->Results flow, PROVISIONAL badge, KPI cards colored against
+  RCSM limits, rocket side-profile drawing, tabbed plots, an "Advanced"
+  collapsed panel for manual overrides/Cd CSVs), Rocket (dimensions/CG/
+  margin), Monte Carlo (uncertainty table + histogram + landing-ellipse
+  plot), RCSM Cases (4 buttons + compliance table), Analysis
+  (weathercocking + drag comparison UI), History (auto-saves every
+  Simulate run, list/compare/delete), Exports (CSV/PNG/PDF/DOCX/LASC
+  zip), Validation (V1/V2 status).
+- `stella_flight/gui/rocket_drawing.py`: matplotlib side-profile from
+  parsed `.ork` geometry (nose/tubes/fins/motor/point-masses) with CG/CP
+  markers.
+- `stella_flight/run_history.py`: local `runs/` folder (gitignored, like
+  `outputs/`), one JSON record + copied artifacts per run.
+- `tests/test_phase0_e2e_full.py`: drives the real app through real
+  headless Chromium across every page, screenshots each to
+  `docs/screenshots/`. Both E2E tests pass.
+- Found a real NiceGUI bug while wiring this up: calling `ui.colors()`/
+  `ui.add_head_html()` at module scope (outside any `@ui.page` function)
+  raises `RuntimeError: ui.page cannot be used ... when UI is defined in
+  the global scope` once multiple `@ui.page` routes exist in the same
+  process. Fixed by moving the one-time theme setup into `layout()`
+  itself (called at the top of every page), not a separate top-level call.
+- Scope cuts, documented not hidden (see PROGRESS.md BLOCKED): Monte
+  Carlo runs synchronously (no background thread/cancel/partial-save),
+  landing ellipse is a static plot (not a Leaflet map).
+
 ## 2026-09-26 overnight run, item 1 - code-to-code check vs OpenRocket
 
 Added `tests/test_code_to_code_vs_openrocket.py`: reproduces OpenRocket's

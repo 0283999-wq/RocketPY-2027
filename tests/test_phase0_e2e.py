@@ -82,6 +82,8 @@ def test_upload_ork_and_eng_and_simulate_shows_apogee(app_server):
         import_rows = page.locator("text=IMPORTED")
         assert import_rows.count() > 0, "the import table should show at least some IMPORTED rows after loading a real .ork - if this is 0, the upload handler didn't actually receive the file (this is exactly bug #0)"
 
+        page.get_by_text(re.compile("Advanced:", re.I)).click()  # the mass/CG override fields are in a collapsed panel by design
+        page.wait_for_timeout(300)
         mass_box = page.get_by_label(re.compile("dry mass override", re.I))
         cg_box = page.get_by_label(re.compile("dry CG override", re.I))
         mass_box.fill("5.6622")

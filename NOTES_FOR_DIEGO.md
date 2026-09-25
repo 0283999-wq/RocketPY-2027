@@ -1,5 +1,23 @@
 # Notes for Diego (plain language, no code)
 
+## The app has a real UI now - please click through it yourself
+
+Colors, sidebar, all 8 pages (Simulate, Rocket, Monte Carlo, RCSM Cases,
+Analysis, History, Exports, Validation) - all working, all tested with a
+real (automated) browser this time, not just the code behind them.
+Screenshots of every page are in `docs/screenshots/` if you want to look
+before running it yourself.
+
+**Things I didn't get to, on purpose, not by accident:**
+- No logo yet - using a plain text "Stella Ignis" header until you drop
+  the real logo files into `stella_flight/gui/assets/` (`logo_gold.png`/
+  `logo_wine.png`) - it'll pick them up automatically, no code changes.
+- Monte Carlo runs but isn't cancellable and doesn't run in the
+  background yet - for a big N (200, your default) it'll sit there
+  blocking the page for a while. Works correctly, just not fancy yet.
+- The landing "ellipse" is a plot in meters from the pad, not a map with
+  satellite imagery underneath.
+
 ## The +10% bug hunt: found part of it, not all of it
 
 Good catch pushing on this. Here's what I found:
