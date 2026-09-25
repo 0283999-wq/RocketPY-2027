@@ -72,7 +72,39 @@ def _ellipse_params(x, y, n_std):
     return {"center_x": float(np.mean(x)), "center_y": float(np.mean(y)), "width": float(width), "height": float(height), "angle_deg": angle}
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None):
+import contextlib
+
+
+@contextlib.contextmanager
+def _seeded_rng(seed):
+    """Workaround for rocketpy 1.13.0's Stochastic* classes not exposing a
+    `seed=` constructor kwarg despite their base class (StochasticModel)
+    supporting one - see the long comment in run_monte_carlo. Setting the
+    resulting object's private RNG attribute AFTER construction does NOT
+    work either: StochasticModel._set_stochastic() (called from
+    __init__) captures each uncertainty tuple's sampler as an ALREADY-
+    BOUND method of the generator that exists at construction time (e.g.
+    `stochastic_rocket.mass = (5.66, 0.1, <bound method
+    Generator(...).normal>)`), so replacing the generator afterward
+    doesn't change what those already-bound methods point to - found
+    empirically 2026-09-26 (a `_force_seed` post-hoc approach was tried
+    first and silently did nothing). The only point that actually works
+    is intercepting the exact `np.random.default_rng(seed)` call
+    StochasticModel.__init__ makes, which is what this context manager
+    does - scoped narrowly around just the 4 Stochastic* constructor
+    calls, restored immediately after."""
+    if seed is None:
+        yield
+        return
+    real_default_rng = np.random.default_rng
+    np.random.default_rng = lambda *_a, **_k: real_default_rng(seed)
+    try:
+        yield
+    finally:
+        np.random.default_rng = real_default_rng
+
+
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None):
     """Runs N stochastic flights, returns a MonteCarloResult plus landing-
     ellipse params (drogue/main - PROMETEO only has one recovery event, so
     "drogue" and "main" here are the same single event unless the loaded
@@ -93,54 +125,58 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     flight = Flight(rocket=rocket, environment=env, rail_length=parsed.launch.rail_length_m,
                      inclination=parsed.launch.inclination_deg, heading=parsed.launch.rail_direction_deg, terminate_on_apogee=not include_recovery)
 
-    stochastic_env = StochasticEnvironment(environment=env, wind_velocity_x_factor=(1, u["wind_speed_ms"].std_dev / max(u["wind_speed_ms"].nominal, 0.1)) if "wind_speed_ms" in u else (1, 0))
-    stochastic_motor = StochasticSolidMotor(solid_motor=motor, total_impulse=(motor.total_impulse, u["total_impulse_Ns"].std_dev) if "total_impulse_Ns" in u else None)
-    stochastic_rocket = StochasticRocket(
-        rocket=rocket,
-        mass=(dry_mass_kg, u["dry_mass_kg"].std_dev) if "dry_mass_kg" in u else None,
-        # center_of_mass_without_motor MUST be passed explicitly - rocketpy's
-        # StochasticRocket.create_object() does not preserve an externally
-        # overridden CG otherwise (it falls back to the Rocket's own
-        # geometric/component-based CG, which for a rocket built via
-        # translate.build_rocket - aero surfaces added with no material
-        # density - is wildly wrong). Found empirically 2026-09-26: every
-        # sampled rocket came out ~-8.5 cal unstable, consistently, until
-        # this was added. See PROGRESS.md.
-        # NOTE the sign: translate.build_rocket() converts dry_cg_m (positive,
-        # m from nose) to the rocket's own "tail_to_nose" frame (negated)
-        # before passing it to Rocket() - the override here must match that
-        # SAME frame/sign, not the raw nose-frame value, or this silently
-        # points the CG at the wrong end of the rocket.
-        center_of_mass_without_motor=(-dry_cg_m, u["dry_cg_m"].std_dev) if "dry_cg_m" in u else (-dry_cg_m, 0),
-        power_off_drag_factor=(1, u["power_off_drag_factor"].std_dev) if "power_off_drag_factor" in u else (1, 0),
-        power_on_drag_factor=(1, u["power_on_drag_factor"].std_dev) if "power_on_drag_factor" in u else (1, 0),
-    )
-    stochastic_rocket.add_motor(stochastic_motor)
-    # CRITICAL: StochasticRocket.create_object() does NOT carry over the
-    # nose/fins/rail-buttons that were added to the nominal `rocket` via
-    # rocket.add_nose()/add_trapezoidal_fins() - found empirically
-    # 2026-09-26 (every sample came out with cp_position()==0, i.e. no
-    # aerosurfaces at all, hence the earlier ~-8.5 cal "instability" that
-    # had nothing to do with CG). Each aerosurface must be separately
-    # registered on the StochasticRocket itself, or the sampled Rocket has
-    # no lift/pitching-moment-producing surfaces whatsoever.
-    # Workaround for a SECOND rocketpy 1.13.0 bug found while fixing the
-    # first: StochasticRocket.add_nose()/add_trapezoidal_fins() internally
-    # do `stochastic_type(component=surfaces)` when given a plain
-    # NoseCone/TrapezoidalFins, but StochasticNoseCone/StochasticTrapezoidalFins
-    # actually take `nosecone=`/`trapezoidal_fins=`, not `component=` - so
-    # passing the plain surface raises TypeError. Pre-building the
-    # Stochastic* wrapper ourselves and passing THAT in hits the other,
-    # working branch of that method (it only re-wraps a plain surface).
-    if parsed.nose is not None:
-        stochastic_rocket.add_nose(StochasticNoseCone(nosecone=rocket.nosecones[0]))
-    for fin_surface in rocket.fins:
-        stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
-    stochastic_flight = StochasticFlight(
-        flight=flight,
-        inclination=(parsed.launch.inclination_deg, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,
-        heading=(parsed.launch.rail_direction_deg, u["heading_deg"].std_dev) if "heading_deg" in u else None,
-    )
+    # Seeding: see _seeded_rng's docstring for why this whole construction
+    # block runs inside it (needed for Phase 6's "same random seeds"
+    # common-random-numbers drag comparison).
+    with _seeded_rng(seed):
+        stochastic_env = StochasticEnvironment(environment=env, wind_velocity_x_factor=(1, u["wind_speed_ms"].std_dev / max(u["wind_speed_ms"].nominal, 0.1)) if "wind_speed_ms" in u else (1, 0))
+        stochastic_motor = StochasticSolidMotor(solid_motor=motor, total_impulse=(motor.total_impulse, u["total_impulse_Ns"].std_dev) if "total_impulse_Ns" in u else None)
+        stochastic_rocket = StochasticRocket(
+            rocket=rocket,
+            mass=(dry_mass_kg, u["dry_mass_kg"].std_dev) if "dry_mass_kg" in u else None,
+            # center_of_mass_without_motor MUST be passed explicitly - rocketpy's
+            # StochasticRocket.create_object() does not preserve an externally
+            # overridden CG otherwise (it falls back to the Rocket's own
+            # geometric/component-based CG, which for a rocket built via
+            # translate.build_rocket - aero surfaces added with no material
+            # density - is wildly wrong). Found empirically 2026-09-26: every
+            # sampled rocket came out ~-8.5 cal unstable, consistently, until
+            # this was added. See PROGRESS.md.
+            # NOTE the sign: translate.build_rocket() converts dry_cg_m (positive,
+            # m from nose) to the rocket's own "tail_to_nose" frame (negated)
+            # before passing it to Rocket() - the override here must match that
+            # SAME frame/sign, not the raw nose-frame value, or this silently
+            # points the CG at the wrong end of the rocket.
+            center_of_mass_without_motor=(-dry_cg_m, u["dry_cg_m"].std_dev) if "dry_cg_m" in u else (-dry_cg_m, 0),
+            power_off_drag_factor=(1, u["power_off_drag_factor"].std_dev) if "power_off_drag_factor" in u else (1, 0),
+            power_on_drag_factor=(1, u["power_on_drag_factor"].std_dev) if "power_on_drag_factor" in u else (1, 0),
+        )
+        stochastic_rocket.add_motor(stochastic_motor)
+        # CRITICAL: StochasticRocket.create_object() does NOT carry over the
+        # nose/fins/rail-buttons that were added to the nominal `rocket` via
+        # rocket.add_nose()/add_trapezoidal_fins() - found empirically
+        # 2026-09-26 (every sample came out with cp_position()==0, i.e. no
+        # aerosurfaces at all, hence the earlier ~-8.5 cal "instability" that
+        # had nothing to do with CG). Each aerosurface must be separately
+        # registered on the StochasticRocket itself, or the sampled Rocket has
+        # no lift/pitching-moment-producing surfaces whatsoever.
+        # Workaround for a SECOND rocketpy 1.13.0 bug found while fixing the
+        # first: StochasticRocket.add_nose()/add_trapezoidal_fins() internally
+        # do `stochastic_type(component=surfaces)` when given a plain
+        # NoseCone/TrapezoidalFins, but StochasticNoseCone/StochasticTrapezoidalFins
+        # actually take `nosecone=`/`trapezoidal_fins=`, not `component=` - so
+        # passing the plain surface raises TypeError. Pre-building the
+        # Stochastic* wrapper ourselves and passing THAT in hits the other,
+        # working branch of that method (it only re-wraps a plain surface).
+        if parsed.nose is not None:
+            stochastic_rocket.add_nose(StochasticNoseCone(nosecone=rocket.nosecones[0]))
+        for fin_surface in rocket.fins:
+            stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
+        stochastic_flight = StochasticFlight(
+            flight=flight,
+            inclination=(parsed.launch.inclination_deg, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,
+            heading=(parsed.launch.rail_direction_deg, u["heading_deg"].std_dev) if "heading_deg" in u else None,
+        )
 
     # NOTE: deliberately NOT using rocketpy's own top-level MonteCarlo
     # orchestrator here. rocketpy==1.13.0 ships it with an explicit

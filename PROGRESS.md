@@ -46,8 +46,23 @@ check here first, then CHANGELOG.md for detail.
       (per-case .py + .eng + .ork + Cd curves). stella_flight/report.py,
       stella_flight/lasc_package.py. 3/3 tests pass
       (tests/test_phase5_report_and_zip.py).
-- [ ] Item 3 (rest): Phase 6 (weathercocking, drag comparison), Major Tom
-      testing, full UI wiring for all pages, Playwright screenshots.
+- [x] Item 3 / Phase 6: weathercocking sweep (ballast at nose tip, finds
+      PROMETEO's optimum at the lower bound - no ballast needed, matches
+      CLAUDE.md's own prediction) + drag comparison with common random
+      numbers (identical curves -> exactly 0.0 difference; 15%-higher-Cd
+      curve -> -41.1 m [-42.4, -39.8] at 90%, CI excludes zero). Found a
+      4th real rocketpy==1.13.0 Stochastic-subsystem bug while building
+      this: none of the 4 Stochastic* classes forward `seed=` to their
+      base class, and setting the private RNG post-construction doesn't
+      work either (samplers are already bound to the old generator) -
+      fixed by monkeypatching numpy.random.default_rng narrowly around
+      just the 4 constructor calls (stella_flight/monte_carlo.py's
+      _seeded_rng). stella_flight/analysis.py,
+      tests/test_phase6_analysis.py, 3/3 pass.
+- [ ] Item 3 (rest): Major Tom testing (`.ork` not yet in the repo - see
+      BLOCKED below), full UI wiring for all pages (Simulate/Rocket/
+      Monte Carlo/RCSM/Analysis/History/Exports/Validation), Playwright
+      screenshots of every page.
 
 
 
