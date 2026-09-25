@@ -23,8 +23,12 @@ check here first, then CHANGELOG.md for detail.
       `NICEGUI_SCREEN_TEST_PORT` env var meant for ITS OWN in-process
       Screen-testing convention, which this deliberately bypasses in favor
       of a real subprocess + real browser.
-- [ ] Item 1: code-to-code check vs OpenRocket (bug hunt for the
-      consistent ~+10% offset) - IN PROGRESS next.
+- [~] Item 1: code-to-code check vs OpenRocket - CONFIRMED real (not
+      weather), ROOT CAUSE NOT YET ISOLATED despite rigorous elimination.
+      See "Item 1 findings" below for the full diagnostic table and what
+      was ruled out with hard numbers. Not tuned to force a match - per
+      Diego's explicit instruction, and because tuning without
+      understanding the cause would just hide the bug, not fix it.
 - [ ] Item 2: UI redesign (palette, sidebar, rocket drawing, History,
       Exports, Validation pages, Playwright screenshots)
 - [ ] Item 3: remaining phases (4, rest of 5, 6), tested with Major Tom too
@@ -80,6 +84,84 @@ check here first, then CHANGELOG.md for detail.
       reached (priorities 1-3 done, ran out of tonight's scope after that,
       per Diego's own stated priority order - not a blocker, just where
       tonight stopped).
+
+## Item 1 findings (code-to-code check vs OpenRocket, 2026-09-26)
+
+`tests/test_code_to_code_vs_openrocket.py` reproduces OpenRocket's own two
+CSV-exported sims with EXACTLY their own inputs (no weather uncertainty -
+both sides use the identical numbers OpenRocket itself recorded).
+
+| | Brasil/LASC-design | July4 as-flown |
+|---|---|---|
+| OpenRocket apogee AGL | 1081.69 m | 1027.20 m |
+| Ours | 1191.70 m | 1124.09 m |
+| **Error** | **+10.17%** | **+9.43%** |
+| OpenRocket burnout altitude | 248.51 m | 196.92 m |
+| Ours | 259.85 m | 242.03 m (see note) |
+| OpenRocket burnout velocity | 158.78 m/s | 140.28 m/s |
+| Ours | 157.75 m/s | 148.94 m/s (see note) |
+| Reference area | 0.00943 m2 | 0.00943 m2 (identical) |
+
+**July4's own gap is now explained, not a code bug**: OpenRocket's July4
+CSV shows its OWN burnout at **t=3.12s**, total impulse **1732.4 Ns**,
+peak thrust 653 N (`verified_constants.json`'s `julio4_asflown_sim` block)
+- a DIFFERENT, shorter/hotter motor burn than the Brasil config
+(t=3.57s, 1871 Ns). We only have ONE `.eng` file (the Brasil-derived
+Icarus_I_K519.eng), so the July4 comparison necessarily used the WRONG
+motor profile - more impulse than OpenRocket assumed for that CSV predicts
+a higher apogee, consistent with the direction of the error. This was
+already flagged in `config.py`'s own comments ("Its own OpenRocket run
+carries a different motor/mass... 1732 Ns vs 1871 Ns impulse... NOT
+silently reconciled here") - not a discovery, a confirmation.
+
+**Brasil's gap is real and NOT explained by a data mismatch** - inputs are
+apples-to-apples (same `.eng`, same mass, same site). Ruled out by direct
+measurement, each confirmed exact or effectively exact:
+- Dry mass: 0.000% error (already known).
+- Reference area: 0.009434 m2 both sides (OpenRocket's own stored
+  94.343 cm2 vs `pi*radius^2` from the same 0.0548 m radius) - Diego's
+  suspect #1, ruled out.
+- Cd curve values: `rocket.power_on_drag(0.3)=0.4446` vs OpenRocket's own
+  boost-phase 0.445 at Mach 0.302; `power_off_drag(0.3)=0.4430` vs
+  OpenRocket's own coast-phase 0.443 at Mach 0.300 - matches to <0.1%,
+  both curves correctly assigned (not swapped).
+- Motor: total impulse 1871.35 Ns (matches), burn_out_time 3.57 s
+  (matches), individual thrust samples match the `.eng` file's own listed
+  values at several timestamps checked by hand.
+- Atmosphere: density 1.16785 kg/m3, matches the ideal-gas calc from
+  `config.py`'s own T/P constants to 5 decimal places; gravity 9.78599
+  m/s2 matches OpenRocket's own recorded 9.786 exactly.
+- `terminate_on_apogee=True` was NOT inflating the number - reran without
+  it, identical apogee (1191.70 m either way).
+- Drag curve extrapolation below its lowest sample (Mach 0.138) is
+  constant (flat at 0.432), not degenerate/collapsing toward zero -
+  ruled out a "near-apogee low-Mach drag vanishes" theory.
+- Angle-of-attack profile looks physically normal (a few degrees of
+  weathercocking early, near-zero mid-flight, a small rise approaching
+  apogee) - no obvious sign of an oscillation/instability eating energy
+  into induced drag, though this wasn't tested by directly correcting the
+  known 6.6%-high I_11 inertia and re-running (would need a rebuild path
+  that isn't a quick monkeypatch - flagged as the next thing to try, not
+  done tonight).
+- Rail exit is actually **slower** in our sim (15.60 m/s) than
+  OpenRocket's 16.78 m/s, and **earlier** (t=0.487 vs t=0.52) -
+  this rules out the simplest "we apply too little drag/too much thrust
+  from t=0" theory (that would predict a HIGHER, not lower, rail-exit
+  speed), but is itself an unexplained ~7% discrepancy at the very start
+  of flight that could be a clue - not chased further tonight.
+
+**Conclusion, stated plainly**: this is a real, still-unexplained ~10%
+systematic overshoot in the reference model's own trajectory integration,
+present even with verified-identical mass/area/Cd/thrust/atmosphere
+inputs. Not tuned to hide it. Best remaining leads for whoever picks this
+up next: (1) the rail-exit speed/timing mismatch despite matching thrust
+curves, (2) the known 6.6% I_11 inertia error's effect on AoA/margin
+evolution once actually corrected and re-tested (not just reasoned about),
+(3) whether `stella_flight.translate`'s OWN pipeline (not reference code)
+reproduces the same gap or a different one - would help tell whether this
+is in RocketPy's own dynamics for this specific geometry/motor
+combination, or something in how `reference/prometeo_mission44`
+specifically builds the `Rocket`/`Flight` objects.
 
 ## Phase 2 findings
 

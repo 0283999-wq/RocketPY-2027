@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-26 overnight run, item 1 - code-to-code check vs OpenRocket
+
+Added `tests/test_code_to_code_vs_openrocket.py`: reproduces OpenRocket's
+own two CSV-exported sims with its own exact inputs (no weather
+uncertainty). Confirmed **the +10% gap is real, not weather**: Brasil
++10.17%, July4 +9.43%.
+
+July4's gap is now explained (not a bug): OpenRocket used a DIFFERENT
+motor for that CSV (1732 Ns/3.12s burn) than the one `.eng` file we have
+(1871 Ns/3.57s, Brasil's) - already flagged in `config.py`'s own comments.
+
+Brasil's +10.17% is real and NOT explained by a data mismatch - ruled out
+by direct measurement: reference area (exact), Cd curve values at
+Mach 0.3 boost/coast (<0.1% off both), motor total impulse/burn time
+(exact), atmosphere density/gravity (exact via ideal-gas check),
+`terminate_on_apogee` (no effect), drag-curve low-Mach extrapolation (flat,
+not degenerate). Root cause NOT isolated tonight - see PROGRESS.md "Item 1
+findings" for the full diagnostic table and the leads for next time (rail-
+exit speed/timing mismatch, the known 6.6% I_11 inertia error not yet
+tested empirically, whether stella_flight.translate's own pipeline shows
+the same gap). Not tuned to hide it.
+
 ## 2026-09-26 overnight run, item 0 - CRITICAL upload bug fixed
 
 `app.py`'s upload handlers used NiceGUI's old `e.content`/`e.name` API.

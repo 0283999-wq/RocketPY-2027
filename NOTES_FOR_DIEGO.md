@@ -1,5 +1,28 @@
 # Notes for Diego (plain language, no code)
 
+## The +10% bug hunt: found part of it, not all of it
+
+Good catch pushing on this. Here's what I found:
+
+- **The July 4 gap is explained, not a bug**: OpenRocket used a different
+  motor for that specific export than the one `.eng` file we actually
+  have (shorter, hotter burn - 1732 Ns vs our 1871 Ns file). This was
+  already written down in `config.py`'s own comments from before tonight.
+  Not something to fix in code - we'd need a July4-specific `.eng`.
+- **The Brasil-config gap is real, and I have NOT found the cause yet.**
+  I checked, with actual numbers, every one of your suspects: reference
+  area matches exactly, the Cd curves match OpenRocket's own values at
+  Mach 0.3 to better than 0.1%, the motor's total impulse and burn time
+  match exactly, air density and gravity match exactly. None of those are
+  it. I did NOT tune anything to hide this - it's still open.
+- One odd thing I found along the way: our rocket leaves the launch rail
+  SLOWER than OpenRocket's own number (15.6 vs 16.8 m/s), which is the
+  opposite of what you'd expect if we were under-predicting drag. That's
+  a real lead for whoever picks this up next, not yet chased down.
+
+Full diagnostic table and everything ruled out: `PROGRESS.md`, "Item 1
+findings".
+
 ## Fixed: the upload bug you found
 
 You were exactly right - the file upload was silently broken. The library
