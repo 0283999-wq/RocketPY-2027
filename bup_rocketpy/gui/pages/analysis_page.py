@@ -7,8 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from nicegui import ui
 
-from stella_flight.gui import layout, state
-from stella_flight import analysis, monte_carlo, translate
+from bup_rocketpy.gui import layout, state
+from bup_rocketpy import analysis, monte_carlo, translate
 
 matplotlib.use("Agg")
 s = state.state

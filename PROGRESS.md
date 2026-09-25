@@ -32,7 +32,7 @@ check here first, then CHANGELOG.md for detail.
 - [ ] Item 2: UI redesign (palette, sidebar, rocket drawing, History,
       Exports, Validation pages, Playwright screenshots)
 - [x] Item 3 / Phase 4: Monte Carlo + landing ellipse -
-      stella_flight/monte_carlo.py. Found and worked around 3 real bugs in
+      bup_rocketpy/monte_carlo.py. Found and worked around 3 real bugs in
       rocketpy==1.13.0's own Stochastic subsystem (see
       tests/test_phase4_monte_carlo.py's docstring for the full list -
       broken default export_list, CG not preserved unless explicit,
@@ -43,8 +43,8 @@ check here first, then CHANGELOG.md for detail.
       progress-bar/cancel UI - backend only so far.
 - [x] Item 3 / Phase 5 (rest): PDF/DOCX report (validation section first,
       wording checked against CLAUDE.md Sec 3.1's rule) + LASC .zip
-      (per-case .py + .eng + .ork + Cd curves). stella_flight/report.py,
-      stella_flight/lasc_package.py. 3/3 tests pass
+      (per-case .py + .eng + .ork + Cd curves). bup_rocketpy/report.py,
+      bup_rocketpy/lasc_package.py. 3/3 tests pass
       (tests/test_phase5_report_and_zip.py).
 - [x] Item 3 / Phase 6: weathercocking sweep (ballast at nose tip, finds
       PROMETEO's optimum at the lower bound - no ballast needed, matches
@@ -56,10 +56,10 @@ check here first, then CHANGELOG.md for detail.
       base class, and setting the private RNG post-construction doesn't
       work either (samplers are already bound to the old generator) -
       fixed by monkeypatching numpy.random.default_rng narrowly around
-      just the 4 constructor calls (stella_flight/monte_carlo.py's
-      _seeded_rng). stella_flight/analysis.py,
+      just the 4 constructor calls (bup_rocketpy/monte_carlo.py's
+      _seeded_rng). bup_rocketpy/analysis.py,
       tests/test_phase6_analysis.py, 3/3 pass.
-- [x] Item 2: UI redesign - `stella_flight/gui/theme.py` (gold #B79357 /
+- [x] Item 2: UI redesign - `bup_rocketpy/gui/theme.py` (gold #B79357 /
       wine #8A1538, dark mode, WCAG AA contrast notes, one file to swap
       for a rebrand), `layout.py` (header + left sidebar, 8 pages), and
       all 8 pages built: Simulate (4-step: Load->Review->Simulate->
@@ -74,7 +74,7 @@ check here first, then CHANGELOG.md for detail.
       every page, screenshots saved to `docs/screenshots/` (8 files).
       Both E2E tests pass. No logo files exist yet - using the text
       wordmark fallback, see BLOCKED below.
-- [x] Item 3 / History backend: `stella_flight/run_history.py` - auto-
+- [x] Item 3 / History backend: `bup_rocketpy/run_history.py` - auto-
       saves every Simulate run to `runs/<timestamp>/` (record.json +
       copies of .eng/CSV/plots), list/get/delete. Not committed to git
       (`.gitignore`d, per-machine local data, like `outputs/`).
@@ -86,7 +86,7 @@ check here first, then CHANGELOG.md for detail.
 
 
 
-- [x] Phase 0: repo restructure (common/ -> stella_flight/) - commit 59c4c19
+- [x] Phase 0: repo restructure (common/ -> bup_rocketpy/) - commit 59c4c19
 - [x] Phase 1a: ork_reader.py, motor_reader.py, translate.py built - commit 0dc168c
 - [x] Phase 1b: real acceptance test vs PROMETEO's real .ork (moved to
       `reference/prometeo_mission44/data/ork/PrometeoLasc2026.ork`) -
@@ -108,7 +108,7 @@ check here first, then CHANGELOG.md for detail.
       power_on_drag.csv byte-for-byte - fully deterministic, not stale).
 - [x] Phase 2: telemetry_2026_07_04.xlsx inspected - see "Phase 2 findings" below.
 - [x] Phase 3: NiceGUI app, start.bat, headless smoke test -
-      stella_flight/gui/{pipeline.py,app.py}, tests/test_phase3_headless.py
+      bup_rocketpy/gui/{pipeline.py,app.py}, tests/test_phase3_headless.py
       (5/5 pass). Upload .ork+.eng -> import table -> Simulate -> big
       numbers + plots + CSV. Drag curve auto-extracted from the .ork's own
       stored sim when present (falls back to user-uploaded CSV or a
@@ -121,9 +121,9 @@ check here first, then CHANGELOG.md for detail.
 - [ ] Phase 4: Monte Carlo + landing ellipse
 - [x] Phase 5 (Ballistic+Nominal, priority 3): translate.build_rocket/
       ork_to_flight now take include_recovery= (False = Ballistic, no
-      parachutes regardless of .ork config). stella_flight/case_export.py
+      parachutes regardless of .ork config). bup_rocketpy/case_export.py
       generates self-contained Mission44_{Ballistic,Nominal}_RocketPy_v1.py
-      (no stella_flight import - CRS 10.1.5/10.1.6).
+      (no bup_rocketpy import - CRS 10.1.5/10.1.6).
       tests/test_phase5_case_export.py: built a genuinely clean venv, `pip
       install rocketpy==1.13.0` fresh, ran both exported scripts as
       subprocesses. Both matched the in-process apogee to 0.0027% -
@@ -210,7 +210,7 @@ inputs. Not tuned to hide it. Best remaining leads for whoever picks this
 up next: (1) the rail-exit speed/timing mismatch despite matching thrust
 curves, (2) the known 6.6% I_11 inertia error's effect on AoA/margin
 evolution once actually corrected and re-tested (not just reasoned about),
-(3) whether `stella_flight.translate`'s OWN pipeline (not reference code)
+(3) whether `bup_rocketpy.translate`'s OWN pipeline (not reference code)
 reproduces the same gap or a different one - would help tell whether this
 is in RocketPy's own dynamics for this specific geometry/motor
 combination, or something in how `reference/prometeo_mission44`
@@ -270,14 +270,14 @@ flagging: this result is close (0.27 points over the line) - real weather
 alone could plausibly close the gap. **Not tuned to force a pass - stays
 PROVISIONAL.**
 
-Neither V1 nor V2 currently uses `stella_flight`'s own `.ork`-driven
+Neither V1 nor V2 currently uses `bup_rocketpy`'s own `.ork`-driven
 `translate.py` pipeline for the rocket model - both reuse
 `reference/prometeo_mission44`'s already-validated code directly, with
 per-flight masses substituted in. This was a deliberate choice for speed
 and correctness tonight (that code is proven; `translate.py`'s own
 mass/CG estimate has the documented 19% gap from Phase 1 and produces a
 marginally-unstable rocket for this .ork without a corrected overridecg).
-Wiring V1/V2 through `stella_flight.translate` instead of the reference
+Wiring V1/V2 through `bup_rocketpy.translate` instead of the reference
 code directly is real follow-up work once Diego's .ork has a whole-rocket
 override, so the app's OWN pipeline is what's actually being validated,
 not a stand-in.
@@ -286,7 +286,7 @@ not a stand-in.
 
 - **`.ork` needs a whole-rocket `overridemass`+`overridecg`** (only the
   Fuselage shell is overridden right now) - this is the one input
-  `stella_flight`'s generic reader+translate pipeline cannot substitute
+  `bup_rocketpy`'s generic reader+translate pipeline cannot substitute
   for. See Phase 1 findings in CHANGELOG.md.
 - **Real Iacanga flight-day weather** for V2 - Diego runs Open-Meteo/GFS
   on his own machine per tonight's validation rules; the cloud can't reach
@@ -301,7 +301,7 @@ not a stand-in.
   `test_phase0_e2e_full.py`). Diego should still confirm it looks/feels
   right on his own machine with a real mouse - automated screenshots
   (`docs/screenshots/`) aren't a substitute for actually using it.
-- **No logo files** at `stella_flight/gui/assets/logo_gold.png` or
+- **No logo files** at `bup_rocketpy/gui/assets/logo_gold.png` or
   `logo_wine.png` - the header shows a text wordmark ("Stella Ignis /
   stella-flight") instead. Drop the real logo files in that folder
   whenever the rebrand assets are ready; `theme.py`/`layout.py` will pick
@@ -332,3 +332,35 @@ not a stand-in.
   2 stored simulations (both Brasil-config variants, rail 4.0m/10deg from
   vertical, elevation 495.0m and 490.0m respectively - investigating which
   is the LASC-as-flown one next.
+
+---
+
+## Second overnight review (2026-09-25 night -> 2026-09-26), budget mode
+
+Diego tested the real app with a real mouse on Windows and it did not
+work for a normal user (tests passing != app working). New instruction:
+work through crashes/physical-impossibility/code-path-unification fixes
+first (sections 0-4 + KPI/recovery part of 5 are the "presentable
+product"), budget mode (limited credits, run only related tests per
+edit, full suite once per section, MC tests use N=5).
+
+### Section 0: rename - DONE
+
+- Team renamed "Stella Ignis" -> "Beyond UP" everywhere (UI text, docs,
+  CLAUDE.md, report/case-export generated-by lines, window title).
+- Package renamed `stella_flight` -> `bup_rocketpy` via `git mv` + a
+  repo-wide sed sweep (all tracked non-reference files); env vars
+  `STELLA_FLIGHT_PORT`/`STELLA_FLIGHT_SHOW` -> `BUP_ROCKETPY_PORT`/
+  `BUP_ROCKETPY_SHOW` for consistency (not explicitly asked but they're
+  clearly named after the old package, would be confusing left as-is).
+  Internal CSS classes `stella-*` -> `bup-*` too (not user-visible text,
+  but cheap to fix while touching the same lines).
+  NEVER named the package `rocketpy` (would shadow the real library) -
+  confirmed `bup_rocketpy` throughout.
+- Added the "Definition of done ('presentable')" section to CLAUDE.md
+  verbatim per tonight's instruction (new `## 2.5`), team+package name
+  updated in CLAUDE.md's title/§0 only - didn't rewrite the rest of it.
+- Verified: fresh `.venv` (this container has none pre-built - had to
+  `pip install -r requirements.txt` from scratch), all `bup_rocketpy.*`
+  and `bup_rocketpy.gui.*` modules import cleanly, `test_phase1_acceptance.py`
+  (5 tests, no UI) passes unchanged.

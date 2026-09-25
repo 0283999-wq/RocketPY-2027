@@ -84,7 +84,7 @@ that same loaded rocket.
 4. **Real Iacanga weather** for V2, and the **exact LASC date/time** -
    same ask as last night, still pending.
 5. **Logo files** (`logo_gold.png`/`logo_wine.png` in
-   `stella_flight/gui/assets/`) whenever the rebrand assets exist - the
+   `bup_rocketpy/gui/assets/`) whenever the rebrand assets exist - the
    header currently shows a plain text wordmark.
 6. **Decide**: is the +10% OpenRocket gap (item 1) worth more investigation
    time before trusting any of this app's absolute numbers, or is relative

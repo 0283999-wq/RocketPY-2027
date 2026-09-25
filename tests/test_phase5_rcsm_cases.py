@@ -8,9 +8,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight import rcsm, rcsm_cases
-from stella_flight.motor_reader import read_eng
-from stella_flight.ork_reader import read_ork
+from bup_rocketpy import rcsm, rcsm_cases
+from bup_rocketpy.motor_reader import read_eng
+from bup_rocketpy.ork_reader import read_ork
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")

@@ -2,7 +2,7 @@
 .ork geometry (nose, tubes, transitions, fins, motor), with CG/CP markers,
 static margin and dimensions (2026-09-26 review, item 2 - "Rocket" page).
 
-No stella_flight.translate import needed for the drawing itself - it only
+No bup_rocketpy.translate import needed for the drawing itself - it only
 needs the parsed geometry (ork_reader.ParsedRocket) plus, optionally, a
 dry_cg_m/cp_m/motor length+position to overlay markers. Kept dependency-
 light (matplotlib only) so it's reusable from both the Rocket page and the
@@ -14,7 +14,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from stella_flight.gui import theme
+from bup_rocketpy.gui import theme
 
 matplotlib.use("Agg")
 

@@ -27,9 +27,9 @@ PAGES = [("/", "01_simulate_before.png"), ("/rocket", "05_rocket.png"), ("/monte
 
 @pytest.fixture(scope="module")
 def app_server():
-    env = dict(os.environ, STELLA_FLIGHT_PORT=str(PORT), STELLA_FLIGHT_SHOW="0", PYTHONPATH=REPO_ROOT)
+    env = dict(os.environ, BUP_ROCKETPY_PORT=str(PORT), BUP_ROCKETPY_SHOW="0", PYTHONPATH=REPO_ROOT)
     env.pop("PYTEST_CURRENT_TEST", None)
-    proc = subprocess.Popen([sys.executable, "-m", "stella_flight.gui.app"], cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen([sys.executable, "-m", "bup_rocketpy.gui.app"], cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     import urllib.request
     deadline = time.time() + 30
     ready = False

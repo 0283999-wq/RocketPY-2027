@@ -38,7 +38,7 @@ def _classify_parachutes(parsed):
 def run_case(case_name, parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag, power_on_drag):
     from rocketpy import Flight
 
-    from stella_flight import translate
+    from bup_rocketpy import translate
 
     env = translate.build_environment(parsed.launch)
 
@@ -87,7 +87,7 @@ def _add_single_parachute(rocket, chute, force_apogee_trigger=False):
 
 
 def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m):
-    from stella_flight import translate
+    from bup_rocketpy import translate
 
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_all_cases")
     motor = translate.build_motor(parsed_eng, eng_path)

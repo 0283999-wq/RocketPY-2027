@@ -10,7 +10,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
     """cases: list of (case_name, include_recovery) tuples to export -
     typically [("Ballistic", False), ("Nominal", True)] at minimum
     (CRS 10.1.14: the RocketPy award requires nominal and ballistic)."""
-    from stella_flight import case_export
+    from bup_rocketpy import case_export
 
     base_path = output_zip_path[:-4] if output_zip_path.endswith(".zip") else output_zip_path
     staging_dir = base_path + "_staging"

@@ -2,13 +2,13 @@
 
 ## 2026-09-26 overnight run, item 2 - UI redesign
 
-- `stella_flight/gui/theme.py`: gold #B79357 / wine #8A1538 palette, one
+- `bup_rocketpy/gui/theme.py`: gold #B79357 / wine #8A1538 palette, one
   file, WCAG AA contrast notes for each pairing actually used (gold is
   AA-safe for large text/UI accents only, not body text - documented, not
   guessed). Dark mode via `ui.dark_mode()`. Logo files (if dropped into
   `gui/assets/`) picked up automatically; falls back to a text wordmark
   otherwise (no logo exists yet - see PROGRESS.md NEEDS DIEGO).
-- `stella_flight/gui/layout.py`: header + left sidebar, 8 pages.
+- `bup_rocketpy/gui/layout.py`: header + left sidebar, 8 pages.
 - All 8 pages built: Simulate (rewritten as the 4-step Load->Review->
   Simulate->Results flow, PROVISIONAL badge, KPI cards colored against
   RCSM limits, rocket side-profile drawing, tabbed plots, an "Advanced"
@@ -18,10 +18,10 @@
   (weathercocking + drag comparison UI), History (auto-saves every
   Simulate run, list/compare/delete), Exports (CSV/PNG/PDF/DOCX/LASC
   zip), Validation (V1/V2 status).
-- `stella_flight/gui/rocket_drawing.py`: matplotlib side-profile from
+- `bup_rocketpy/gui/rocket_drawing.py`: matplotlib side-profile from
   parsed `.ork` geometry (nose/tubes/fins/motor/point-masses) with CG/CP
   markers.
-- `stella_flight/run_history.py`: local `runs/` folder (gitignored, like
+- `bup_rocketpy/run_history.py`: local `runs/` folder (gitignored, like
   `outputs/`), one JSON record + copied artifacts per run.
 - `tests/test_phase0_e2e_full.py`: drives the real app through real
   headless Chromium across every page, screenshots each to
@@ -55,7 +55,7 @@ Mach 0.3 boost/coast (<0.1% off both), motor total impulse/burn time
 not degenerate). Root cause NOT isolated tonight - see PROGRESS.md "Item 1
 findings" for the full diagnostic table and the leads for next time (rail-
 exit speed/timing mismatch, the known 6.6% I_11 inertia error not yet
-tested empirically, whether stella_flight.translate's own pipeline shows
+tested empirically, whether bup_rocketpy.translate's own pipeline shows
 the same gap). Not tuned to hide it.
 
 ## 2026-09-26 overnight run, item 0 - CRITICAL upload bug fixed
@@ -83,10 +83,10 @@ it passing.
 - `translate.build_rocket`/`ork_to_flight` gained `include_recovery=`
   (`False` builds CRS 10.1.11's Ballistic case - no parachutes at all,
   regardless of what the `.ork` has configured).
-- `stella_flight/case_export.py`: generates a fully self-contained
+- `bup_rocketpy/case_export.py`: generates a fully self-contained
   `Mission[ID]_[Case]_RocketPy_v[N].py` per CRS 10.1.6 - every geometry/
   mass/motor/launch value baked in as a literal, **no import of
-  `stella_flight`** (CRS 10.1.5: must run with just `pip install
+  `bup_rocketpy`** (CRS 10.1.5: must run with just `pip install
   rocketpy`). The `.eng` and the two drag-curve CSVs stay as sibling files
   referenced by relative path (they're required deliverables in their own
   right per CRS 10.1.9, not something to inline).
@@ -105,10 +105,10 @@ it passing.
 
 ## Phase 3 - NiceGUI app, start.bat, headless smoke test
 
-- `stella_flight/gui/pipeline.py`: load/simulate logic with **no NiceGUI
+- `bup_rocketpy/gui/pipeline.py`: load/simulate logic with **no NiceGUI
   import** (CLAUDE.md Sec 1's core/UI split), so it's directly unit-
   testable without a browser or display server.
-- `stella_flight/gui/app.py`: the UI - upload `.ork`+`.eng`(+optional Cd
+- `bup_rocketpy/gui/app.py`: the UI - upload `.ork`+`.eng`(+optional Cd
   CSVs) -> imported-data table -> manual dry-mass/CG override fields ->
   Simulate -> big numbers (apogee, Vmax, max Mach, max accel, rail exit,
   flight time, min static margin, stable Y/N) -> plots -> CSV download.
@@ -141,7 +141,7 @@ it passing.
   +10.22%, V2: +5.27%, both PROVISIONAL, neither tuned to force a pass).
   Reuses `reference/prometeo_mission44`'s already-validated rocket model
   directly (per-flight masses substituted via config monkeypatching) rather
-  than `stella_flight.translate` - see PROGRESS.md for why.
+  than `bup_rocketpy.translate` - see PROGRESS.md for why.
 - Confirmed `power_off_drag.csv`/`power_on_drag.csv` are byte-for-byte
   reproducible from `Prometeo_Launchsite_BRASIL.csv` via
   `scripts/extract_drag_curves.py` - not stale.
@@ -233,7 +233,7 @@ Diego reviewed last night's report and corrected 4 things; all addressed:
 
 ## Phase 1 - .ork/.eng readers and translation into rocketpy objects
 
-- Added `stella_flight/ork_reader.py`: pure-Python `.ork` reader (zip or bare
+- Added `bup_rocketpy/ork_reader.py`: pure-Python `.ork` reader (zip or bare
   XML), schema verified against 3 real files from
   github.com/openrocket/openrocket (no PROMETEO/Major Tom `.ork` exists in
   this repo yet - CLAUDE.md Sec 4.1 explicitly sanctions testing against
@@ -242,10 +242,10 @@ Diego reviewed last night's report and corrected 4 things; all addressed:
   mass/CG overrides, and launch conditions from the first stored simulation.
   Every parsed value is logged as IMPORTED / APPROXIMATED / IGNORED - see
   `ParsedRocket.print_import_table()`.
-- Added `stella_flight/motor_reader.py`: RASP `.eng` reader (validated against
+- Added `bup_rocketpy/motor_reader.py`: RASP `.eng` reader (validated against
   PROMETEO's real `Icarus_I_K519.eng`) and a fallback OpenRocket-export
   thrust-CSV reader.
-- Added `stella_flight/translate.py`: builds rocketpy `Environment`/
+- Added `bup_rocketpy/translate.py`: builds rocketpy `Environment`/
   `SolidMotor`/`Rocket`/`Flight` from parsed `.ork` + `.eng` data. Mass/CG
   prefer a team-measured `<overridemass>`/`<overridecg>` when present;
   otherwise both are estimated geometrically from component material
@@ -288,11 +288,11 @@ Diego reviewed last night's report and corrected 4 things; all addressed:
 ## Phase 0 - repo realignment
 
 - Restructured `common/` (an earlier, since-abandoned "design tool" plan -
-  see CLAUDE.md Sec 1, "no design search") into `stella_flight/`:
-  - `common/rules.py` -> `stella_flight/rcsm.py` (unchanged)
-  - `common/environment.py` -> `stella_flight/environment.py` (unchanged;
+  see CLAUDE.md Sec 1, "no design search") into `bup_rocketpy/`:
+  - `common/rules.py` -> `bup_rocketpy/rcsm.py` (unchanged)
+  - `common/environment.py` -> `bup_rocketpy/environment.py` (unchanged;
     Phase 2 will add Open-Meteo/GFS/sounding sources and caching)
   - `common/design_search.py` deleted (contradicted CLAUDE.md Sec 1)
-  - Added `stella_flight/gui/` (empty, for Phase 3)
+  - Added `bup_rocketpy/gui/` (empty, for Phase 3)
 - Updated `README.md` to describe the app (not the old parametric-design
   scope).

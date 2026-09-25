@@ -5,8 +5,8 @@ import os
 
 from nicegui import ui
 
-from stella_flight.gui import layout, state
-from stella_flight import lasc_package, rcsm, rcsm_cases, report, translate
+from bup_rocketpy.gui import layout, state
+from bup_rocketpy import lasc_package, rcsm, rcsm_cases, report, translate
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")

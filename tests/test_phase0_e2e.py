@@ -1,5 +1,5 @@
 """Permanent end-to-end UI test (2026-09-26 overnight review, item 0):
-launches the real stella_flight.gui.app as a subprocess (real uvicorn
+launches the real bup_rocketpy.gui.app as a subprocess (real uvicorn
 server, real NiceGUI/Vue/Quasar frontend), drives it through headless
 Chromium (pre-installed, PLAYWRIGHT_BROWSERS_PATH already set - do NOT
 call playwright install), uploads PROMETEO's real .ork + .eng through the
@@ -30,10 +30,10 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 
 @pytest.fixture(scope="module")
 def app_server():
-    env = dict(os.environ, STELLA_FLIGHT_PORT=str(PORT), STELLA_FLIGHT_SHOW="0", PYTHONPATH=REPO_ROOT)
+    env = dict(os.environ, BUP_ROCKETPY_PORT=str(PORT), BUP_ROCKETPY_SHOW="0", PYTHONPATH=REPO_ROOT)
     env.pop("PYTEST_CURRENT_TEST", None)  # else nicegui's helpers.is_pytest() thinks the SUBPROCESS itself is under pytest and demands NICEGUI_SCREEN_TEST_PORT (its own in-process Screen-testing convention, which this deliberately bypasses in favor of a real subprocess + real browser)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "stella_flight.gui.app"],
+        [sys.executable, "-m", "bup_rocketpy.gui.app"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )

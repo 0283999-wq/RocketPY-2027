@@ -1,7 +1,7 @@
-# stella-flight: Flight simulation and analysis for Stella Ignis (RocketPy)
+# Beyond UP RocketPy: Flight simulation and analysis for Beyond UP (RocketPy)
 
 A flight simulation and analysis **application** built on RocketPy, for the
-Stella Ignis rocketry team (Universidad Panamericana). It reads a design
+Beyond UP rocketry team (Universidad Panamericana). It reads a design
 Diego already made in OpenRocket (`.ork`) plus its motor (`.eng`), and flies
 it: plots, Monte Carlo, landing ellipse, the 4 RCSM cases, a PDF/DOCX report,
 and the self-contained `.py` scripts LASC actually grades.
@@ -20,7 +20,7 @@ plots . Monte Carlo . landing ellipse . 4 RCSM cases . report . .py scripts for 
 
 ## Layout
 
-- `stella_flight/` - importable core library (no UI)
+- `bup_rocketpy/` - importable core library (no UI)
   - `ork_reader.py` - pure-Python `.ork` reader (zip or bare XML); also
     extracts OpenRocket's own stored-simulation drag curve and reference
     numbers directly from a `.ork`, no separate export needed
@@ -47,7 +47,7 @@ If you'd rather run it from PowerShell yourself:
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m stella_flight.gui.app
+.venv\Scripts\python -m bup_rocketpy.gui.app
 ```
 
 ## Status

@@ -1,4 +1,4 @@
-"""NiceGUI UI layer (CLAUDE.md Sec 1: kept separate from stella_flight's
+"""NiceGUI UI layer (CLAUDE.md Sec 1: kept separate from bup_rocketpy's
 core, which has no NiceGUI import at all - see gui/pipeline.py). English
 throughout (CLAUDE.md Rule 5).
 
@@ -7,7 +7,7 @@ review item 2's 4-step flow: Load -> Review -> Simulate -> Results) and
 also registers every other page by importing them (each page module
 registers its own @ui.page route on import).
 
-Run: python -m stella_flight.gui.app (or double-click start.bat on
+Run: python -m bup_rocketpy.gui.app (or double-click start.bat on
 Windows, which sets up the venv first).
 """
 import os
@@ -15,7 +15,7 @@ import tempfile
 
 from nicegui import app, ui
 
-from stella_flight.gui import layout, pipeline, rocket_drawing, state
+from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
 
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -122,7 +122,7 @@ def simulate_page():
                 return
             s["sim_result"] = sim
             try:
-                from stella_flight import run_history
+                from bup_rocketpy import run_history
                 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 run_history.save_run(repo_root, sim, s["load_result"], dry_mass_input.value, dry_cg_input.value)
             except Exception as exc:  # history is a convenience, never block a real result on it failing to save
@@ -132,7 +132,7 @@ def simulate_page():
 
             results_container.clear()
             with results_container:
-                ui.label(sim.provisional_warning).classes("stella-provisional-badge px-3 py-1 rounded font-bold inline-block")
+                ui.label(sim.provisional_warning).classes("bup-provisional-badge px-3 py-1 rounded font-bold inline-block")
                 with ui.grid(columns=4).classes("gap-4 mt-2"):
                     for label, value, unit, good in [
                         ("Apogee AGL", f"{sim.apogee_agl_m:.1f}", "m", True),
@@ -146,7 +146,7 @@ def simulate_page():
                     ]:
                         with ui.card():
                             ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(f"{value} {unit}").classes("stella-kpi-value text-xl font-bold" if good else "text-xl font-bold text-red-600")
+                            ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold" if good else "text-xl font-bold text-red-600")
 
                 if s["load_result"] is not None and s["dry_cg_override"] is not None:
                     fig = rocket_drawing.draw_side_profile(s["load_result"].parsed_ork, dry_cg_m=s["dry_cg_override"], static_margin_cal=sim.min_static_margin_cal)
@@ -170,14 +170,14 @@ def simulate_page():
 
 
 def run():
-    # STELLA_FLIGHT_PORT/STELLA_FLIGHT_SHOW let tests/test_phase0_e2e.py launch
+    # BUP_ROCKETPY_PORT/BUP_ROCKETPY_SHOW let tests/test_phase0_e2e.py launch
     # this exact module as a real subprocess on a fixed, non-default port
     # without popping open a browser window in a headless CI/container run.
-    from stella_flight.gui.pages import analysis_page, exports_page, history_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
+    from bup_rocketpy.gui.pages import analysis_page, exports_page, history_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
-    port = int(os.environ.get("STELLA_FLIGHT_PORT", "8080"))
-    show = os.environ.get("STELLA_FLIGHT_SHOW", "1") != "0"
-    ui.run(title="stella-flight", reload=False, show=show, port=port)
+    port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
+    show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"
+    ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port)
 
 
 if __name__ in ("__main__", "__mp_main__"):

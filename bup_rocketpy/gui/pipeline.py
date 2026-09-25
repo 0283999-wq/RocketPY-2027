@@ -1,15 +1,15 @@
 """The actual work behind the UI, with NO NiceGUI import - so it can be
 unit-tested headlessly (tests/test_phase3_headless.py) without a browser,
 and so app.py stays a thin wiring layer per CLAUDE.md Sec 1 ("an
-importable package stella_flight/ (core, no UI) with stella_flight/gui/
+importable package bup_rocketpy/ (core, no UI) with bup_rocketpy/gui/
 (NiceGUI) as a separate layer").
 """
 import os
 from dataclasses import dataclass, field
 
-from stella_flight import translate
-from stella_flight.motor_reader import read_eng
-from stella_flight.ork_reader import extract_drag_curves_from_stored_sim, read_ork
+from bup_rocketpy import translate
+from bup_rocketpy.motor_reader import read_eng
+from bup_rocketpy.ork_reader import extract_drag_curves_from_stored_sim, read_ork
 
 
 @dataclass

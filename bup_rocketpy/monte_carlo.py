@@ -2,7 +2,7 @@
 
 Uses rocketpy's own StochasticEnvironment/StochasticSolidMotor/
 StochasticRocket/StochasticFlight/MonteCarlo classes - this module wires
-them to stella_flight's parsed .ork/.eng data and supplies sensible
+them to bup_rocketpy's parsed .ork/.eng data and supplies sensible
 default uncertainties, each carrying its source (CLAUDE.md Sec 6 Phase 4:
 "every uncertainty is editable and shows its source; if none, label it
 'no source, low confidence'").
@@ -112,7 +112,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     progress_callback(i, n) is called after each simulation if given -
     that's the hook the UI's progress bar uses (CLAUDE.md: "runs in the
     background, with progress, cancellable")."""
-    from stella_flight import translate
+    from bup_rocketpy import translate
 
     os.makedirs(output_dir, exist_ok=True)
     u = {x.name: x for x in uncertainties if x.enabled}

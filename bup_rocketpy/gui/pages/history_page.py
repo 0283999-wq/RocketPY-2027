@@ -5,8 +5,8 @@ import os
 
 from nicegui import ui
 
-from stella_flight.gui import layout
-from stella_flight import run_history
+from bup_rocketpy.gui import layout
+from bup_rocketpy import run_history
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 

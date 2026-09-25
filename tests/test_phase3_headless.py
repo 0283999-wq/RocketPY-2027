@@ -2,7 +2,7 @@
 headless smoke test that launches the NiceGUI app and loads PROMETEO
 without a browser.'
 
-This exercises stella_flight.gui.pipeline directly - the exact functions
+This exercises bup_rocketpy.gui.pipeline directly - the exact functions
 app.py's UI callbacks call - with PROMETEO's real .ork + .eng, with no
 NiceGUI/browser involved at all. This is deliberately the stronger check:
 pipeline.py has zero NiceGUI import, so proving IT works standalone proves
@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight.gui import pipeline
+from bup_rocketpy.gui import pipeline
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
@@ -89,8 +89,8 @@ def test_app_module_imports_without_starting_a_server():
     error - importing it registers pages/callbacks but does not bind a
     port or open a browser (that only happens under ui.run(), which this
     test deliberately does not call)."""
-    import stella_flight.gui.app  # noqa: F401
-    print("\nstella_flight.gui.app imported cleanly (no server started)")
+    import bup_rocketpy.gui.app  # noqa: F401
+    print("\nbup_rocketpy.gui.app imported cleanly (no server started)")
 
 
 if __name__ == "__main__":

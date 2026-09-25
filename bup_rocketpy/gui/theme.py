@@ -57,12 +57,12 @@ def apply(ui):
     <style>
       body {{ background-color: {LIGHT_BG}; color: {LIGHT_TEXT}; }}
       body.body--dark {{ background-color: {DARK_BG} !important; color: {DARK_TEXT} !important; }}
-      .stella-header {{ background-color: {WINE}; color: white; }}
-      .stella-sidebar {{ background-color: {LIGHT_SURFACE}; }}
-      body.body--dark .stella-sidebar {{ background-color: {DARK_SURFACE} !important; }}
-      .stella-kpi-value {{ color: {WINE}; }}
-      body.body--dark .stella-kpi-value {{ color: {GOLD}; }}
-      .stella-nav-active {{ border-left: 4px solid {GOLD}; background-color: rgba(183,147,87,0.12); }}
-      .stella-provisional-badge {{ background-color: #B3261E; color: white; }}
+      .bup-header {{ background-color: {WINE}; color: white; }}
+      .bup-sidebar {{ background-color: {LIGHT_SURFACE}; }}
+      body.body--dark .bup-sidebar {{ background-color: {DARK_SURFACE} !important; }}
+      .bup-kpi-value {{ color: {WINE}; }}
+      body.body--dark .bup-kpi-value {{ color: {GOLD}; }}
+      .bup-nav-active {{ border-left: 4px solid {GOLD}; background-color: rgba(183,147,87,0.12); }}
+      .bup-provisional-badge {{ background-color: #B3261E; color: white; }}
     </style>
     """)

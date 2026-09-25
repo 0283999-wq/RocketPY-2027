@@ -10,7 +10,7 @@ before running it yourself.
 
 **Things I didn't get to, on purpose, not by accident:**
 - No logo yet - using a plain text "Stella Ignis" header until you drop
-  the real logo files into `stella_flight/gui/assets/` (`logo_gold.png`/
+  the real logo files into `bup_rocketpy/gui/assets/` (`logo_gold.png`/
   `logo_wine.png`) - it'll pick them up automatically, no code changes.
 - Monte Carlo runs but isn't cancellable and doesn't run in the
   background yet - for a big N (200, your default) it'll sit there
@@ -140,7 +140,7 @@ file to test against instead of guessing from the format spec).
 
 ## Phase 1: the file readers work
 
-**I built the file readers.** `stella_flight/` can now:
+**I built the file readers.** `bup_rocketpy/` can now:
 - Open a `.ork` file (zip or plain XML) and pull out the nose cone, body
   tubes, fins, parachutes, point masses, rail buttons, and any measured
   mass/CG you typed into OpenRocket's override fields.
@@ -181,6 +181,6 @@ See `CHANGELOG.md` for the full technical detail.
 ## Phase 0: repo reorganized
 
 The old `common/` folder (from before this CLAUDE.md brief existed) is gone.
-What was useful from it moved into a new `stella_flight/` folder, which is
+What was useful from it moved into a new `bup_rocketpy/` folder, which is
 the real app code from now on. Nothing about your data or the PROMETEO
 reference was touched.

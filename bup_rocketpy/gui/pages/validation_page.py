@@ -8,13 +8,13 @@ PROGRESS.md, not something to silently recompute differently each page load.
 """
 from nicegui import ui
 
-from stella_flight.gui import layout
+from bup_rocketpy.gui import layout
 
 
 @ui.page("/validation")
 def validation_page():
     with layout.layout("Validation", current_path="/validation"):
-        ui.label("PROVISIONAL").classes("stella-provisional-badge px-3 py-1 rounded font-bold inline-block")
+        ui.label("PROVISIONAL").classes("bup-provisional-badge px-3 py-1 rounded font-bold inline-block")
         ui.label("Every result in this app is provisional until BOTH V1 and V2 pass within +-5%. Neither does yet.").classes("mt-2")
 
         ui.label("V1 - 2026-07-04 (Pachuca profile)").classes("text-lg font-bold mt-4")

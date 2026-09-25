@@ -7,8 +7,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from nicegui import ui
 
-from stella_flight.gui import layout, state
-from stella_flight import monte_carlo
+from bup_rocketpy.gui import layout, state
+from bup_rocketpy import monte_carlo
 
 matplotlib.use("Agg")
 s = state.state
@@ -71,7 +71,7 @@ def montecarlo_page():
                     ]:
                         with ui.card():
                             ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(value).classes("stella-kpi-value text-xl font-bold")
+                            ui.label(value).classes("bup-kpi-value text-xl font-bold")
 
                 fig, ax = plt.subplots(figsize=(6, 3.5))
                 ax.hist(result.apogee_samples, bins=min(20, max(5, result.n_completed // 3)), color="#8A1538", alpha=0.75)
@@ -107,7 +107,7 @@ def montecarlo_page():
                     ui.label("No landing ellipse: this case terminates at apogee (Ballistic) or too few samples completed.").classes("text-gray-500")
 
         def _get_inertia():
-            from stella_flight import translate
+            from bup_rocketpy import translate
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_override"], s["dry_cg_override"], "UI")
             return translate.estimate_dry_inertia(parsed, mass_est)

@@ -1,4 +1,4 @@
-# stella-flight: Flight simulation and analysis for Stella Ignis (RocketPy)
+# Beyond UP RocketPy: Flight simulation and analysis for Beyond UP (RocketPy)
 
 > Instructions for Claude Code. Keep this file at the repo root as `CLAUDE.md` so every
 > session reads it automatically and the context never has to be re-explained.
@@ -9,7 +9,7 @@
 
 ## 0. The user
 
-**Diego** studies engineering at Universidad Panamericana and is on the **Stella Ignis**
+**Diego** studies engineering at Universidad Panamericana and is on the **Beyond UP**
 rocketry team. He designs rockets in OpenRocket through its GUI and **does not
 program**, although he is willing to learn what he needs to win.
 
@@ -48,8 +48,8 @@ coefficients: the app **flies** a given design. That means no "design search", n
 choosing motors or diameters, and no parametric vehicle configs. Diego designs in
 OpenRocket and this app reads the result.
 
-**Library structure:** an importable package `stella_flight/` (core, no UI) with
-`stella_flight/gui/` (NiceGUI) as a separate layer. Diego's other repo, Altum, also
+**Library structure:** an importable package `bup_rocketpy/` (core, no UI) with
+`bup_rocketpy/gui/` (NiceGUI) as a separate layer. Diego's other repo, Altum, also
 uses NiceGUI and may import this later. **Don't integrate with Altum now.**
 
 ---
@@ -61,6 +61,21 @@ uses NiceGUI and may import this later. **Don't integrate with Altum now.**
 3. Compete for the **RocketPy Computational Simulation award** and the **flight
    dynamics** award. What wins them is a **rigorous, validated, well-documented study**,
    not a pretty app.
+
+---
+
+## 2.5 Definition of done ("presentable")
+
+The goal is always a finished, presentable product, not maximum features. Work so
+that if the session is cut off at any moment, `main` is a working app.
+
+**"Presentable" means:** load a `.ork` + `.eng` with **no overrides** → Simulate →
+correct KPIs, plots, recovery panel → Ballistic + Nominal cases → per-case `.py` for
+LASC → PDF report. **No page ever crashes.** The Validation page is honest (shows
+PROVISIONAL and the real error, never a tuned number). Everything else is an extra.
+
+Never leave a half-built feature visible in the sidebar: hide it behind a "Coming
+soon" label rather than shipping something that half-works or crashes on click.
 
 ---
 
@@ -213,7 +228,7 @@ apogee to the app's.
 
 The repo currently has `common/rules.py`, `common/design_search.py` and
 `common/environment.py` from an earlier plan. `design_search.py` contradicts §1.
-Report in 3 lines what each file does and what can move into `stella_flight/` (the
+Report in 3 lines what each file does and what can move into `bup_rocketpy/` (the
 RCSM rules checker likely can). Then propose the restructure and wait for Diego's OK
 before deleting anything.
 

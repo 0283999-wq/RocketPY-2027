@@ -1,7 +1,7 @@
 """Phase 5 (CLAUDE.md Sec 6, Phase 5 + Sec 5's "Design consequence"):
 Ballistic + Nominal cases, exported as self-contained per-case .py files
 named per CRS 10.1.6 (Mission[ID]_[Case]_RocketPy_v[N]), each run in a
-CLEAN venv (no stella_flight on the path) and its apogee compared to the
+CLEAN venv (no bup_rocketpy on the path) and its apogee compared to the
 app's own in-process result - proving the exported file is what it claims
 to be: runnable with nothing but `pip install rocketpy`.
 """
@@ -12,9 +12,9 @@ import venv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight import case_export, translate
-from stella_flight.motor_reader import read_eng
-from stella_flight.ork_reader import read_ork
+from bup_rocketpy import case_export, translate
+from bup_rocketpy.motor_reader import read_eng
+from bup_rocketpy.ork_reader import read_ork
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
@@ -93,7 +93,7 @@ def test_exported_scripts_match_the_apps_own_apogee_in_a_clean_venv():
             f.write(source)
 
         assert filename == f"Mission44_{case_name}_RocketPy_v1.py", "CRS 10.1.6 naming: Mission[ID]_[Case]_RocketPy_v[N]"
-        assert "stella_flight" not in source, "exported script must NOT import this repo - CRS 10.1.5 needs it runnable standalone"
+        assert "bup_rocketpy" not in source, "exported script must NOT import this repo - CRS 10.1.5 needs it runnable standalone"
 
         proc = subprocess.run([clean_python, script_path], capture_output=True, text=True, timeout=120, cwd=OUT_DIR)
         print(f"\n=== {filename} (clean venv) ===")

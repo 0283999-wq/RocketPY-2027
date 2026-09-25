@@ -5,7 +5,7 @@ import os
 
 from nicegui import ui
 
-from stella_flight.gui import layout, rocket_drawing, state
+from bup_rocketpy.gui import layout, rocket_drawing, state
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")

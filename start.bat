@@ -1,5 +1,5 @@
 @echo off
-REM stella-flight launcher (Windows). Double-click this file.
+REM Beyond UP RocketPy launcher (Windows). Double-click this file.
 REM First run: creates .venv and installs requirements.txt (pinned versions).
 REM Every run: activates .venv and opens the app in your browser.
 
@@ -22,6 +22,6 @@ if not exist .venv (
     )
 )
 
-echo Starting stella-flight...
-.venv\Scripts\python -m stella_flight.gui.app
+echo Starting Beyond UP RocketPy...
+.venv\Scripts\python -m bup_rocketpy.gui.app
 pause

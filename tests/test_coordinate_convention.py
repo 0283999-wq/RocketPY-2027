@@ -15,8 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight.ork_reader import read_ork
-from stella_flight import translate
+from bup_rocketpy.ork_reader import read_ork
+from bup_rocketpy import translate
 
 ORK_PATH = os.path.join(os.path.dirname(__file__), "..", "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
 

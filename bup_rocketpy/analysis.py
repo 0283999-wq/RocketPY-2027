@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from stella_flight import translate
-from stella_flight.rcsm import MAX_STATIC_MARGIN_CAL, MIN_STATIC_MARGIN_CAL
+from bup_rocketpy import translate
+from bup_rocketpy.rcsm import MAX_STATIC_MARGIN_CAL, MIN_STATIC_MARGIN_CAL
 
 
 @dataclass
@@ -89,7 +89,7 @@ def drag_comparison(parsed, parsed_eng, eng_path, drag_pair_a, drag_pair_b, dry_
     Runs each through the SAME seeded Monte Carlo (common random numbers)
     so the paired difference isolates the drag-curve effect from sampling
     noise, per CLAUDE.md Sec 6 point 2."""
-    from stella_flight import monte_carlo
+    from bup_rocketpy import monte_carlo
 
     result_a = monte_carlo.run_monte_carlo(parsed, parsed_eng, eng_path, drag_pair_a[0], drag_pair_a[1], dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir + "_a", include_recovery=False, seed=seed)
     result_b = monte_carlo.run_monte_carlo(parsed, parsed_eng, eng_path, drag_pair_b[0], drag_pair_b[1], dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir + "_b", include_recovery=False, seed=seed)

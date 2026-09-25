@@ -2,8 +2,8 @@
 
 Also documents 3 real bugs found in rocketpy==1.13.0's own Stochastic
 subsystem (explicitly marked "still under testing" in its own warning)
-while building this - none of them are in stella_flight's code, all
-worked around in stella_flight/monte_carlo.py with comments at each site:
+while building this - none of them are in bup_rocketpy's code, all
+worked around in bup_rocketpy/monte_carlo.py with comments at each site:
 
 1. MonteCarlo.simulate()'s default export_list includes 'apogee_y', which
    does not exist on Flight (AttributeError, 100% of the time on ANY
@@ -35,9 +35,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight import monte_carlo, translate
-from stella_flight.motor_reader import read_eng
-from stella_flight.ork_reader import read_ork
+from bup_rocketpy import monte_carlo, translate
+from bup_rocketpy.motor_reader import read_eng
+from bup_rocketpy.ork_reader import read_ork
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")

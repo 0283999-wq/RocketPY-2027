@@ -7,16 +7,16 @@ construction doesn't work either (the per-attribute sampler is already a
 bound method of the OLD generator by the time you could intervene). The
 only working fix is monkeypatching numpy.random.default_rng for the
 narrow scope of the 4 Stochastic* constructor calls - see
-stella_flight.monte_carlo._seeded_rng.
+bup_rocketpy.monte_carlo._seeded_rng.
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight import analysis, monte_carlo, translate
-from stella_flight.motor_reader import read_eng
-from stella_flight.ork_reader import read_ork
+from bup_rocketpy import analysis, monte_carlo, translate
+from bup_rocketpy.motor_reader import read_eng
+from bup_rocketpy.ork_reader import read_ork
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")

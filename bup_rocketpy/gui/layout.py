@@ -9,7 +9,7 @@ import os
 
 from nicegui import ui
 
-from stella_flight.gui import theme
+from bup_rocketpy.gui import theme
 
 PAGES = [
     ("/", "rocket_launch", "Simulate"),
@@ -33,21 +33,21 @@ def layout(title, current_path="/"):
     # per page load - harmless repetition of the same <style>/ui.colors()
     # setup, and the only place in this codebase it's now called from.
     theme.apply(ui)
-    ui.add_head_html(f'<title>stella-flight - {title}</title>')
-    with ui.header().classes("stella-header items-center justify-between"):
+    ui.add_head_html(f'<title>Beyond UP RocketPy - {title}</title>')
+    with ui.header().classes("bup-header items-center justify-between"):
         with ui.row().classes("items-center gap-3"):
             if os.path.exists(theme.LOGO_WINE):
                 ui.image(theme.LOGO_WINE).classes("h-8 w-auto")
             else:
-                ui.label("Stella Ignis").classes("text-lg font-bold")
-                ui.label("stella-flight").classes("text-sm opacity-80")
+                ui.label("Beyond UP RocketPy").classes("text-lg font-bold")
+                ui.label("Flight simulation powered by RocketPy").classes("text-sm opacity-80")
         ui.label(title).classes("text-base font-medium")
         dark = ui.dark_mode()
         ui.button(icon="dark_mode", on_click=dark.toggle).props("flat round color=white")
 
-    with ui.left_drawer().classes("stella-sidebar") as drawer:
+    with ui.left_drawer().classes("bup-sidebar") as drawer:
         for path, icon, label in PAGES:
-            classes = "stella-nav-active" if path == current_path else ""
+            classes = "bup-nav-active" if path == current_path else ""
             with ui.row().classes(f"items-center gap-2 p-2 w-full cursor-pointer {classes}").on("click", lambda p=path: ui.navigate.to(p)):
                 ui.icon(icon)
                 ui.label(label)

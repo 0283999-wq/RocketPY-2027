@@ -20,8 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from stella_flight.ork_reader import read_ork, parse_stored_simulation_references
-from stella_flight import translate
+from bup_rocketpy.ork_reader import read_ork, parse_stored_simulation_references
+from bup_rocketpy import translate
 
 ORK_PATH = os.path.join(os.path.dirname(__file__), "..", "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
 POWER_OFF_DRAG = os.path.join(os.path.dirname(__file__), "..", "reference", "prometeo_mission44", "data", "rockets", "power_off_drag.csv")
@@ -132,7 +132,7 @@ def test_full_flight_runs_with_real_eng_real_drag_curves_and_measured_mass():
     GEOMETRY/motor/drag pipeline itself is sound, separate from the
     already-documented mass-estimator gap. Bounded so an unstable/
     degenerate combination can't hang the suite."""
-    from stella_flight.motor_reader import read_eng
+    from bup_rocketpy.motor_reader import read_eng
 
     parsed = read_ork(ORK_PATH)
     refs = parse_stored_simulation_references(ORK_PATH)
