@@ -55,3 +55,30 @@ def rocket_page():
                 with ui.card():
                     ui.label(label).classes("text-xs text-gray-500")
                     ui.label(value).classes("text-lg font-bold")
+
+        # 2026-09-25 review Section 5b: reference area + per-parachute
+        # diameter/area/Cd*S - geometry-only, so this works right after
+        # Load, no Simulate needed.
+        import math
+        ui.label("Rocket info").classes("text-lg font-bold mt-4")
+        with ui.grid(columns=4).classes("gap-4"):
+            with ui.card():
+                ui.label("Reference area").classes("text-xs text-gray-500")
+                ui.label(f"{math.pi * body_radius**2:.5f} m2").classes("text-lg font-bold")
+        if parsed.parachutes:
+            ui.label("Parachutes").classes("text-md font-bold mt-2")
+            ui.table(
+                columns=[
+                    {"name": "name", "label": "Name", "field": "name"},
+                    {"name": "diameter", "label": "Diameter (m)", "field": "diameter"},
+                    {"name": "area", "label": "Area (m2)", "field": "area"},
+                    {"name": "cd", "label": "Cd", "field": "cd"},
+                    {"name": "cd_s", "label": "Cd*S (m2)", "field": "cd_s"},
+                ],
+                rows=[{
+                    "name": c.name, "diameter": f"{c.diameter:.2f}",
+                    "area": f"{math.pi * (c.diameter / 2.0) ** 2:.3f}",
+                    "cd": f"{c.cd:.2f}" if c.cd is not None else "auto (not resolvable)",
+                    "cd_s": f"{c.cd * math.pi * (c.diameter / 2.0) ** 2:.3f}" if c.cd is not None else "n/a",
+                } for c in parsed.parachutes],
+            ).classes("w-full")

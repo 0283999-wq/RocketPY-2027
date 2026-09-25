@@ -75,6 +75,7 @@ class SimResult:
     ground_hit_velocity_ms: float = None  # |flight.impact_velocity| - 0 for the Ballistic case (no recovery, free-fall impact)
     landing_distance_m: float = None  # straight-line drift from the pad, sqrt(x_impact^2 + y_impact^2)
     recovery_rows: list = field(default_factory=list)  # list of recovery.ParachutePanelRow - the LASC-requested recovery panel
+    plot_titles: dict = field(default_factory=dict)  # {"altitude": "Altitude AGL", ...} - nicer tab labels than the raw key
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -216,20 +217,31 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     import matplotlib.pyplot as plt
 
     plot_paths = {}
-    for plot_name, plot_fn in [
-        ("trajectory_3d", flight.plots.trajectory_3d),
-        ("linear_kinematics", flight.plots.linear_kinematics_data),
-        ("attitude", flight.plots.attitude_data),
-    ]:
-        try:
-            plot_fn()
-            path = fresh_image_path(outputs_dir, plot_name)
-            plt.savefig(path)
-            plt.close("all")
-            plot_paths[plot_name] = path
-        except Exception as exc:  # a plot failing shouldn't sink the whole simulation - log and continue, per "never invent, but don't crash on the optional part" spirit
-            plot_paths[plot_name] = None
-            print(f"WARNING: plot {plot_name!r} failed: {exc}")
+    plot_titles = {}
+    try:
+        flight.plots.trajectory_3d()
+        path = fresh_image_path(outputs_dir, "trajectory_3d")
+        plt.savefig(path)
+        plt.close("all")
+        plot_paths["trajectory_3d"] = path
+        plot_titles["trajectory_3d"] = "3D trajectory"
+    except Exception as exc:  # a plot failing shouldn't sink the whole simulation - log and continue, per "never invent, but don't crash on the optional part" spirit
+        plot_paths["trajectory_3d"] = None
+        print(f"WARNING: plot 'trajectory_3d' failed: {exc}")
+
+    # 2026-09-25 review Section 5b: one plot PER quantity (altitude,
+    # velocity, Mach, thrust, mass, CG/CP, static margin, AoA, dynamic
+    # pressure, Cd-vs-Mach, descent velocity, ground track) instead of
+    # rocketpy's 3 built-in composite multi-panel figures, which this
+    # replaces (linear_kinematics/attitude) since they bundled several
+    # quantities together rather than giving each its own exportable tab.
+    try:
+        from bup_rocketpy.gui.plotting import generate_all_plots
+        for key, (title, path) in generate_all_plots(flight, rocket, motor, env, outputs_dir).items():
+            plot_paths[key] = path
+            plot_titles[key] = title
+    except Exception as exc:
+        print(f"WARNING: per-quantity plots failed: {exc}")
 
     csv_path = os.path.join(outputs_dir, "flight_data.csv")
     try:
@@ -264,4 +276,5 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         ground_hit_velocity_ms=ground_hit_velocity,
         landing_distance_m=landing_distance,
         recovery_rows=recovery_rows,
+        plot_titles=plot_titles,
     )

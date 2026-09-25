@@ -246,12 +246,14 @@ def simulate_page():
                 ui.image(rocket_png).classes("w-full max-w-3xl")
 
                 with ui.tabs().classes("w-full") as tabs:
-                    plot_tabs = [ui.tab(name.replace("_", " ").title()) for name in sim.plot_paths if sim.plot_paths[name]]
+                    plot_tabs = [ui.tab(sim.plot_titles.get(name, name.replace("_", " ").title())) for name in sim.plot_paths if sim.plot_paths[name]]
                 with ui.tab_panels(tabs).classes("w-full"):
                     for name, path in sim.plot_paths.items():
                         if path:
-                            with ui.tab_panel(name.replace("_", " ").title()):
+                            title = sim.plot_titles.get(name, name.replace("_", " ").title())
+                            with ui.tab_panel(title):
                                 ui.image(path).classes("w-full max-w-3xl")
+                                ui.link("Download PNG", f"/outputs/{os.path.basename(path)}")
                 if sim.csv_path:
                     ui.link("Download flight data CSV", f"/outputs/{os.path.basename(sim.csv_path)}")
 

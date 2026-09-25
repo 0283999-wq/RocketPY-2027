@@ -790,3 +790,30 @@ All new fields verified end to end via the Section 4 e2e test
 KPI grid + recovery panel table rendered in a real browser).
 
 Full suite (30 tests) green.
+
+### Section 5 (rest) - DONE
+
+**Per-quantity plot tabs** (`bup_rocketpy/gui/plotting.py`): replaced
+rocketpy's 3 built-in composite multi-panel figures
+(`linear_kinematics_data`/`attitude_data`, which bundled several
+quantities into one crowded figure each) with one tab per quantity, each
+independently downloadable as a PNG:
+altitude, vertical velocity, total velocity, acceleration (boost-phase
+only - restricted to ascent so the parachute-opening transient doesn't
+flatten the boost detail, same reasoning as the KPI split in Section 2),
+Mach, thrust, mass, CG+CP vs. time (one figure, two lines), static
+margin vs. time, angle of attack, dynamic pressure, Cd vs. Mach (the
+CURVE ACTUALLY USED - `rocket.power_off_drag`/`power_on_drag`, not a
+derived flight time series), descent velocity (post-apogee, zoomed), and
+a ground track (top-down X/Y drift plot, pad marked, landing point
+marked). Kept the 3D trajectory plot too (a genuinely different view,
+not redundant with any of the above). Each tab has its own "Download
+PNG" link.
+
+**Rocket page "Rocket info"** section: reference area (pi*r^2), and a
+parachute table (diameter, area, Cd, Cd*S) - geometry-only, so it works
+right after Load, no Simulate needed.
+
+Full suite (31 tests) green. Screenshots confirm both render correctly
+in a real browser (`docs/screenshots/01_simulate_results.png`'s new tab
+row, `docs/screenshots/05_rocket.png`'s new Rocket info section).
