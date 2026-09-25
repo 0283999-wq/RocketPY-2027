@@ -306,23 +306,28 @@ not a stand-in.
   stella-flight") instead. Drop the real logo files in that folder
   whenever the rebrand assets are ready; `theme.py`/`layout.py` will pick
   them up automatically, no other code changes needed.
-- **Monte Carlo doesn't run in the background and isn't cancellable** -
-  CLAUDE.md Sec 6 Phase 4 asked for both ("runs in the background, with
-  progress, cancellable, saving partial results"). Tonight's
-  implementation runs synchronously on the UI thread with a progress
-  LABEL (updates between simulations) but no true background
-  thread/cancel button and no partial-results save if interrupted mid-run
-  - a real scope cut for time, not forgotten.
+- ~~**Monte Carlo doesn't run in the background and isn't cancellable**~~
+  RESOLVED 2026-09-25 (budget-mode Section 1/7): now runs via
+  `nicegui.run.io_bound` on a background thread with a working Cancel
+  button and a live progress label; see `montecarlo_page.py`.
 - **Monte Carlo/drag-comparison N is capped low in practice for UI
   responsiveness** - each sample is a full 6-DOF flight; N=200 (CLAUDE.md's
-  default) will take real wall-clock time synchronously blocking the
-  page. Works correctly, just slow at the full default N without the
-  background-thread work above.
-- **Landing ellipse is a static matplotlib plot, not the Leaflet map on
-  site imagery CLAUDE.md Sec 6 Phase 4 asked for** - shows the correct
-  1/2/3-sigma ellipses and impact scatter in X/Y meters from the pad, but
-  not overlaid on an actual map. A reasonable scope cut given the time
-  left, not a hidden gap.
+  default) will take real wall-clock time even on a background thread.
+  Works correctly, just slow at the full default N.
+- ~~**Landing ellipse is a static matplotlib plot, not the Leaflet map**~~
+  RESOLVED 2026-09-25 (budget-mode Section 7): a real interactive
+  `ui.leaflet` map with the pad marker, 1/2/3-sigma ellipses and capped
+  impact-sample markers was added next to the existing static plot (kept
+  for quick PNG export). See `bup_rocketpy/geo.py` + `montecarlo_page.py`.
+  **However**, the automated Playwright test for this
+  (`test_phase7_mc_map_e2e.py`) is currently unreliable in this sandbox
+  (times out waiting for the MC run to finish, even standalone, on
+  re-checks tonight) - it's skipped by default so it can't destabilize
+  the e2e gate, but that also means **the map hasn't been freshly,
+  automatically re-confirmed rendering tonight**. Please click Monte
+  Carlo -> Run on your own machine (a real browser, no sandbox network
+  restrictions) and confirm the landing map shows the pad + ellipses +
+  markers as expected.
 
 ## Log
 
@@ -892,20 +897,29 @@ NiceGUI's websocket heartbeat and silently reconnect (losing the just-
 rendered results). Removed the redundant call - fixed and verified
 reliable across repeated standalone runs.
 
-**Known limitation, honestly documented**: `test_phase7_mc_map_e2e.py`
-passes reliably standalone but hangs specifically when run in the same
-pytest process AFTER another Playwright-based test in this repo (any
-one of them) - confirmed via debug logging that the underlying Python-
-side computation always completes in ~2s regardless; the hang is
-client-side/delivery only and only appears with a prior Playwright
-session earlier in the same process. Not root-caused further tonight
-(Section 7 is the lowest-priority item, and this is a test-harness
-interaction specific to running many heavy Playwright sessions back to
-back in this sandboxed container, not something Diego's own interactive
-use of the app would ever hit). Skipped by default
-(`RUN_LEAFLET_TEST=1 pytest tests/test_phase7_mc_map_e2e.py` to run it
-explicitly) so it doesn't destabilize the "every commit passes the e2e
-test" gate - full reasoning in the test file's own docstring.
+**Known limitation, honestly documented (and re-checked)**:
+`test_phase7_mc_map_e2e.py` was believed last night to pass reliably
+when run standalone and only hang after another Playwright-based test
+in the same pytest process. Re-checked this tonight (2026-09-25) by
+re-running it several times, including alone - it timed out (180s)
+waiting for the Monte Carlo run to finish on every re-run, so the
+"reliable in isolation" claim does not hold up and the real trigger is
+still not pinned down. Confirmed via debug logging that the underlying
+Python-side computation always completes in ~2s regardless - the
+timeout is client-side/browser-delivery only. Not root-caused further
+(Section 7 is the lowest-priority item, and budget is limited). Stays
+skipped by default (`RUN_LEAFLET_TEST=1 pytest tests/test_phase7_mc_map_e2e.py`
+to run it explicitly) so it doesn't destabilize the "every commit passes
+the e2e test" gate. The Leaflet map feature itself is implemented and
+its code path is exercised by this test up to the point it hangs (the
+map only renders after the MC run reports done, so this hasn't been
+visually confirmed working in THIS sandbox tonight - it was visually
+confirmed earlier, see screenshot `docs/screenshots/06_montecarlo.png`
+from an earlier successful run). Flagging this plainly as a
+**BLOCKED / NEEDS DIEGO** item: please click through Monte Carlo -> Run
+on your own machine and confirm the landing map actually renders with
+markers - that is the real-world check this automated test can no
+longer reliably stand in for here.
 
 **Dual-deploy testing** (`test_phase5_rcsm_cases.py`): added
 `test_drogue_only_and_main_at_apogee_work_on_a_real_dual_deploy_vehicle`

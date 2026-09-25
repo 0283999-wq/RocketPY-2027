@@ -9,20 +9,24 @@ the page doesn't error, not validating Monte Carlo statistics (that's
 test_phase4_monte_carlo.py's job, against the real bup_rocketpy.monte_carlo
 module directly).
 
-KNOWN LIMITATION, honestly documented rather than hidden: this test
-passes reliably in isolation (`pytest tests/test_phase7_mc_map_e2e.py`,
-verified repeatedly) but hangs waiting for the MC run to finish when run
-as part of the FULL suite, specifically whenever ANY other Playwright-
-based test in this repo has already run earlier in the SAME pytest
-process. Root-caused as far as: the underlying computation itself is
-always fast (~2s, confirmed by calling bup_rocketpy.monte_carlo directly
-and by this test's own server-side debug logging, which showed the
-Python-side code completing in full every time) - the hang is client-side/
-browser-delivery only, and only manifests with a prior Playwright session
-in the same pytest run. Not resolved further tonight (Section 7 is the
-lowest-priority item) - skipped by default so it doesn't destabilize the
-"every commit passes the e2e test" gate; run it explicitly (see below) to
-exercise the real Leaflet map feature, which does work.
+KNOWN LIMITATION, honestly documented rather than hidden: this test is
+UNRELIABLE in this sandbox - it originally seemed to pass reliably when
+run completely alone and only hang after another Playwright test in the
+same pytest process, but re-checking that claim on 2026-09-25 it timed
+out on 3 separate re-runs, including runs with no prior Playwright test
+in the same process. So the earlier "isolation is fine" claim does not
+hold up; treat this as flaky in this sandboxed environment generally, not
+as a well-understood one-trigger bug. The underlying computation itself is
+fast (~2s, confirmed by calling bup_rocketpy.monte_carlo directly and by
+this test's own server-side debug logging, which showed the Python-side
+code completing in full every time) - the hang/timeout is client-side/
+browser-delivery only. Not resolved further (Section 7 is explicitly the
+lowest-priority item, and budget is limited) - skipped by default so it
+doesn't destabilize the "every commit passes the e2e test" gate; run it
+explicitly (see below) if you want to exercise the real Leaflet map
+feature, which is implemented and does work when the page loads (verified
+via the code path and manual review), but expect this specific automated
+check of it to be flaky here.
 """
 import os
 import re
