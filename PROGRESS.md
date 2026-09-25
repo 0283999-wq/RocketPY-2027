@@ -41,9 +41,13 @@ check here first, then CHANGELOG.md for detail.
       1/2/3-sigma landing ellipses computed from impact sample covariance.
       NOT yet wired into the UI (Monte Carlo page) or given a
       progress-bar/cancel UI - backend only so far.
-- [ ] Item 3 (rest): RCSM 4 cases (2 more needed), PDF/DOCX report, LASC
-      zip, Phase 6 (weathercocking, drag comparison), Major Tom testing,
-      full UI wiring for all pages, Playwright screenshots.
+- [x] Item 3 / Phase 5 (rest): PDF/DOCX report (validation section first,
+      wording checked against CLAUDE.md Sec 3.1's rule) + LASC .zip
+      (per-case .py + .eng + .ork + Cd curves). stella_flight/report.py,
+      stella_flight/lasc_package.py. 3/3 tests pass
+      (tests/test_phase5_report_and_zip.py).
+- [ ] Item 3 (rest): Phase 6 (weathercocking, drag comparison), Major Tom
+      testing, full UI wiring for all pages, Playwright screenshots.
 
 
 
