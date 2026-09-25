@@ -3,7 +3,33 @@
 Started 2026-09-25. This file is the resume point if context gets compacted -
 check here first, then CHANGELOG.md for detail.
 
-## Checklist
+## Checklist (2026-09-26 overnight run: fix upload bug -> code-to-code check -> UI redesign -> remaining phases)
+
+- [x] Item 0: upload handler bug FIXED. Root cause: NiceGUI 3.17.1's
+      `UploadEventArguments` has `.file` (async `FileUpload.save()`), not
+      the old `.content`/`.name` API `app.py` was written against - the
+      handlers were also sync `def`, not `async def`, so the `await` this
+      needed couldn't even be added without that change too. Fixed both.
+      Added `tests/test_phase0_e2e.py`: launches the real app as a
+      subprocess, drives real headless Chromium (pre-installed at
+      `/opt/pw-browsers/chromium`, a symlink straight to the chrome
+      binary - the pip-installed `playwright` package's own version-
+      pinned lookup didn't match what's on disk, had to pass
+      `executable_path` explicitly), uploads PROMETEO's real `.ork`+`.eng`
+      through the actual `<input type=file>` elements, clicks through to
+      results, asserts the apogee (1198.7 m) is rendered. PASSED. Also had
+      to strip `PYTEST_CURRENT_TEST` from the subprocess env - NiceGUI's
+      own `is_pytest()` check was tripping on it and demanding a
+      `NICEGUI_SCREEN_TEST_PORT` env var meant for ITS OWN in-process
+      Screen-testing convention, which this deliberately bypasses in favor
+      of a real subprocess + real browser.
+- [ ] Item 1: code-to-code check vs OpenRocket (bug hunt for the
+      consistent ~+10% offset) - IN PROGRESS next.
+- [ ] Item 2: UI redesign (palette, sidebar, rocket drawing, History,
+      Exports, Validation pages, Playwright screenshots)
+- [ ] Item 3: remaining phases (4, rest of 5, 6), tested with Major Tom too
+
+
 
 - [x] Phase 0: repo restructure (common/ -> stella_flight/) - commit 59c4c19
 - [x] Phase 1a: ork_reader.py, motor_reader.py, translate.py built - commit 0dc168c

@@ -1,5 +1,16 @@
 # Notes for Diego (plain language, no code)
 
+## Fixed: the upload bug you found
+
+You were exactly right - the file upload was silently broken. The library
+I'm using for the app updated how it hands off uploaded files between
+when I wrote the first version and now, and my code was still using the
+old way. Fixed, and this time I built a permanent test that actually
+opens a real Chrome browser, uploads your real files, and clicks through
+to the results - not just testing the code behind the scenes. That test
+now passes and will run after every UI change from now on, so this exact
+kind of bug gets caught immediately instead of shipping to you again.
+
 ## Phase 5 (partial): the actual LASC submission files now generate correctly
 
 The app can now export `Mission44_Ballistic_RocketPy_v1.py` and

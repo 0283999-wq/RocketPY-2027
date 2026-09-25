@@ -4,6 +4,8 @@ scipy>=1.11
 matplotlib>=3.8
 pandas>=2.0
 pytest>=7.4
+playwright>=1.48
+pytest-playwright>=0.5
 nicegui==3.17.1
 openpyxl>=3.1
 simplekml>=1.3

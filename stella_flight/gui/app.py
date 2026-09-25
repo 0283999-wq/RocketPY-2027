@@ -17,14 +17,19 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 state = {"load_result": None, "sim_result": None, "ork_path": None, "eng_path": None, "drag_off_path": None, "drag_on_path": None}
 
 
-def _save_upload(e, suffix):
-    """NiceGUI hands uploads to us as in-memory content; the readers in
-    stella_flight all take file paths (so they work identically from the
-    CLI and the UI), so every upload gets written to a temp file first."""
+async def _save_upload(e, suffix):
+    """NiceGUI 3.x's UploadEventArguments carries `.file` (a FileUpload
+    with an ASYNC .save()/.read()/.text()) - NOT `.content`/`.name`, which
+    was an older NiceGUI API and silently did nothing here (AttributeError
+    inside a sync callback NiceGUI swallowed, so the upload widget still
+    showed 100% while state[...] was never set - this is bug #0 from the
+    2026-09-26 overnight review). The readers in stella_flight all take
+    file paths (so they work identically from the CLI and the UI), so
+    every upload gets saved straight to a temp file via FileUpload.save()."""
     fd, path = tempfile.mkstemp(suffix=suffix)
-    with os.fdopen(fd, "wb") as f:
-        f.write(e.content.read())
-    return path
+    os.close(fd)
+    await e.file.save(path)
+    return path, e.file.name
 
 
 @ui.page("/")
@@ -33,24 +38,24 @@ def main_page():
     ui.label("Flight simulation and analysis for Stella Ignis - drag in your .ork + .eng, click Simulate.").classes("text-sm text-gray-500")
 
     with ui.row():
-        def on_ork_upload(e):
-            state["ork_path"] = _save_upload(e, ".ork")
-            ui.notify(f"Loaded {e.name}")
+        async def on_ork_upload(e):
+            state["ork_path"], name = await _save_upload(e, ".ork")
+            ui.notify(f"Loaded {name}")
         ui.upload(label=".ork file", on_upload=on_ork_upload, auto_upload=True).props("accept=.ork")
 
-        def on_eng_upload(e):
-            state["eng_path"] = _save_upload(e, ".eng")
-            ui.notify(f"Loaded {e.name}")
+        async def on_eng_upload(e):
+            state["eng_path"], name = await _save_upload(e, ".eng")
+            ui.notify(f"Loaded {name}")
         ui.upload(label=".eng file", on_upload=on_eng_upload, auto_upload=True).props("accept=.eng")
 
-        def on_drag_off_upload(e):
-            state["drag_off_path"] = _save_upload(e, ".csv")
-            ui.notify(f"Loaded {e.name} (power-off drag)")
+        async def on_drag_off_upload(e):
+            state["drag_off_path"], name = await _save_upload(e, ".csv")
+            ui.notify(f"Loaded {name} (power-off drag)")
         ui.upload(label="power_off_drag.csv (optional)", on_upload=on_drag_off_upload, auto_upload=True).props("accept=.csv")
 
-        def on_drag_on_upload(e):
-            state["drag_on_path"] = _save_upload(e, ".csv")
-            ui.notify(f"Loaded {e.name} (power-on drag)")
+        async def on_drag_on_upload(e):
+            state["drag_on_path"], name = await _save_upload(e, ".csv")
+            ui.notify(f"Loaded {name} (power-on drag)")
         ui.upload(label="power_on_drag.csv (optional)", on_upload=on_drag_on_upload, auto_upload=True).props("accept=.csv")
 
     drag_source_label = ui.label("")
@@ -133,7 +138,12 @@ app.add_static_files("/outputs", OUTPUTS_DIR)
 
 
 def run():
-    ui.run(title="stella-flight", reload=False, show=True)
+    # STELLA_FLIGHT_PORT/STELLA_FLIGHT_SHOW let tests/test_phase0_e2e.py launch
+    # this exact module as a real subprocess on a fixed, non-default port
+    # without popping open a browser window in a headless CI/container run.
+    port = int(os.environ.get("STELLA_FLIGHT_PORT", "8080"))
+    show = os.environ.get("STELLA_FLIGHT_SHOW", "1") != "0"
+    ui.run(title="stella-flight", reload=False, show=show, port=port)
 
 
 if __name__ in ("__main__", "__mp_main__"):

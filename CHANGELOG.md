@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-26 overnight run, item 0 - CRITICAL upload bug fixed
+
+`app.py`'s upload handlers used NiceGUI's old `e.content`/`e.name` API.
+NiceGUI 3.17.1 (the pinned version) uses `e.file` (async `FileUpload`,
+`.save()`/`.read()`/`.text()`) - the handlers were also plain `def`, not
+`async def`, silently swallowing the `AttributeError` and leaving the
+upload widget showing "100%" while `state[...]` was never actually set.
+This is exactly the "checkmark and 100%, then Load Files says nothing was
+uploaded" bug Diego reported. Fixed both the API call and made the
+handlers `async`.
+
+Added `tests/test_phase0_e2e.py`, a **permanent** Playwright end-to-end
+test: launches the real app as a subprocess, drives real headless
+Chromium, uploads real files through the actual file inputs, clicks
+through to results, asserts the apogee renders. This is the test that
+would have caught the bug Diego found - a pipeline-only test cannot,
+since the bug was entirely in the browser-facing upload wiring. Runs
+after every UI change from now on; nothing UI-related is "done" without
+it passing.
+
 ## Phase 5 (partial) - Ballistic + Nominal cases, self-contained .py export
 
 - `translate.build_rocket`/`ork_to_flight` gained `include_recovery=`
