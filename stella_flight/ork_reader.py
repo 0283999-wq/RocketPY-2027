@@ -593,6 +593,78 @@ def parse_stored_simulation_references(path):
     return out
 
 
+def extract_drag_curves_from_stored_sim(path, sim_name=None, aoa_limit_deg=2.0, mach_round=3):
+    """CLAUDE.md Sec 4.2's TOP-preference Cd source: the <databranch> data
+    OpenRocket already saved inside the .ork itself - no separate CSV
+    upload needed for the common case. Mirrors
+    reference/prometeo_mission44/scripts/extract_drag_curves.py's method
+    (boost = Thrust>0, coast = Thrust==0 after burnout; both filtered to
+    |AoA|<aoa_limit_deg so induced drag from a pitched-over rocket doesn't
+    contaminate the zero-yaw Barrowman curve rocketpy wants), applied to
+    the .ork's OWN stored flight instead of an exported CSV.
+
+    Returns (power_on_points, power_off_points), each a sorted list of
+    (mach, cd) tuples ready to write straight to a headerless 2-column CSV
+    for rocketpy's power_on_drag/power_off_drag. Returns (None, None) if
+    the requested simulation has no stored databranch at all (a .ork can
+    be geometry-only, with no simulation ever run in OpenRocket)."""
+    import re
+    from collections import defaultdict
+
+    with open(path, "rb") as f:
+        head = f.read(2)
+    if head == b"PK":
+        with zipfile.ZipFile(path) as z:
+            inner_name = next((n for n in z.namelist() if n.endswith(".ork") or n == "rocket.ork"), None)
+            data = z.read(inner_name).decode("utf-8")
+    else:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            data = f.read()
+
+    header_m = re.search(r'types="([^"]+)"', data)
+    if header_m is None:
+        return None, None
+    header = header_m.group(1).split(",")
+    idx = {name: i for i, name in enumerate(header)}
+    required = ["Time", "Mach number", "Axial drag coefficient", "Thrust", "Angle of attack"]
+    if not all(r in idx for r in required):
+        return None, None
+
+    sim_block_m = None
+    for m in re.finditer(r'<simulation[^>]*>\s*<name>([^<]+)</name>.*?<flightdata[^>]*>(.*?)</simulation>', data, re.S):
+        if sim_name is None or m.group(1) == sim_name:
+            sim_block_m = m
+            break
+    if sim_block_m is None:
+        return None, None
+
+    points = re.findall(r"<datapoint>([^<]+)</datapoint>", sim_block_m.group(2))
+
+    def bin_avg(rows):
+        bins = defaultdict(list)
+        for mach, cd in rows:
+            bins[round(mach, mach_round)].append(cd)
+        return sorted((m, sum(v) / len(v)) for m, v in bins.items())
+
+    boost, coast = [], []
+    burned_out = False
+    for row in points:
+        vals = row.split(",")
+        try:
+            t, mach, cd, thrust, aoa = (float(vals[idx[c]]) for c in required)
+        except (ValueError, IndexError):
+            continue
+        if mach != mach or cd != cd or abs(aoa) >= aoa_limit_deg:  # NaN check + AoA filter
+            continue
+        if thrust > 0:
+            boost.append((mach, cd))
+        elif thrust == 0 and (boost or burned_out):
+            burned_out = True
+            coast.append((mach, cd))
+
+    return bin_avg(boost), bin_avg(coast)
+
+
 def read_ork(path):
     """Top-level entry point: load + parse geometry + parse launch
     conditions (from the first stored simulation), all in one call."""

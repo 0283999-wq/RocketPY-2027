@@ -1,5 +1,24 @@
 # Notes for Diego (plain language, no code)
 
+## Phase 3: the app itself is up - please test it on your machine
+
+`start.bat` is there. Double-click it: first time it sets up Python and
+installs everything, then opens the app in your browser. Drag in your
+`.ork` and `.eng`, click "Load files" to see what got imported, then
+"Simulate" for the numbers and plots.
+
+**One thing you'll need to do by hand for now:** since your `.ork`'s mass
+override is incomplete (see Phase 1 notes below), the app will show an
+"UNSTABLE" result if you just click through without entering a manual
+mass/CG. There are two boxes for that above the Simulate button - use
+5.6622 kg / 0.6279 m until you fix the override in OpenRocket itself.
+
+**I could not test the actual browser window** - this cloud container has
+no display, so I only proved the underlying logic works (loads your real
+files, produces sane numbers, writes real plot images). Please confirm the
+page itself looks right and the buttons work on your end - that's the one
+part of tonight's work I genuinely could not verify myself.
+
 ## Phase 2: V1/V2 results, honestly - neither passes yet
 
 - **V1 (July 4):** predicted 1124 m vs. your real 1020 m flight - **10.2%

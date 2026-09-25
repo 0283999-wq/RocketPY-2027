@@ -1,5 +1,35 @@
 # Changelog
 
+## Phase 3 - NiceGUI app, start.bat, headless smoke test
+
+- `stella_flight/gui/pipeline.py`: load/simulate logic with **no NiceGUI
+  import** (CLAUDE.md Sec 1's core/UI split), so it's directly unit-
+  testable without a browser or display server.
+- `stella_flight/gui/app.py`: the UI - upload `.ork`+`.eng`(+optional Cd
+  CSVs) -> imported-data table -> manual dry-mass/CG override fields ->
+  Simulate -> big numbers (apogee, Vmax, max Mach, max accel, rail exit,
+  flight time, min static margin, stable Y/N) -> plots -> CSV download.
+- Added `ork_reader.extract_drag_curves_from_stored_sim()`: pulls Cd-vs-
+  Mach directly from a `.ork`'s own stored `<databranch>` (CLAUDE.md Sec
+  4.2's TOP-preference source) - no separate CSV upload needed for the
+  common case. Cross-checked against PROMETEO's independently-exported
+  CSV-derived curve: subsonic coast Cd range 0.432-0.463 from the `.ork`
+  itself vs. 0.431-0.463 from the committed `power_off_drag.csv` - two
+  independent sources agree.
+- `start.bat`: creates `.venv`, installs pinned `requirements.txt`
+  (added `nicegui==3.17.1`, `openpyxl`, `simplekml`), opens the browser.
+- `tests/test_phase3_headless.py`, 5/5 pass: drag-curve auto-detection,
+  user-CSV override respected, full simulate-with-override (stable,
+  plots+CSV written), simulate-without-override honestly surfaces the
+  Phase-1-documented instability rather than hiding it, and `app.py`
+  imports cleanly (no server started - no display server in this
+  container to test an actual browser session, flagged in PROGRESS.md
+  for Diego to confirm on his machine).
+- Found and fixed while building this: `app.add_static_files()` needs its
+  target directory to already exist at import time, not just by the time
+  a request arrives - `app.py` now creates `outputs/gui_run/` at module
+  load.
+
 ## Phase 2 - V1/V2 validation against real flight data
 
 - `tests/test_phase2_validation.py`: V1 (2026-07-04, target 1019.9 m) and

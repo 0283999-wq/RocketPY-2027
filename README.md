@@ -8,8 +8,8 @@ and the self-contained `.py` scripts LASC actually grades.
 
 **This app does not design rockets.** Diego designs in OpenRocket; this app
 simulates what he designs. See `CLAUDE.md` for the full brief, phases and
-verified project facts - it is the source of truth for this repo, checked
-against the real files on 2026-09-24.
+verified project facts, and `PROGRESS.md` for exactly what's done, what's
+approximate, and what's blocked right now.
 
 ```
 OpenRocket -> .ork  (+ exported simulation CSV)
@@ -21,28 +21,45 @@ plots . Monte Carlo . landing ellipse . 4 RCSM cases . report . .py scripts for 
 ## Layout
 
 - `stella_flight/` - importable core library (no UI)
-  - `ork_reader.py` - pure-Python `.ork` reader (zip or bare XML)
+  - `ork_reader.py` - pure-Python `.ork` reader (zip or bare XML); also
+    extracts OpenRocket's own stored-simulation drag curve and reference
+    numbers directly from a `.ork`, no separate export needed
   - `motor_reader.py` - `.eng` (RASP) and OpenRocket thrust-CSV readers
   - `translate.py` - builds rocketpy `Environment`/`SolidMotor`/`Rocket`/`Flight` from parsed data
   - `rcsm.py` - RCSM Ed.7 Rev.1 compliance checker (rail exit, static margin, T/W, recovery topology, payload)
-  - `environment.py` - atmosphere builder (Phase 2 will add Open-Meteo/GFS/sounding sources)
-  - `gui/` - NiceGUI layer (Phase 3, not started)
+  - `environment.py` - atmosphere builder (Open-Meteo/GFS/sounding sources still to come)
+  - `gui/` - NiceGUI layer
+    - `pipeline.py` - the actual load/simulate logic, no NiceGUI import (testable headlessly)
+    - `app.py` - the UI itself: upload `.ork`+`.eng`, imported-data table, Simulate, big numbers, plots
 - `reference/prometeo_mission44/` - PROMETEO / Mission 44 (LASC 2026), the validated reference implementation this app's translation logic is checked against
 - `docs/rcsm_reference.md` - RCSM rule text and IDs used by `rcsm.py`
+- `tests/` - `pytest`; includes a real `.ork`/`.eng` acceptance test, V1/V2
+  flight-data validation, and a headless smoke test of the app pipeline
 
-## Setup (Windows, PowerShell)
+## Running it (Windows)
+
+Double-click **`start.bat`**. First run creates `.venv` and installs
+`requirements.txt` (pinned versions); every run after that just opens the
+app in your browser. No Python knowledge required.
+
+If you'd rather run it from PowerShell yourself:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m stella_flight.gui.app
 ```
 
 ## Status
 
-**Phase 0** (repo realignment) and **Phase 1** (`.ork`/`.eng` readers +
-translation into rocketpy objects) are in progress - see `CHANGELOG.md` and
-`NOTES_FOR_DIEGO.md`. There is still no PROMETEO or Major Tom `.ork` file in
-this repo, so Phase 1's acceptance check (mass/CG/CP within 1% of OpenRocket)
-is **not yet validated** - the reader has instead been checked against
-OpenRocket's own public example files. Every result is PROVISIONAL until
-Phase 2's V1/V2 validation tests pass (per `CLAUDE.md` Rule 3).
+See `PROGRESS.md` for the live checklist and every honestly-documented
+limitation (what's approximate, what's blocked, what needs a decision from
+Diego). Short version: Phases 0-3 are working end to end against
+PROMETEO's real `.ork` - drag in the files, click Simulate, get plots and
+numbers. **Every result is PROVISIONAL** (per `CLAUDE.md` Rule 3) until
+Phase 2's V1/V2 flight-data validation tests both pass within +-5% - right
+now neither does (V1: +10.2%, V2: +5.3%), and the causes are documented,
+not hidden. `PrometeoLasc2026.ork`'s own OpenRocket overrides are also
+incomplete (only one bodytube's shell mass, not the whole rocket), so the
+app's automatic mass/CG estimate for it is ~19% low - a manual override is
+needed in the UI until that `.ork` is fixed in OpenRocket.

@@ -26,7 +26,17 @@ check here first, then CHANGELOG.md for detail.
       Prometeo_Launchsite_BRASIL.csv reproduces power_off_drag.csv and
       power_on_drag.csv byte-for-byte - fully deterministic, not stale).
 - [x] Phase 2: telemetry_2026_07_04.xlsx inspected - see "Phase 2 findings" below.
-- [ ] Phase 3: NiceGUI app, start.bat, headless smoke test
+- [x] Phase 3: NiceGUI app, start.bat, headless smoke test -
+      stella_flight/gui/{pipeline.py,app.py}, tests/test_phase3_headless.py
+      (5/5 pass). Upload .ork+.eng -> import table -> Simulate -> big
+      numbers + plots + CSV. Drag curve auto-extracted from the .ork's own
+      stored sim when present (falls back to user-uploaded CSV or a
+      flagged placeholder). Manual dry-mass/CG override fields exposed in
+      the UI (needed for PROMETEO right now - see Phase 1 findings).
+      start.bat creates .venv + installs pinned requirements + opens
+      browser on first run. NOT tested with a live browser/display (no
+      display server in this container) - only the pipeline layer (no
+      NiceGUI import) and a clean import of app.py are verified headlessly.
 - [ ] Phase 4: Monte Carlo + landing ellipse
 - [ ] Phase 5: Ballistic + Nominal cases, per-case .py export (CRS 10.1.6),
       tested in a clean venv
@@ -113,6 +123,10 @@ not a stand-in.
   to 09-05 around 12:00 local) - needed once real weather is pulled.
 - **Major Tom's `.ork`** and both `.eng` files (K503, M1739-P) - not
   touched tonight, PROMETEO validation was the priority.
+- **No live browser test of the NiceGUI app** - this container has no
+  display server. Diego should double-click `start.bat` and confirm the
+  UI actually renders and the upload/Simulate flow works end to end on
+  his machine; only the underlying pipeline is verified here.
 
 ## Log
 
