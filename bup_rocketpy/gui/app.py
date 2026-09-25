@@ -96,6 +96,15 @@ def simulate_page():
             )
             s["load_result"] = result
             s["vehicle_name"] = result.parsed_ork.name
+            # Loading a NEW .ork invalidates every downstream result from
+            # the PREVIOUS rocket - without this, the Rocket page (and MC/
+            # RCSM/Analysis) kept showing the old rocket's dry_cg_m/margin/
+            # case results next to the new rocket's geometry until the user
+            # re-ran Simulate, a subtler recurrence of crash (e) found via
+            # the Section 4 e2e test's second-.ork screenshot.
+            for key in ("sim_result", "dry_mass_kg", "dry_cg_m", "mass_source", "case_results", "compliance_rows", "mc_result", "mc_uncertainties", "weathercocking_result"):
+                s[key] = None
+            results_container.clear()
             drag_source_label.set_text(f"Drag curve source: {result.drag_curve_source}")
             import_table_container.clear()
             with import_table_container:

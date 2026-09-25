@@ -682,3 +682,66 @@ opposite sign was tested too and makes the gap worse, not better (not
 committed - only the correct one is).
 
 Full suite (29 tests) green; reference/ data untouched throughout.
+
+### Section 4: tests that match reality - DONE
+
+Rewrote `tests/test_phase0_e2e_full.py` to actually match Diego's real
+path instead of the happy-path override flow `test_phase0_e2e.py`
+exercises:
+
+- **`test_corrupt_runs_dir_does_not_crash_history_page`**: pre-seeds a
+  `runs/` folder with a truncated `record.json` (the exact shape crash
+  (a) used to produce) and confirms the History page shows a warning,
+  not a traceback - crash (a)'s fix, verified through a real browser
+  this time, not just the unit-level JSON-encoder test.
+- **`test_default_path_every_page_and_second_ork`**: fresh `runs/`
+  folder; loads PROMETEO's real `.ork`+`.eng` with **NO manual
+  override** (the actual default path, not the override path the other
+  e2e test uses); Simulate; visits every sidebar page and asserts BOTH
+  no error AND a real-content marker specific to that page (not just
+  "didn't crash" - crash (d)'s whole point was pages that rendered fine
+  but showed nothing useful); then loads a second, genuinely different
+  `.ork` (an OpenRocket example rocket, see below) and confirms the
+  Rocket page shows the NEW rocket's name/dimensions, not the old one's.
+
+**Found a second, subtler instance of crash (e) while building this
+test**: after Section 1's fix, the Rocket page correctly showed the
+newly-loaded rocket's OWN geometry (no more browser-caching), but its
+dry CG/static margin cards still showed the PREVIOUS rocket's last-
+Simulate values (`s["dry_cg_m"]`/`s["sim_result"]` were never cleared on
+a new `.ork` load) - visible directly in the second-`.ork` screenshot
+(a 40cm model rocket showing a stale "112.2 cm from nose" CG and a
+margin number that belonged to PROMETEO). Fixed: `do_load()` now resets
+every downstream-result state key (`sim_result`, `dry_mass_kg`,
+`dry_cg_m`, `mass_source`, `case_results`, `compliance_rows`,
+`mc_result`, `mc_uncertainties`, `weathercocking_result`) whenever a new
+`.ork`+`.eng` pair is loaded. Verified: the Rocket page now correctly
+shows this rocket's own geometric CG estimate (22.4 cm) and "run
+Simulate first" for margin, instead of PROMETEO's stale numbers.
+
+**Added `reference/openrocket_examples/`**: two `.ork` files pulled from
+OpenRocket's own example-rocket set (GPL v3, bundled with every
+OpenRocket install) - `A_simple_model_rocket.ork` (the "second, different
+rocket" for the test above) and `Dual_parachute_deployment.ork` (a real
+drogue+main vehicle, for Section 7's dual-deploy test). See that
+folder's own README for licensing/attribution and why PROMETEO's real
+`.eng` gets paired with them for Simulate-needing tests (an honest test
+fixture, not fabricated motor data - these tests check UI/pipeline
+behavior, not vehicle performance).
+
+Added `BUP_ROCKETPY_RUNS_DIR` env var (`run_history._runs_dir`) so tests
+can point a real running app at an isolated `runs/` folder without ever
+touching the real repo's own run history.
+
+**`start.bat`** now prefers Python 3.12 via the Windows `py` launcher
+(`py -3.12`), with clear install instructions printed (and in
+`README.md`) if it's not found, before falling back to whatever
+`python` is on PATH - addresses Diego running Python 3.14 while this
+project is tested on 3.11/3.12, where a pinned dependency might not have
+wheels yet for a very new Python version.
+
+**Updated the Validation page's hardcoded numbers** to match Section 3's
+new results (was still showing last night's V1/V2 figures and the old
+"root cause not yet isolated" code-to-code text).
+
+Full suite (30 tests) green.

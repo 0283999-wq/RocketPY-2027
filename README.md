@@ -42,10 +42,26 @@ Double-click **`start.bat`**. First run creates `.venv` and installs
 `requirements.txt` (pinned versions); every run after that just opens the
 app in your browser. No Python knowledge required.
 
+**Python version: this app is tested on Python 3.11/3.12.** `start.bat`
+prefers Python **3.12** specifically, via the Windows `py` launcher
+(`py -3.12`), even if a different version is your default - a newer
+Python already on your machine (3.13, 3.14) may not have installable
+wheels yet for rocketpy/nicegui or one of their pinned dependencies, and
+`pip install` can fail or install something broken with no clear error.
+
+If `start.bat` prints "Python 3.12 was not found", install it first:
+1. Download it: <https://www.python.org/downloads/release/python-3120/>
+   ("Windows installer (64-bit)"). During install, check **"Add python.exe
+   to PATH"**.
+2. Or, with `winget`: `winget install -e --id Python.Python.3.12`
+3. Delete the `.venv` folder in this repo if one already exists (it may
+   have been created with the wrong version), then double-click
+   `start.bat` again.
+
 If you'd rather run it from PowerShell yourself:
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python -m bup_rocketpy.gui.app
 ```
@@ -54,12 +70,16 @@ python -m venv .venv
 
 See `PROGRESS.md` for the live checklist and every honestly-documented
 limitation (what's approximate, what's blocked, what needs a decision from
-Diego). Short version: Phases 0-3 are working end to end against
-PROMETEO's real `.ork` - drag in the files, click Simulate, get plots and
-numbers. **Every result is PROVISIONAL** (per `CLAUDE.md` Rule 3) until
+Diego). Short version: load a `.ork` + `.eng` with **no overrides** and
+click Simulate - full KPIs, plots, recovery panel, RCSM cases, and a
+self-contained `.py` export all work end to end against PROMETEO's real
+`.ork`. **Every result is PROVISIONAL** (per `CLAUDE.md` Rule 3) until
 Phase 2's V1/V2 flight-data validation tests both pass within +-5% - right
-now neither does (V1: +10.2%, V2: +5.3%), and the causes are documented,
-not hidden. `PrometeoLasc2026.ork`'s own OpenRocket overrides are also
-incomplete (only one bodytube's shell mass, not the whole rocket), so the
-app's automatic mass/CG estimate for it is ~19% low - a manual override is
-needed in the UI until that `.ork` is fixed in OpenRocket.
+now neither does (V1: +11.4%, V2: -5.8%), and the causes are documented,
+not hidden (see `PROGRESS.md` "Item 3" - three real bugs were found and
+fixed along the way, and the zero-weather-uncertainty code-to-code check
+against OpenRocket's own simulation now passes at -1.45%). `PrometeoLasc2026.ork`'s
+own OpenRocket overrides are also incomplete (only one bodytube's shell
+mass, not the whole rocket), so the app's automatic mass/CG estimate for
+it is unstable - a manual override is available in the UI's Advanced
+panel until that `.ork` is fixed in OpenRocket.

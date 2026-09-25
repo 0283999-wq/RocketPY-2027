@@ -51,7 +51,12 @@ def _atomic_write_json(path, data):
 
 
 def _runs_dir(repo_root):
-    d = os.path.join(repo_root, RUNS_DIR_NAME)
+    # BUP_ROCKETPY_RUNS_DIR lets tests point a real running app at an
+    # isolated runs/ folder (a fresh one, or one pre-seeded with a
+    # corrupt record.json) without ever touching the real repo's own
+    # runs/ - 2026-09-25 review Section 4's "fresh runs/ AND a runs/
+    # with an old/corrupt record" e2e requirement.
+    d = os.environ.get("BUP_ROCKETPY_RUNS_DIR") or os.path.join(repo_root, RUNS_DIR_NAME)
     os.makedirs(d, exist_ok=True)
     return d
 
