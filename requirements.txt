@@ -1,0 +1,6 @@
+rocketpy==1.13.0
+numpy>=1.26,<3.0
+scipy>=1.11
+matplotlib>=3.8
+pandas>=2.0
+pytest>=7.4
