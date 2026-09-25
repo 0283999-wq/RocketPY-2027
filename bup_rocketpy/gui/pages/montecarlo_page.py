@@ -2,12 +2,13 @@
 run/cancel, apogee histogram, landing ellipses.
 """
 import os
+import threading
 
 import matplotlib
 import matplotlib.pyplot as plt
-from nicegui import ui
+from nicegui import run, ui
 
-from bup_rocketpy.gui import layout, state
+from bup_rocketpy.gui import layout, pipeline, state
 from bup_rocketpy import monte_carlo
 
 matplotlib.use("Agg")
@@ -18,13 +19,13 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 @ui.page("/montecarlo")
 def montecarlo_page():
     with layout.layout("Monte Carlo", current_path="/montecarlo"):
-        if s["load_result"] is None or s["dry_mass_override"] is None or s["dry_cg_override"] is None:
-            ui.label("Load files and run Simulate (with a dry mass/CG set) on the Simulate page first.").classes("text-gray-500")
+        if s["load_result"] is None or s["sim_result"] is None:
+            ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
             return
 
         if s["mc_uncertainties"] is None:
             parsed = s["load_result"].parsed_ork
-            s["mc_uncertainties"] = monte_carlo.default_uncertainties(s["dry_mass_override"], 1871.3, parsed.launch.wind_average_ms)
+            s["mc_uncertainties"] = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
 
         ui.label("Uncertainties (editable; every one shows its source)").classes("text-lg font-bold")
         rows_container = ui.column().classes("w-full")
@@ -39,27 +40,66 @@ def montecarlo_page():
                     ui.label(u.source).classes("text-xs text-gray-500 flex-1")
 
         n_input = ui.number(label="N simulations", value=50)
+        progress_bar = ui.linear_progress(value=0).props("hidden")
         progress_label = ui.label("")
+        run_button = ui.button("Run Monte Carlo")
+        cancel_button = ui.button("Cancel", color="negative").props("hidden")
         results_container = ui.column().classes("w-full mt-4")
 
-        def run_mc():
+        # 2026-09-26 review crash (b) + item 7: N stochastic Flight sims
+        # run in a background thread (run.io_bound) so the event loop -
+        # and the "Connection lost" websocket heartbeat - stays alive.
+        # progress_cb/cancel_check run INSIDE that thread, so they only
+        # touch a plain dict (GIL-safe for simple read/write); a ui.timer
+        # on the main event loop polls it and is the only thing that
+        # actually touches NiceGUI elements, which is not safe to do
+        # directly from a worker thread.
+        mc_progress = {"text": "", "done": False}
+        cancel_flag = threading.Event()
+
+        def poll_progress():
+            progress_label.set_text(mc_progress["text"])
+            if mc_progress["done"]:
+                poll_timer.deactivate()
+
+        poll_timer = ui.timer(0.4, poll_progress, active=False)
+
+        async def run_mc():
             parsed = s["load_result"].parsed_ork
             i_ax, i_tr = _get_inertia()
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
             n = int(n_input.value)
 
             def progress_cb(i, total):
-                progress_label.set_text(f"Running {i}/{total}...")
+                mc_progress["text"] = f"Running {i}/{total}..."
 
-            result = monte_carlo.run_monte_carlo(
-                parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
-                s["dry_mass_override"], s["dry_cg_override"], i_ax, i_tr, radius,
-                s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
-                include_recovery=True, progress_callback=progress_cb,
-            )
+            cancel_flag.clear()
+            mc_progress["done"] = False
+            progress_bar.props(remove="hidden")
+            run_button.props("hidden")
+            cancel_button.props(remove="hidden")
+            poll_timer.activate()
+
+            try:
+                result = await run.io_bound(
+                    monte_carlo.run_monte_carlo,
+                    parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                    s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                    s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
+                    s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
+                    include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
+                )
+            finally:
+                mc_progress["done"] = True
+                progress_bar.props("hidden")
+                run_button.props(remove="hidden")
+                cancel_button.props("hidden")
+
             s["mc_result"] = result
-            progress_label.set_text(f"Done: {result.n_completed} completed, {result.n_excluded} excluded.")
+            status = f"Done: {result.n_completed} completed, {result.n_excluded} excluded."
+            if result.cancelled:
+                status = f"Cancelled - partial results kept: {status}"
+            progress_label.set_text(status)
 
             results_container.clear()
             with results_container:
@@ -79,7 +119,7 @@ def montecarlo_page():
                 ax.set_xlabel("Apogee AGL (m)")
                 ax.set_ylabel("count")
                 ax.legend()
-                hist_path = os.path.join(OUTPUTS_DIR, "mc_histogram.png")
+                hist_path = pipeline.fresh_image_path(OUTPUTS_DIR, "mc_histogram")
                 fig.tight_layout()
                 fig.savefig(hist_path)
                 plt.close(fig)
@@ -98,7 +138,7 @@ def montecarlo_page():
                     ax2.set_aspect("equal")
                     ax2.legend()
                     ax2.set_title("Landing ellipse (single recovery event)")
-                    ellipse_path = os.path.join(OUTPUTS_DIR, "mc_ellipse.png")
+                    ellipse_path = pipeline.fresh_image_path(OUTPUTS_DIR, "mc_ellipse")
                     fig2.tight_layout()
                     fig2.savefig(ellipse_path)
                     plt.close(fig2)
@@ -109,8 +149,8 @@ def montecarlo_page():
         def _get_inertia():
             from bup_rocketpy import translate
             parsed = s["load_result"].parsed_ork
-            mass_est = translate.MassEstimate(s["dry_mass_override"], s["dry_cg_override"], "UI")
+            mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
             return translate.estimate_dry_inertia(parsed, mass_est)
 
-        with ui.row():
-            ui.button("Run Monte Carlo", on_click=run_mc)
+        run_button.on_click(run_mc)
+        cancel_button.on_click(cancel_flag.set)

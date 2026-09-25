@@ -5,7 +5,7 @@ import os
 
 from nicegui import ui
 
-from bup_rocketpy.gui import layout, rocket_drawing, state
+from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -19,15 +19,27 @@ def rocket_page():
             return
 
         parsed = s["load_result"].parsed_ork
-        cg = s["dry_cg_override"]
-        cp = None
+        ui.label(f"Loaded rocket: {parsed.name}").classes("text-base font-bold")
+
+        # Same loaded object as every other page (crash e fix, 2026-09-26
+        # review) - dry CG comes from the last Simulate's actually-used
+        # value (override or geometric estimate), never the raw manual
+        # override field alone, so this page can never show a different
+        # rocket's numbers than the cards on this same page do.
+        cg = s["dry_cg_m"]
         margin = None
         if s["sim_result"] is not None:
             margin = s["sim_result"].min_static_margin_cal
+        elif cg is None:
+            # Haven't run Simulate yet - show the best available estimate
+            # anyway rather than an empty drawing (default path must work).
+            from bup_rocketpy import translate
+            estimate = translate.estimate_dry_mass_and_cg(parsed)
+            if estimate.cg_m is not None:
+                cg = estimate.cg_m
 
         fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=cg, cp_m=None, static_margin_cal=margin)
-        path = os.path.join(OUTPUTS_DIR, "rocket_page_profile.png")
-        os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
         fig.savefig(path)
         ui.image(path).classes("w-full max-w-4xl")
 

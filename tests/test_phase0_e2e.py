@@ -84,6 +84,12 @@ def test_upload_ork_and_eng_and_simulate_shows_apogee(app_server):
 
         page.get_by_text(re.compile("Advanced:", re.I)).click()  # the mass/CG override fields are in a collapsed panel by design
         page.wait_for_timeout(300)
+        # 2026-09-26 review crash (c) fix: the override fields are disabled
+        # until "use manual override" is checked (unchecked = the default
+        # no-override path, which is what test_phase0_e2e_full.py now
+        # exercises instead) - this test still exercises the manual-override
+        # path deliberately, so it must check the box first.
+        page.get_by_text(re.compile("Use manual mass/CG override", re.I)).click()
         mass_box = page.get_by_label(re.compile("dry mass override", re.I))
         cg_box = page.get_by_label(re.compile("dry CG override", re.I))
         mass_box.fill("5.6622")

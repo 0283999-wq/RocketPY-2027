@@ -15,8 +15,8 @@ CATEGORY_OPTIONS = list(rcsm.CATEGORIES.keys())
 @ui.page("/rcsm")
 def rcsm_case_page():
     with layout.layout("RCSM Cases", current_path="/rcsm"):
-        if s["load_result"] is None or s["dry_mass_override"] is None or s["dry_cg_override"] is None:
-            ui.label("Load files and run Simulate (with a dry mass/CG set) on the Simulate page first.").classes("text-gray-500")
+        if s["load_result"] is None or s["sim_result"] is None:
+            ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
             return
 
         category_select = ui.select(CATEGORY_OPTIONS, value="1km_solid", label="RCSM category").classes("w-64")
@@ -27,7 +27,7 @@ def rcsm_case_page():
             results = rcsm_cases.run_all_cases(
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
-                s["dry_mass_override"], s["dry_cg_override"],
+                s["dry_mass_kg"], s["dry_cg_m"],
             )
             s["case_results"] = results
 

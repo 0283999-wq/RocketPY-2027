@@ -13,6 +13,8 @@ early instead of letting rocketpy's own error surface confuse Diego).
 
 from dataclasses import dataclass, field
 
+from bup_rocketpy.curve_utils import dedupe_sort_curve
+
 
 @dataclass
 class EngHeader:
@@ -30,6 +32,7 @@ class ParsedEng:
     header: EngHeader
     thrust_curve: list  # [(t_s, thrust_N), ...]
     comments: list
+    warnings: list = field(default_factory=list)  # e.g. duplicate/unsorted timestamps found and fixed (crash f, 2026-09-26 review)
 
     @property
     def total_impulse_Ns(self):
@@ -92,7 +95,12 @@ def read_eng(path):
     if not thrust_curve:
         raise ValueError(f"{path}: header parsed but no thrust data points found")
 
-    return ParsedEng(header=header, thrust_curve=thrust_curve, comments=comments)
+    warnings = []
+    thrust_curve, n_dupes = dedupe_sort_curve(thrust_curve)
+    if n_dupes:
+        warnings.append(f"{n_dupes} duplicate/out-of-order timestamp(s) in the thrust curve were nudged apart by 1e-9 s - a duplicate x value makes rocketpy's interpolation divide by zero (this is the 'divide by zero ... polation_1d' warning); the original points are otherwise unchanged.")
+
+    return ParsedEng(header=header, thrust_curve=thrust_curve, comments=comments, warnings=warnings)
 
 
 def read_thrust_csv(path, time_col="Time (s)", thrust_col="Thrust (N)"):

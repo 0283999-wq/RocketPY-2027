@@ -18,8 +18,8 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 @ui.page("/analysis")
 def analysis_page():
     with layout.layout("Analysis", current_path="/analysis"):
-        if s["load_result"] is None or s["dry_mass_override"] is None or s["dry_cg_override"] is None:
-            ui.label("Load files and run Simulate (with a dry mass/CG set) on the Simulate page first.").classes("text-gray-500")
+        if s["load_result"] is None or s["sim_result"] is None:
+            ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
             return
 
         ui.label("Weathercocking: apogee vs. static margin").classes("text-lg font-bold")
@@ -28,13 +28,13 @@ def analysis_page():
 
         def run_weathercocking():
             parsed = s["load_result"].parsed_ork
-            mass_est = translate.MassEstimate(s["dry_mass_override"], s["dry_cg_override"], "UI")
+            mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
             i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
             result = analysis.weathercocking_sweep(
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
-                s["dry_mass_override"], s["dry_cg_override"], i_ax, i_tr, radius,
+                s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
             )
             s["weathercocking_result"] = result
             wc_container.clear()
@@ -87,15 +87,15 @@ def analysis_page():
                 ui.notify("Upload both CSVs for option B first.", type="warning")
                 return
             parsed = s["load_result"].parsed_ork
-            mass_est = translate.MassEstimate(s["dry_mass_override"], s["dry_cg_override"], "UI")
+            mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
             i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
-            uncertainties = monte_carlo.default_uncertainties(s["dry_mass_override"], 1871.3, parsed.launch.wind_average_ms)
+            uncertainties = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
             result = analysis.drag_comparison(
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 (s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path),
                 (drag_state["off_b"], drag_state["on_b"]),
-                s["dry_mass_override"], s["dry_cg_override"], i_ax, i_tr, radius,
+                s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                 uncertainties, int(n_input.value), os.path.join(OUTPUTS_DIR, "drag_comparison"), seed=42,
             )
             drag_container.clear()

@@ -40,7 +40,12 @@ def test_load_files_respects_user_supplied_csv():
     power_on = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "rockets", "power_on_drag.csv")
     result = pipeline.load_files(ORK_PATH, ENG_PATH, power_off_drag_path=power_off, power_on_drag_path=power_on, outputs_dir=OUTPUTS_DIR)
     assert "user-supplied" in result.drag_curve_source
-    assert result.power_off_drag_path == power_off
+    # load_files writes a deduped COPY under outputs_dir rather than the
+    # original path (2026-09-26 review: an earlier version mutated
+    # whatever path it was given in place, which silently rewrote this
+    # exact checked-in reference/ CSV) - same data, different path.
+    assert result.power_off_drag_path != power_off
+    assert os.path.exists(result.power_off_drag_path)
 
 
 def test_run_simulation_end_to_end_with_manual_mass_override():

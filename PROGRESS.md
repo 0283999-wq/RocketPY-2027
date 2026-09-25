@@ -364,3 +364,105 @@ edit, full suite once per section, MC tests use N=5).
   `pip install -r requirements.txt` from scratch), all `bup_rocketpy.*`
   and `bup_rocketpy.gui.*` modules import cleanly, `test_phase1_acceptance.py`
   (5 tests, no UI) passes unchanged.
+
+### Section 1: crashes a-f - DONE
+
+All 6 crashes Diego hit testing on Windows, fixed and verified (headless
+tests + both existing Playwright e2e tests, which now pass again after
+being updated for the new "use manual override" checkbox):
+
+- **(a) History page 500 JSONDecodeError**: `min(margins) > 0` produces a
+  numpy.bool_, which `json.dump` refuses ("Object of type bool is not
+  JSON serializable"). Fixed with a numpy-aware `JSONEncoder`
+  (bool_/integer/floating/ndarray -> native types), atomic writes
+  (temp file + `os.replace`) so a killed process never leaves a
+  truncated `record.json`, and `list_runs` now returns
+  `(records, warnings)` and skips corrupt files with a visible warning
+  instead of crashing the page.
+- **(b) "Connection lost" during Simulate with manual mass/CG**: the
+  flight simulation ran synchronously on NiceGUI's single asyncio event
+  loop, blocking every websocket ping/pong for the whole run. Fixed:
+  `do_simulate` is now `async` and runs `pipeline.run_simulation` via
+  `nicegui.run.io_bound` (thread pool), same for Monte Carlo (`run_mc`),
+  which now also has a linear progress bar (polled from a `ui.timer`
+  reading a plain dict the worker thread writes to - NiceGUI elements
+  aren't safe to touch directly from a non-event-loop thread) and a
+  **Cancel** button (`threading.Event`, checked in
+  `monte_carlo.run_monte_carlo`'s sampling loop via a new
+  `cancel_check` param that stops early and still returns whatever
+  samples completed - `MonteCarloResult.cancelled` flags this). This
+  also satisfies most of Sec 7's "MC in the background, cancellable" -
+  only the Leaflet map is left for that item.
+  **Found a second, nastier bug while wiring this up**: `app.py` has a
+  module-level `def run():` (the app's own entry point) that SILENTLY
+  REBINDS the module-global name `run` after `from nicegui import run`
+  was imported for `run.io_bound` - every call inside `do_simulate`
+  then failed with `AttributeError: 'function' object has no attribute
+  'io_bound'`. This would have made Simulate simply not work at all
+  behind the "Connection lost"-shaped symptom. Renamed the entry point
+  to `main()` with a comment explaining why, so it can't recur.
+- **(c) Apogee -495 m / margin -900 cal / all KPIs 0 with no manual
+  override**: `pipeline.run_simulation` already had the right fallback
+  (geometric mass/CG estimate when no override given) - the bug was
+  entirely in `app.py`'s UI wiring, which passed
+  `dry_mass_input.value`/`dry_cg_input.value` UNCONDITIONALLY.
+  NiceGUI's `ui.number(value=None)` renders as an empty box but reads
+  back as `0`/`None` inconsistently, so the "default path" was actually
+  simulating a massless, CG-at-the-nose rocket every time. Fixed with
+  an explicit "Use manual mass/CG override" checkbox (default OFF,
+  fields disabled until checked) - only pass an override when it's
+  checked; otherwise `None, None` goes to `run_simulation`, which
+  already does the right thing (geometric estimate, or a clear blocking
+  `ValueError` if that's also unresolvable - never a placeholder 0).
+  Verified via a direct pipeline call (bypassing the UI entirely):
+  apogee 1435.8 m, margin -0.11 cal, `stable=False` - NOT insane
+  numbers, just honestly reflecting PROMETEO's `.ork` still being ~19%
+  light on mass (a pre-existing, already-documented DATA gap - see
+  NOTES_FOR_DIEGO item 1 - not a code bug; the fix is Diego setting a
+  whole-rocket override in OpenRocket, which the app cannot fabricate).
+- **(d) MC/RCSM/Analysis/Exports gated on the raw override fields**: all
+  4 pages checked `s["dry_mass_override"] is None` - which is only ever
+  set when the user manually typed an override, so the default path was
+  always blocked even after a successful Simulate. Added two new state
+  keys, `dry_mass_kg`/`dry_cg_m` (+ `mass_source` for display) - the
+  values ACTUALLY used by the last successful Simulate, override or
+  estimate - populated by `do_simulate` unconditionally. All 4 pages now
+  gate on `s["sim_result"] is None` and read these new keys instead.
+- **(e) Rocket page mixing rockets (177cm/14cm/1.6cal vs 147cm/11cm/0.08cal
+  cards)**: NOT a data bug - `parsed = s["load_result"].parsed_ork` is
+  the same object used for both the drawing and the cards, one line
+  apart. The real cause: NiceGUI's `ui.image(local_path)` serves local
+  files via `app.add_static_file()`, whose URL is
+  `/_nicegui/auto/static/<hash of the FILE PATH>/<filename>` with
+  `Cache-Control: public, max-age=3600` - the hash depends on the PATH,
+  not the file's bytes, so re-saving a PNG to the same fixed filename
+  (e.g. "rocket_page_profile.png") produces the IDENTICAL url, and a
+  browser that already fetched it once keeps showing the stale cached
+  image for up to an hour regardless of what's now on disk. This is
+  almost certainly what Diego saw: an old render (possibly from
+  whatever rocket he tested first) cached under a filename the app kept
+  reusing. Fixed with `pipeline.fresh_image_path()` - every dynamically
+  regenerated plot/drawing across the whole app (Simulate results,
+  Rocket page, Monte Carlo histogram+ellipse, Analysis) now gets a
+  fresh UUID-suffixed filename each render, with old files under the
+  same basename cleaned up first. Also added a "Loaded rocket: <name>"
+  header to the Rocket page per Diego's request.
+- **(f) "divide by zero" in rocketpy's polation_1d (duplicate x
+  values)**: added `bup_rocketpy/curve_utils.py` -
+  `dedupe_sort_curve()`/`dedupe_sort_csv_file()` - sorts by x and nudges
+  exact-duplicate x values apart by 1e-9 (not merge/average - some RASP
+  `.eng` exporters legitimately encode an instant thrust cutoff as two
+  points at the same timestamp, and nudging preserves that near-exactly
+  while removing the exact-zero dx that makes rocketpy's linear
+  interpolation divide by zero). Wired into `motor_reader.read_eng`
+  (every `.eng` thrust curve) and `pipeline.load_files` (user-uploaded
+  power_off/power_on drag CSVs - the .ork's own stored-sim curve was
+  already safe, since `extract_drag_curves_from_stored_sim`'s
+  `bin_avg()` already merges into unique Mach bins). Both log a
+  human-readable warning row in the import table when duplicates are
+  found and fixed, per CLAUDE.md's "never half-import silently" rule.
+
+Verification: full non-Playwright suite (26 tests) + both existing
+Playwright e2e tests, all green. New test:
+`test_phase4_monte_carlo.py::test_cancel_check_stops_early_and_keeps_partial_results`
+(N=5, per budget-mode test guidance).

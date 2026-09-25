@@ -14,7 +14,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 @ui.page("/history")
 def history_page():
     with layout.layout("History", current_path="/history"):
-        records = run_history.list_runs(REPO_ROOT)
+        records, warnings = run_history.list_runs(REPO_ROOT)
+        for w in warnings:
+            ui.label(f"⚠ {w}").classes("text-orange-600 text-sm")
+
         if not records:
             ui.label("No runs saved yet - every Simulate on the Simulate page is saved here automatically.").classes("text-gray-500")
             return
@@ -23,7 +26,13 @@ def history_page():
         compare_container = ui.column().classes("w-full mt-4")
 
         def render_table():
+            nonlocal records
+            records, warnings = run_history.list_runs(REPO_ROOT)
             table_container.clear()
+            if not records:
+                with table_container:
+                    ui.label("No runs left.").classes("text-gray-500")
+                return
             with table_container:
                 ui.table(
                     columns=[{"name": "run_id", "label": "Run", "field": "run_id"},
@@ -43,6 +52,10 @@ def history_page():
                     ra = run_history.get_run(REPO_ROOT, a_select.value)
                     rb = run_history.get_run(REPO_ROOT, b_select.value)
                     compare_container.clear()
+                    if ra is None or rb is None:
+                        with compare_container:
+                            ui.label("Could not load one of the selected runs.").classes("text-red-600")
+                        return
                     with compare_container:
                         with ui.grid(columns=3).classes("gap-4"):
                             ui.label("Field").classes("font-bold")

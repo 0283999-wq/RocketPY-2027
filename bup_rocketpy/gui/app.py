@@ -13,7 +13,7 @@ Windows, which sets up the venv first).
 import os
 import tempfile
 
-from nicegui import app, ui
+from nicegui import app, run, ui
 
 from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
 
@@ -60,9 +60,15 @@ def simulate_page():
                     s["drag_on_path"], name = await _save_upload(e, ".csv")
                     ui.notify(f"Loaded {name} (power-on drag)")
                 ui.upload(label="power_on_drag.csv (optional)", on_upload=on_drag_on_upload, auto_upload=True).props("accept=.csv")
+            override_checkbox = ui.checkbox(
+                "Use manual mass/CG override (unchecked: use the .ork's own overrides + component masses - the normal path)",
+                value=False,
+            )
             with ui.row():
                 dry_mass_input = ui.number(label="Manual dry mass override (kg)", value=s["dry_mass_override"])
                 dry_cg_input = ui.number(label="Manual dry CG override (m from nose)", value=s["dry_cg_override"])
+                dry_mass_input.bind_enabled_from(override_checkbox, "value")
+                dry_cg_input.bind_enabled_from(override_checkbox, "value")
 
         ui.separator()
         ui.label("2. Review import").classes("text-lg font-bold")
@@ -102,29 +108,55 @@ def simulate_page():
                 ).classes("w-full")
             progress_label.set_text("Loaded. Review the table, set a mass override if needed, then click Simulate.")
 
-        def do_simulate():
+        async def do_simulate():
             if s["load_result"] is None:
                 ui.notify("Load the files first.", type="warning")
                 return
+            if override_checkbox.value and (dry_mass_input.value is None or dry_cg_input.value is None):
+                ui.notify("Manual override is checked but mass or CG is empty.", type="warning")
+                return
+            # 2026-09-26 review crash (c): the override fields used to be
+            # passed to run_simulation UNCONDITIONALLY, and NiceGUI's
+            # ui.number renders an unset (None) value as 0 - so every
+            # "default path" simulation was silently being run with a
+            # massless, CG-at-the-nose-tip rocket (apogee -495 m, margin
+            # -900 cal). Only pass an override when the checkbox is on;
+            # otherwise pipeline.run_simulation falls back to the .ork's
+            # own overrides / component-based mass estimate, and raises a
+            # clear ValueError (caught below) if even that isn't resolvable
+            # - it must never silently simulate with a placeholder 0.
+            mass_kw = dict(
+                dry_mass_override_kg=dry_mass_input.value if override_checkbox.value else None,
+                dry_cg_override_m=dry_cg_input.value if override_checkbox.value else None,
+            )
             progress.props(remove="hidden")
-            progress_label.set_text("Simulating...")
+            progress_label.set_text("Simulating (this runs in the background - the page stays responsive)...")
             try:
-                sim = pipeline.run_simulation(
-                    s["load_result"], OUTPUTS_DIR,
-                    dry_mass_override_kg=dry_mass_input.value, dry_cg_override_m=dry_cg_input.value,
+                # 2026-09-26 review crash (b): running the flight simulation
+                # synchronously on NiceGUI's single asyncio event loop
+                # blocks every websocket ping/pong for the whole simulation,
+                # which the browser eventually reports as "Connection
+                # lost". run.io_bound runs it in a thread pool instead so
+                # the event loop (and the UI) stays alive throughout.
+                sim = await run.io_bound(
+                    pipeline.run_simulation, s["load_result"], OUTPUTS_DIR, **mass_kw,
                 )
-                s["dry_mass_override"] = dry_mass_input.value
-                s["dry_cg_override"] = dry_cg_input.value
             except ValueError as exc:
                 ui.notify(str(exc), type="negative", multi_line=True, timeout=0)
                 progress.props("hidden")
                 progress_label.set_text("")
                 return
             s["sim_result"] = sim
+            s["dry_mass_kg"] = sim.dry_mass_kg
+            s["dry_cg_m"] = sim.dry_cg_m
+            s["mass_source"] = sim.mass_source
+            if override_checkbox.value:
+                s["dry_mass_override"] = dry_mass_input.value
+                s["dry_cg_override"] = dry_cg_input.value
             try:
                 from bup_rocketpy import run_history
                 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                run_history.save_run(repo_root, sim, s["load_result"], dry_mass_input.value, dry_cg_input.value)
+                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m)
             except Exception as exc:  # history is a convenience, never block a real result on it failing to save
                 print(f"WARNING: could not save run history: {exc}")
             progress.props("hidden")
@@ -148,11 +180,12 @@ def simulate_page():
                             ui.label(label).classes("text-xs text-gray-500")
                             ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold" if good else "text-xl font-bold text-red-600")
 
-                if s["load_result"] is not None and s["dry_cg_override"] is not None:
-                    fig = rocket_drawing.draw_side_profile(s["load_result"].parsed_ork, dry_cg_m=s["dry_cg_override"], static_margin_cal=sim.min_static_margin_cal)
-                    rocket_png = os.path.join(OUTPUTS_DIR, "rocket_profile.png")
-                    fig.savefig(rocket_png)
-                    ui.image(rocket_png).classes("w-full max-w-3xl")
+                ui.label(f"Dry mass/CG used: {sim.dry_mass_kg:.4f} kg / {sim.dry_cg_m:.4f} m from nose ({sim.mass_source})").classes("text-xs text-gray-500")
+
+                fig = rocket_drawing.draw_side_profile(s["load_result"].parsed_ork, dry_cg_m=sim.dry_cg_m, static_margin_cal=sim.min_static_margin_cal)
+                rocket_png = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_profile")
+                fig.savefig(rocket_png)
+                ui.image(rocket_png).classes("w-full max-w-3xl")
 
                 with ui.tabs().classes("w-full") as tabs:
                     plot_tabs = [ui.tab(name.replace("_", " ").title()) for name in sim.plot_paths if sim.plot_paths[name]]
@@ -169,10 +202,17 @@ def simulate_page():
             ui.button("Simulate", on_click=do_simulate)
 
 
-def run():
+def main():
     # BUP_ROCKETPY_PORT/BUP_ROCKETPY_SHOW let tests/test_phase0_e2e.py launch
     # this exact module as a real subprocess on a fixed, non-default port
     # without popping open a browser window in a headless CI/container run.
+    #
+    # NOTE: this function must NOT be named `run` - `from nicegui import
+    # run` is imported at module scope for run.io_bound() (background
+    # simulations), and a module-level `def run():` here would silently
+    # rebind that name, so every `await run.io_bound(...)` call in this
+    # module would fail with "'function' object has no attribute
+    # 'io_bound'" - found exactly this way, 2026-09-26 review.
     from bup_rocketpy.gui.pages import analysis_page, exports_page, history_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
@@ -181,4 +221,4 @@ def run():
 
 
 if __name__ in ("__main__", "__mp_main__"):
-    run()
+    main()

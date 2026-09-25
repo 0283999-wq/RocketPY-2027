@@ -68,6 +68,7 @@ def test_every_page_loads_and_is_screenshotted(app_server):
         page.wait_for_selector("text=/Imported|Approximated|Ignored/i", timeout=15000)
         page.get_by_text(re.compile("Advanced:", re.I)).click()  # the mass/CG override fields are in a collapsed panel by design
         page.wait_for_timeout(300)
+        page.get_by_text(re.compile("Use manual mass/CG override", re.I)).click()  # fields are disabled until this is checked (crash-c fix, 2026-09-26 review)
         page.get_by_label(re.compile("dry mass override", re.I)).fill("5.6622")
         page.get_by_label(re.compile("dry CG override", re.I)).fill("0.6279")
         page.get_by_role("button", name=re.compile("^Simulate$", re.I)).click()

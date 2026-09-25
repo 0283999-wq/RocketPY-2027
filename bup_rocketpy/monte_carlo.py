@@ -57,6 +57,7 @@ class MonteCarloResult:
     impact_y_samples: list
     filename: str
     exclusion_reasons: list = field(default_factory=list)
+    cancelled: bool = False  # True if cancel_check() stopped the run early (n_completed+n_excluded < requested N)
 
 
 def _ellipse_params(x, y, n_std):
@@ -104,14 +105,17 @@ def _seeded_rng(seed):
         np.random.default_rng = real_default_rng
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None):
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None):
     """Runs N stochastic flights, returns a MonteCarloResult plus landing-
     ellipse params (drogue/main - PROMETEO only has one recovery event, so
     "drogue" and "main" here are the same single event unless the loaded
     .ork has two; the caller decides which to label which).
     progress_callback(i, n) is called after each simulation if given -
     that's the hook the UI's progress bar uses (CLAUDE.md: "runs in the
-    background, with progress, cancellable")."""
+    background, with progress, cancellable"). cancel_check(), if given, is
+    also polled after each sample; when it returns True the loop stops
+    early and whatever samples completed so far are still returned (a
+    cancelled run must save its partial results, not throw them away)."""
     from bup_rocketpy import translate
 
     os.makedirs(output_dir, exist_ok=True)
@@ -216,6 +220,11 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
                 exclusion_reasons.append(f"sample {i}: {type(exc).__name__}: {exc}")
         if progress_callback:
             progress_callback(i + 1, n_simulations)
+        cancelled = cancel_check is not None and cancel_check()
+        if cancelled:
+            break
+    else:
+        cancelled = False
 
     if apogees:
         arr = np.array(apogees)
@@ -226,6 +235,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     return MonteCarloResult(
         n_completed=len(apogees), n_excluded=n_excluded, apogee_samples=apogees, apogee_mean=mean, apogee_p05=p05, apogee_p95=p95,
         impact_x_samples=impact_xs, impact_y_samples=impact_ys, filename=mc_filename, exclusion_reasons=exclusion_reasons,
+        cancelled=cancelled,
     )
 
 

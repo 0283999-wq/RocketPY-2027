@@ -4,12 +4,38 @@ and so app.py stays a thin wiring layer per CLAUDE.md Sec 1 ("an
 importable package bup_rocketpy/ (core, no UI) with bup_rocketpy/gui/
 (NiceGUI) as a separate layer").
 """
+import glob
 import os
+import uuid
 from dataclasses import dataclass, field
 
 from bup_rocketpy import translate
 from bup_rocketpy.motor_reader import read_eng
 from bup_rocketpy.ork_reader import extract_drag_curves_from_stored_sim, read_ork
+
+
+def fresh_image_path(outputs_dir, basename):
+    """Every dynamically-regenerated plot/drawing needs a NEW filename on
+    each render. NiceGUI's ui.image(local_path) serves local files through
+    app.add_static_file(), whose URL is `/_nicegui/auto/static/<hash of
+    the FILE PATH>/<filename>` with `Cache-Control: public, max-age=3600`
+    - the hash depends on the PATH, not the file's contents, so writing a
+    new PNG to the same fixed filename (e.g. "rocket_page_profile.png")
+    produces the exact same URL, and a browser that already fetched it
+    once will keep showing the stale cached bytes for up to an hour. This
+    is the real cause of the 2026-09-26 "Rocket page mixes rockets" bug:
+    not a data bug (the KPI cards read fresh data and were always
+    correct), but a browser image cache showing an old render under the
+    same URL. Old files sharing this basename are removed first so
+    outputs/gui_run/ doesn't grow unbounded over a long session.
+    """
+    os.makedirs(outputs_dir, exist_ok=True)
+    for stale in glob.glob(os.path.join(outputs_dir, f"{basename}_*.png")):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
+    return os.path.join(outputs_dir, f"{basename}_{uuid.uuid4().hex[:8]}.png")
 
 
 @dataclass
@@ -37,6 +63,9 @@ class SimResult:
     plot_paths: dict  # {"altitude": path, "velocity": path, ...}
     csv_path: str
     provisional_warning: str  # always non-empty until Phase 2's V1/V2 both pass - CLAUDE.md Rule 3
+    dry_mass_kg: float = None  # the mass ACTUALLY used to build the flown rocket (override or geometric estimate) - crash (d)/(e) fix: every other page must read this, not the raw UI override field, or they show 0/None whenever no manual override was typed
+    dry_cg_m: float = None
+    mass_source: str = ""  # human-readable: "override" or "geometric estimate (...)"
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -48,8 +77,31 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
     parsed_ork = read_ork(ork_path)
     parsed_eng = read_eng(eng_path)
 
+    curve_warnings = []
     if power_off_drag_path and power_on_drag_path:
         source = f"user-supplied CSV files ({os.path.basename(power_off_drag_path)}, {os.path.basename(power_on_drag_path)})"
+        # crash (f), 2026-09-26 review: unlike the .ork's own stored-sim
+        # curve (already bin-averaged into unique Mach bins below), a
+        # user-uploaded CSV is handed to rocketpy as a raw file path and
+        # was never checked for duplicate/unsorted Mach values. Writes a
+        # DEDUPED COPY under outputs_dir rather than mutating the input
+        # path in place - the input may be a caller-owned file (an
+        # earlier version of this rewrote it in place, which silently
+        # touched checked-in reference/ CSVs the first time a test
+        # passed one straight through; see curve_utils.dedupe_sort_csv).
+        if outputs_dir:
+            from bup_rocketpy.curve_utils import dedupe_sort_csv
+            os.makedirs(outputs_dir, exist_ok=True)
+            for label, key in [("power_off_drag.csv", "power_off_drag_path"), ("power_on_drag.csv", "power_on_drag_path")]:
+                src = power_off_drag_path if key == "power_off_drag_path" else power_on_drag_path
+                dst = os.path.join(outputs_dir, f"deduped_{label}")
+                n = dedupe_sort_csv(src, dst)
+                if key == "power_off_drag_path":
+                    power_off_drag_path = dst
+                else:
+                    power_on_drag_path = dst
+                if n:
+                    curve_warnings.append(f"{label}: {n} duplicate/out-of-order Mach value(s) fixed (see curve_utils.dedupe_sort_curve).")
     else:
         boost, coast = extract_drag_curves_from_stored_sim(ork_path)
         if boost and coast and outputs_dir:
@@ -66,6 +118,10 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
             source = "NONE AVAILABLE - this .ork has no stored simulation with drag data and no CSV was supplied. A constant placeholder Cd will be used if you simulate anyway (low confidence, CLAUDE.md Sec 4.2 point 4)."
 
     import_table = [(row.component, row.status, row.detail) for row in parsed_ork.import_log]
+    for w in parsed_eng.warnings:
+        import_table.append((".eng thrust curve", "APPROXIMATED", w))
+    for w in curve_warnings:
+        import_table.append(("drag curve CSV", "APPROXIMATED", w))
 
     return LoadResult(
         parsed_ork=parsed_ork, parsed_eng=parsed_eng, eng_path=eng_path,
@@ -120,7 +176,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     ]:
         try:
             plot_fn()
-            path = os.path.join(outputs_dir, f"{plot_name}.png")
+            path = fresh_image_path(outputs_dir, plot_name)
             plt.savefig(path)
             plt.close("all")
             plot_paths[plot_name] = path
@@ -149,4 +205,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         plot_paths=plot_paths,
         csv_path=csv_path,
         provisional_warning="PROVISIONAL: V1/V2 flight-data validation has not both passed within +-5% yet (see PROGRESS.md). Do not treat this result as final.",
+        dry_mass_kg=mass_est.mass_kg,
+        dry_cg_m=mass_est.cg_m,
+        mass_source=mass_est.source,
     )

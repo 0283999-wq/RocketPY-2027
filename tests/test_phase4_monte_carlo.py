@@ -75,6 +75,36 @@ def test_monte_carlo_produces_a_sane_apogee_distribution_with_no_excluded_sample
     assert ellipses[3]["width"] > ellipses[2]["width"] > ellipses[1]["width"] > 0, "sigma ellipses should nest (3-sigma widest)"
 
 
+def test_cancel_check_stops_early_and_keeps_partial_results():
+    """2026-09-26 review, item 7 (Monte Carlo background+cancel): a
+    cancelled run must save whatever samples it already completed, not
+    throw them away. N=5 per budget-mode test guidance."""
+    parsed = read_ork(ORK_PATH)
+    eng = read_eng(ENG_PATH)
+    mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
+    i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+    radius = next(t.radius for t in parsed.body_tubes if t.radius)
+    uncertainties = monte_carlo.default_uncertainties(DRY_MASS_KG, 1871.3, parsed.launch.wind_average_ms)
+
+    calls = {"n": 0}
+
+    def cancel_after_2(*_a, **_kw):
+        calls["n"] += 1
+        return calls["n"] >= 2
+
+    result = monte_carlo.run_monte_carlo(
+        parsed, eng, ENG_PATH, POWER_OFF_DRAG, POWER_ON_DRAG,
+        DRY_MASS_KG, DRY_CG_M, i_ax, i_tr, radius,
+        uncertainties, n_simulations=5, output_dir=OUT_DIR, include_recovery=True,
+        cancel_check=lambda: cancel_after_2(),
+    )
+    print(f"\ncancelled={result.cancelled}, n_completed={result.n_completed}")
+    assert result.cancelled is True
+    assert result.n_completed + result.n_excluded == 2, "cancel_check returning True on its 2nd call should stop after exactly 2 samples"
+    assert result.n_completed > 0, "the 2 completed-before-cancel samples must still be in the result, not discarded"
+
+
 if __name__ == "__main__":
     test_monte_carlo_produces_a_sane_apogee_distribution_with_no_excluded_samples()
+    test_cancel_check_stops_early_and_keeps_partial_results()
     print("\nPHASE 4 MONTE CARLO: OK")
