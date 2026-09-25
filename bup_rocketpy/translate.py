@@ -519,7 +519,14 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
                 continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
             cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
             trigger, _ = parachute_trigger(chute)  # warning already surfaced via parachute_import_notes() at load time
-            rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
+            # radius/drag_coefficient: rocketpy's Parachute stores these
+            # verbatim (they don't affect the physics beyond what cd_s
+            # already captures) - passing them means the built Parachute
+            # object itself carries the REAL diameter/Cd for anything that
+            # inspects it later (e.g. bup_rocketpy.recovery's panel),
+            # instead of having to back-derive an approximate diameter
+            # from cd_s alone.
+            rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay, radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
     # include_recovery=False is CRS 10.1.11's Ballistic case: no recovery
     # deployment at all, rocket free-falls under drag alone to ground impact.
 

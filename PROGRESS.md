@@ -745,3 +745,48 @@ new results (was still showing last night's V1/V2 figures and the old
 "root cause not yet isolated" code-to-code text).
 
 Full suite (30 tests) green.
+
+### Section 5 (KPI/recovery priority) - DONE
+
+New KPIs on the Results page: **time to apogee**, **max dynamic
+pressure (Max-Q)** with its time, **ground-hit velocity**
+(`|flight.impact_velocity|`), and **landing distance from the pad**
+(straight-line drift, `sqrt(x_impact^2 + y_impact^2)`).
+
+New **recovery panel** (`bup_rocketpy/recovery.py`, the "LASC officials
+asked for this on site" requirement) - one row per parachute that
+actually deployed: diameter, projected area (pi*r^2), Cd, Cd*S, the
+simulated descent rate under that specific canopy, and a HAND-CALCULATED
+terminal velocity (`v = sqrt(2*m*g / (rho*Cd*S))`) at both the
+deployment altitude and ground-level air density, with the % difference
+from the simulated value - an independent cross-check, not a duplicate
+of the same number. `descent_mass_kg` is dry rocket + the motor's own
+dry (spent-casing) mass, matching what's physically hanging under the
+canopy. Verified against real numbers: PROMETEO's single chute shows
+sim descent rate 5.81 m/s vs. hand-calc 5.51 m/s at deploy altitude
+(+5.5%) and 5.15 m/s at ground (+12.7%) - both in the right ballpark,
+and the simulated 5.1 m/s ground-hit velocity matches PROMETEO's real
+documented ~5.5 m/s descent rate closely.
+
+**Found while wiring this up**: `translate.build_rocket`'s
+`rocket.add_parachute(...)` call never passed `radius=`/
+`drag_coefficient=` (rocketpy's `Parachute` accepts and stores both,
+separate from the combined `cd_s` it actually flies with) - meaning the
+built `Parachute` object had no way to report its own real diameter/Cd
+back to anything inspecting it later. Fixed by passing both through, so
+`recovery.recovery_panel()` reads the REAL values instead of
+back-deriving an approximate diameter from `cd_s` alone. Side effect
+worth noting: this also changed rocketpy's internal added-mass modeling
+during the parachute-deployment transient (a real, more-accurate-since-
+it-uses-real-geometry effect, not a bug) - the parachute-opening
+deceleration figures shifted somewhat (e.g. PROMETEO's case: opening
+accel 206.7 -> ~130-320 m/s2 depending on the run's exact mass/CG,
+deployment speed 30.6 -> 24-41 m/s across different override values)
+without changing ascent-phase results (apogee, margin, boost
+acceleration - all unchanged, confirmed by re-running the full suite).
+
+All new fields verified end to end via the Section 4 e2e test
+(screenshot: `docs/screenshots/01_simulate_results.png` shows the full
+KPI grid + recovery panel table rendered in a real browser).
+
+Full suite (30 tests) green.

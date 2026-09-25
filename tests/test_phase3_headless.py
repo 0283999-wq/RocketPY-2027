@@ -118,6 +118,35 @@ def test_run_simulation_without_override_surfaces_instability_not_hides_it():
     assert sim.provisional_warning
 
 
+def test_section5_kpis_and_recovery_panel_are_sane():
+    """2026-09-25 review Section 5: the new KPIs and the LASC-requested
+    recovery panel, sanity-checked against known-real numbers for
+    PROMETEO (known-good override, 5.6622 kg / 0.6279 m)."""
+    result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    sim = pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+
+    print(f"\ntime_to_apogee={sim.time_to_apogee_s:.1f}s, max_dynamic_pressure={sim.max_dynamic_pressure_pa/1000:.2f} kPa @ t={sim.max_dynamic_pressure_time_s:.1f}s")
+    print(f"ground_hit_velocity={sim.ground_hit_velocity_ms:.1f} m/s, landing_distance={sim.landing_distance_m:.1f} m")
+
+    assert 5 < sim.time_to_apogee_s < 30
+    assert 5000 < sim.max_dynamic_pressure_pa < 30000, "Max-Q implausible for a K-class motor on this airframe"
+    assert sim.max_dynamic_pressure_time_s < sim.time_to_apogee_s, "Max-Q should occur during/near boost, well before apogee"
+    # PROMETEO's real documented descent rate is ~5.5 m/s (CLAUDE.md Sec 3.2) - the
+    # simulated ground-hit velocity should land in the same ballpark, not just "positive".
+    assert 3 < sim.ground_hit_velocity_ms < 10
+    assert 0 <= sim.landing_distance_m < 2000
+
+    assert sim.recovery_rows, "expected at least one recovery panel row for PROMETEO's single real parachute"
+    row = sim.recovery_rows[0]
+    print(f"recovery panel: {row}")
+    assert row.diameter_m > 0 and row.area_m2 > 0 and row.cd > 0 and row.cd_s_m2 > 0
+    assert row.hand_terminal_velocity_at_ground_ms > 0
+    # the hand-calc cross-check should be in the same ballpark as the simulated
+    # value (a real independent check, not a tautology) - loose tolerance since
+    # it's a genuinely different calculation (steady-state vs. simulated transient).
+    assert abs(row.diff_pct_at_ground) < 50, f"hand-calc vs. simulated descent rate differ by {row.diff_pct_at_ground:.0f}% - too far apart to be a useful cross-check"
+
+
 def test_app_module_imports_without_starting_a_server():
     """Confirms the NiceGUI UI layer itself at least wires up without
     error - importing it registers pages/callbacks but does not bind a

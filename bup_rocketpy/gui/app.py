@@ -192,6 +192,38 @@ def simulate_page():
                         with ui.card():
                             ui.label("Parachute opening accel (instantaneous inflation model, upper bound)").classes("text-xs text-gray-500")
                             ui.label(f"{sim.parachute_opening_accel_ms2:.1f} m/s2 ({sim.parachute_opening_accel_ms2 / 9.80665:.1f} g)").classes("text-xl font-bold")
+                    for label, value, unit in [
+                        ("Time to apogee", f"{sim.time_to_apogee_s:.1f}", "s"),
+                        ("Max dynamic pressure (Max-Q)", f"{sim.max_dynamic_pressure_pa / 1000.0:.2f}", f"kPa @ t={sim.max_dynamic_pressure_time_s:.1f}s"),
+                        ("Ground-hit velocity", f"{sim.ground_hit_velocity_ms:.1f}", "m/s"),
+                        ("Landing distance from pad", f"{sim.landing_distance_m:.1f}", "m"),
+                    ]:
+                        with ui.card():
+                            ui.label(label).classes("text-xs text-gray-500")
+                            ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold")
+
+                if sim.recovery_rows:
+                    ui.label("Recovery panel").classes("text-lg font-bold mt-4")
+                    ui.label("Hand-calc: v = sqrt(2*m*g / (rho*Cd*S)), m = descent mass (dry rocket + spent motor casing), rho at deployment altitude and at ground level - an independent cross-check of the simulated descent rate, not a replacement for it.").classes("text-xs text-gray-500")
+                    ui.table(
+                        columns=[
+                            {"name": "name", "label": "Parachute", "field": "name"},
+                            {"name": "diameter", "label": "Diameter (m)", "field": "diameter"},
+                            {"name": "area", "label": "Area (m2)", "field": "area"},
+                            {"name": "cd", "label": "Cd", "field": "cd"},
+                            {"name": "cd_s", "label": "Cd*S (m2)", "field": "cd_s"},
+                            {"name": "sim", "label": "Sim descent rate (m/s)", "field": "sim"},
+                            {"name": "hand_deploy", "label": "Hand-calc @ deploy alt (m/s)", "field": "hand_deploy"},
+                            {"name": "diff_deploy", "label": "% diff @ deploy alt", "field": "diff_deploy"},
+                            {"name": "hand_ground", "label": "Hand-calc @ ground (m/s)", "field": "hand_ground"},
+                            {"name": "diff_ground", "label": "% diff @ ground", "field": "diff_ground"},
+                        ],
+                        rows=[{
+                            "name": r.name, "diameter": f"{r.diameter_m:.2f}", "area": f"{r.area_m2:.2f}", "cd": f"{r.cd:.2f}", "cd_s": f"{r.cd_s_m2:.3f}",
+                            "sim": f"{r.descent_rate_sim_ms:.2f}", "hand_deploy": f"{r.hand_terminal_velocity_at_deploy_alt_ms:.2f}", "diff_deploy": f"{r.diff_pct_at_deploy_alt:+.1f}%",
+                            "hand_ground": f"{r.hand_terminal_velocity_at_ground_ms:.2f}", "diff_ground": f"{r.diff_pct_at_ground:+.1f}%",
+                        } for r in sim.recovery_rows],
+                    ).classes("w-full")
 
                 if sim.deployment_events:
                     with ui.column().classes("w-full mt-2"):

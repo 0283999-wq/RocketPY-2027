@@ -69,6 +69,12 @@ class SimResult:
     parachute_opening_accel_ms2: float = None  # flight.max_acceleration_power_off - "instantaneous inflation model, upper bound" per 2026-09-26 review 2(a); rocketpy models canopy inflation as instant, which overstates the real jerk, hence "upper bound"
     deployment_events: list = field(default_factory=list)  # [(chute_name, time_s, speed_ms, warn_bool), ...]
     sanity_checks: list = field(default_factory=list)  # list of sanity_checks.SanityCheck, 2026-09-26 review 2(c)
+    time_to_apogee_s: float = None  # 2026-09-25 review Section 5 KPI
+    max_dynamic_pressure_pa: float = None
+    max_dynamic_pressure_time_s: float = None
+    ground_hit_velocity_ms: float = None  # |flight.impact_velocity| - 0 for the Ballistic case (no recovery, free-fall impact)
+    landing_distance_m: float = None  # straight-line drift from the pad, sqrt(x_impact^2 + y_impact^2)
+    recovery_rows: list = field(default_factory=list)  # list of recovery.ParachutePanelRow - the LASC-requested recovery panel
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -195,6 +201,16 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     else:
         sanity.insert(0, SanityCheck("Static margin range", "OK", f"min margin {min_margin:.2f} cal, max {max_margin:.2f} cal (rail-exit to apogee) - within FLT 4.3.5's 1.5-4 cal window."))
 
+    # 2026-09-25 review Section 5 KPIs + the LASC-requested recovery panel.
+    # run_simulation always builds WITH recovery (the Ballistic no-chute
+    # case is a separate RCSM-case path, rcsm_cases.py, not this button),
+    # so flight always reaches a real ground impact here.
+    from bup_rocketpy.recovery import recovery_panel
+    descent_mass_kg = mass_est.mass_kg + motor.dry_mass  # what's actually hanging under the canopy: dry rocket + spent motor casing
+    recovery_rows = recovery_panel(flight, env, descent_mass_kg)
+    ground_hit_velocity = abs(flight.impact_velocity)
+    landing_distance = (flight.x_impact**2 + flight.y_impact**2) ** 0.5
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -242,4 +258,10 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         parachute_opening_accel_ms2=flight.max_acceleration_power_off,
         deployment_events=deployment_events,
         sanity_checks=sanity,
+        time_to_apogee_s=flight.apogee_time,
+        max_dynamic_pressure_pa=flight.max_dynamic_pressure,
+        max_dynamic_pressure_time_s=flight.max_dynamic_pressure_time,
+        ground_hit_velocity_ms=ground_hit_velocity,
+        landing_distance_m=landing_distance,
+        recovery_rows=recovery_rows,
     )
