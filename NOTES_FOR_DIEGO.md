@@ -1,5 +1,25 @@
 # Notes for Diego (plain language, no code)
 
+## Phase 2: V1/V2 results, honestly - neither passes yet
+
+- **V1 (July 4):** predicted 1124 m vs. your real 1020 m flight - **10.2%
+  high.** Main reason: I don't have a CG measurement specific to that
+  flight's exact mass, so I reused the LASC-config CG on a lighter rocket -
+  that's a real approximation, not a bug.
+- **V2 (LASC):** predicted 1197 m vs. your real 1137 m flight - **5.3%
+  high, just barely outside the ±5% target.** This one's close - the two
+  biggest things that could close the rest of the gap are (1) real
+  Iacanga weather instead of the placeholder OpenRocket-recorded wind, and
+  (2) an actual LASC-specific motor mass instead of reusing the Brasil
+  design figure.
+- I did **not** tune anything to force either number closer - both stay
+  marked PROVISIONAL, per your own instructions. Full breakdown is in
+  `PROGRESS.md`.
+- Also confirmed your drag curve extraction script is fully reproducible
+  (reran it, byte-for-byte identical to what's committed) and inspected
+  the telemetry file (72 packets, ~2.5 Hz, apogee packet matches your
+  1019.9 m exactly).
+
 ## Autonomous overnight run - Phase 1 corrections
 
 Thanks for the review, all 4 corrections are in. Short version:

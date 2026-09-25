@@ -1,5 +1,23 @@
 # Changelog
 
+## Phase 2 - V1/V2 validation against real flight data
+
+- `tests/test_phase2_validation.py`: V1 (2026-07-04, target 1019.9 m) and
+  V2 (LASC, target 1137 m), both against REAL telemetry - see PROGRESS.md
+  "Phase 2 findings" for the full breakdown. Neither is within +-5% (V1:
+  +10.22%, V2: +5.27%, both PROVISIONAL, neither tuned to force a pass).
+  Reuses `reference/prometeo_mission44`'s already-validated rocket model
+  directly (per-flight masses substituted via config monkeypatching) rather
+  than `stella_flight.translate` - see PROGRESS.md for why.
+- Confirmed `power_off_drag.csv`/`power_on_drag.csv` are byte-for-byte
+  reproducible from `Prometeo_Launchsite_BRASIL.csv` via
+  `scripts/extract_drag_curves.py` - not stale.
+- Inspected `telemetry_2026_07_04.xlsx`: 72 packets, ~2.5 Hz, apogee at
+  packet 118 (1019.9 m, matches the known target exactly) - see
+  PROGRESS.md for the full column/gap inventory. Altitude-residual RMS
+  against this table (V1's profile check, not just its apogee) is not yet
+  built.
+
 ## Phase 1 corrections (autonomous overnight run, real PROMETEO .ork now in repo)
 
 Diego reviewed last night's report and corrected 4 things; all addressed:
