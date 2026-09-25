@@ -31,7 +31,19 @@ check here first, then CHANGELOG.md for detail.
       understanding the cause would just hide the bug, not fix it.
 - [ ] Item 2: UI redesign (palette, sidebar, rocket drawing, History,
       Exports, Validation pages, Playwright screenshots)
-- [ ] Item 3: remaining phases (4, rest of 5, 6), tested with Major Tom too
+- [x] Item 3 / Phase 4: Monte Carlo + landing ellipse -
+      stella_flight/monte_carlo.py. Found and worked around 3 real bugs in
+      rocketpy==1.13.0's own Stochastic subsystem (see
+      tests/test_phase4_monte_carlo.py's docstring for the full list -
+      broken default export_list, CG not preserved unless explicit,
+      add_nose/add_trapezoidal_fins internal kwarg mismatch). N=20 test:
+      0 excluded, apogee 1205.6m mean, 90% interval [1164.6, 1301.5].
+      1/2/3-sigma landing ellipses computed from impact sample covariance.
+      NOT yet wired into the UI (Monte Carlo page) or given a
+      progress-bar/cancel UI - backend only so far.
+- [ ] Item 3 (rest): RCSM 4 cases (2 more needed), PDF/DOCX report, LASC
+      zip, Phase 6 (weathercocking, drag comparison), Major Tom testing,
+      full UI wiring for all pages, Playwright screenshots.
 
 
 

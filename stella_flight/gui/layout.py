@@ -1,0 +1,48 @@
+"""Shared header + left sidebar nav (2026-09-26 review, item 2). Every
+page calls `with layout("Page Title"):` and fills the returned content
+area - keeps navigation/branding in one place per CLAUDE.md's "importable
+library, UI kept separate" spirit applied one level down (nav chrome
+separate from page content).
+"""
+import contextlib
+import os
+
+from nicegui import ui
+
+from stella_flight.gui import theme
+
+PAGES = [
+    ("/", "rocket_launch", "Simulate"),
+    ("/rocket", "architecture", "Rocket"),
+    ("/montecarlo", "scatter_plot", "Monte Carlo"),
+    ("/rcsm", "checklist", "RCSM Cases"),
+    ("/analysis", "insights", "Analysis"),
+    ("/history", "history", "History"),
+    ("/exports", "download", "Exports"),
+    ("/validation", "verified", "Validation"),
+]
+
+
+@contextlib.contextmanager
+def layout(title, current_path="/"):
+    ui.add_head_html(f'<title>stella-flight - {title}</title>')
+    with ui.header().classes("stella-header items-center justify-between"):
+        with ui.row().classes("items-center gap-3"):
+            if os.path.exists(theme.LOGO_WINE):
+                ui.image(theme.LOGO_WINE).classes("h-8 w-auto")
+            else:
+                ui.label("Stella Ignis").classes("text-lg font-bold")
+                ui.label("stella-flight").classes("text-sm opacity-80")
+        ui.label(title).classes("text-base font-medium")
+        dark = ui.dark_mode()
+        ui.button(icon="dark_mode", on_click=dark.toggle).props("flat round color=white")
+
+    with ui.left_drawer().classes("stella-sidebar") as drawer:
+        for path, icon, label in PAGES:
+            classes = "stella-nav-active" if path == current_path else ""
+            with ui.row().classes(f"items-center gap-2 p-2 w-full cursor-pointer {classes}").on("click", lambda p=path: ui.navigate.to(p)):
+                ui.icon(icon)
+                ui.label(label)
+
+    with ui.column().classes("w-full p-4 gap-4") as content:
+        yield content

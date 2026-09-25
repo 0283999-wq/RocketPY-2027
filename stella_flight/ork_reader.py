@@ -675,4 +675,15 @@ def read_ork(path):
         parsed.import_log.append(ImportRow("launch conditions", "IGNORED", "no <simulations><simulation><conditions> found in this file - rail/site must be supplied separately"))
     else:
         parsed.import_log.append(ImportRow("launch conditions", "IMPORTED", f"rail={parsed.launch.rail_length_m} m, rod_angle={parsed.launch.rail_angle_from_vertical_deg} deg from vertical, alt={parsed.launch.altitude_m} m"))
+
+    airframe_end_m = max((t.position_m + t.length for t in parsed.body_tubes), default=0.0)
+    for pm in parsed.point_masses:
+        if pm.position_m < 0 or pm.position_m > airframe_end_m:
+            parsed.import_log.append(ImportRow(
+                pm.name, "APPROXIMATED",
+                f"WARNING: resolved position {pm.position_m:.4f} m is OUTSIDE the modeled airframe (0 to {airframe_end_m:.4f} m). "
+                "This reader's 'bottom' offset formula matches OpenRocket's documented convention, but a negative offset can "
+                "legitimately place a component beyond its parent - or this .ork may have a genuine positioning issue. "
+                "VERIFY against the OpenRocket UI directly before trusting this position.",
+            ))
     return parsed
