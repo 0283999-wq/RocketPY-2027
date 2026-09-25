@@ -1,0 +1,300 @@
+"""Translates a parsed .ork (+ a parsed .eng) into rocketpy Environment,
+SolidMotor, Rocket and Flight objects.
+
+Coordinate frame: CLAUDE.md Sec 4.3 states RocketPy uses
+coordinate_system_orientation="nose_to_tail". The validated PROMETEO
+reference implementation (reference/prometeo_mission44/src/prometeo/rocket.py)
+instead uses "tail_to_nose" with the origin at the nose tip, i.e. position
+= -x_m_from_nose - and that code passed its own mass/inertia acceptance
+check. THIS IS A DISCREPANCY - flagged for Diego rather than silently
+picked one way; this module follows the validated reference code
+("tail_to_nose"), not the CLAUDE.md prose, until that's confirmed.
+
+Mass/inertia: an .ork's own <overridemass>/<overridesubcomponentsmass> is
+used whenever present (it's a team-measured number, the most reliable
+source available). Where no override exists, mass and inertia are
+estimated geometrically from each component's material bulk density
+(thin-shell cylinder/cone approximation) - labelled APPROXIMATE, per
+CLAUDE.md Sec 4.3 "Inertias" and Rule 2 (never invent without a source).
+This is NOT a substitute for a measured mass; it exists so the app can
+still produce a flyable model when a component has no override and no
+mass column to fall back on.
+"""
+
+import math
+from dataclasses import dataclass, field
+
+from rocketpy import Environment, Flight, Rocket, SolidMotor
+
+
+@dataclass
+class MassEstimate:
+    mass_kg: float
+    cg_m: float  # m from nose tip
+    source: str  # "override" or "geometric estimate"
+
+
+def _shell_cylinder_mass_cg_inertia(length, radius, thickness, density, fore_m):
+    """Thin-to-moderate walled tube segment. Returns (mass, cg_m_from_nose,
+    I_axial_about_own_cg, I_transverse_about_own_cg)."""
+    if None in (length, radius, thickness, density) or length <= 0 or radius <= 0:
+        return 0.0, fore_m, 0.0, 0.0
+    r_out, r_in = radius, max(radius - thickness, 0.0)
+    volume = math.pi * (r_out**2 - r_in**2) * length
+    mass = volume * density
+    cg = fore_m + length / 2.0
+    i_axial = 0.5 * mass * (r_out**2 + r_in**2)
+    i_transverse = mass * (3 * (r_out**2 + r_in**2) + length**2) / 12.0
+    return mass, cg, i_axial, i_transverse
+
+
+def _cone_shell_mass_cg(length, radius, density, fore_m, thickness_assumed=0.002):
+    """Nose cone / transition, approximated as a thin conical shell of
+    constant thickness regardless of the real ogive/vonkarman/haack profile
+    - the mass this gives is within a few percent of the true profile for
+    typical thin composite/plastic nose cones, but is explicitly a shape
+    approximation (see CLAUDE.md Sec 4.3 Inertias)."""
+    if None in (length, radius, density) or length <= 0 or radius <= 0:
+        return 0.0, fore_m, 0.0, 0.0
+    slant = math.sqrt(length**2 + radius**2)
+    lateral_area = math.pi * radius * slant
+    mass = lateral_area * thickness_assumed * density
+    cg = fore_m + 0.66 * length  # thin cone shell CG ~2/3 of the way to the base from apex
+    i_axial = 0.5 * mass * radius**2  # thin-shell cone about its own axis, approximate
+    i_transverse = mass * (3 * radius**2 / 20.0 + length**2 / 10.0)  # solid-cone-like approx, flagged
+    return mass, cg, i_axial, i_transverse
+
+
+def _fin_set_mass_cg(fin, body_radius):
+    """Flat trapezoidal fin, uniform thickness, planform area from the
+    stored root/tip/span/sweep - CG at the standard trapezoid centroid."""
+    if fin.material_density is None:
+        return 0.0, fin.position_m, 0.0, 0.0
+    area_one = 0.5 * (fin.root_chord + fin.tip_chord) * fin.span
+    mass_one = area_one * fin.thickness * fin.material_density
+    mass = mass_one * fin.count
+    # trapezoid centroid, measured from root-chord leading edge along the axial direction
+    # trapezoid centroid along the chordwise (axial) direction, from root-chord LE
+    rc, tc, sw = fin.root_chord, fin.tip_chord, fin.sweep_length
+    if (rc + tc) > 1e-9:
+        x_bar = sw * (2 * tc + rc) / (3 * (rc + tc)) + rc * (rc + 2 * tc) / (3 * (rc + tc))
+    else:
+        x_bar = rc / 2.0
+    cg = fin.position_m + x_bar
+    r_eff = body_radius + fin.span / 2.0
+    i_axial = mass * r_eff**2  # fins as point masses at mean span radius, about roll axis
+    i_transverse = mass * (fin.position_m - cg) ** 2  # placeholder, refined by caller's parallel-axis pass
+    return mass, cg, i_axial, i_transverse
+
+
+def _geometric_components(parsed):
+    """Every structural component's own (mass, cg_m, i_axial, i_transverse),
+    from material bulk density where present. Used both to estimate a total
+    mass/CG when there's no override, and - regardless of any mass override
+    - to estimate the *relative* mass distribution an override doesn't by
+    itself provide (an override replaces the total, not the shape)."""
+    components = []
+    if parsed.nose is not None:
+        radius = parsed.nose.aft_radius or 0.0
+        components.append(_cone_shell_mass_cg(parsed.nose.length, radius, parsed.nose.material_density, parsed.nose.position_m))
+    for tube in parsed.body_tubes:
+        components.append(_shell_cylinder_mass_cg_inertia(tube.length, tube.radius, tube.thickness, tube.material_density, tube.position_m))
+    for tr in parsed.transitions:
+        r = tr.aft_radius or tr.fore_radius or 0.0
+        components.append(_cone_shell_mass_cg(tr.length, r, tr.material_density, tr.position_m))
+    body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
+    for fin in parsed.fins:
+        mass, comp_cg, _, _ = _fin_set_mass_cg(fin, body_radius)
+        r_eff = body_radius + fin.span / 2.0
+        components.append((mass, comp_cg, mass * r_eff**2, 0.0))
+    for pm in parsed.point_masses:
+        components.append((pm.mass, pm.position_m, 0.0, 0.0))
+    return components
+
+
+def estimate_dry_mass_and_cg(parsed):
+    """Returns MassEstimate for the whole dry (no-motor) airframe.
+
+    Mass: a rocket-wide/bodytube <overridemass> (with subcomponents
+    included) wins when present - it's a team-measured number. Otherwise
+    the geometric component masses are summed.
+
+    CG: an explicit <overridecg> wins when present. Otherwise the CG is the
+    mass-weighted average of the *geometric* component masses (this is
+    valid even when the total mass itself came from an override: CG
+    position depends on the relative distribution between components, not
+    on the absolute total - the two numbers aren't coupled the way this
+    function's early drafts assumed).
+
+    If neither an override nor any component material density is
+    available, mass is reported 0 with the failure reason - callers must
+    not build a Rocket from that; it does not raise here so the import
+    table can still show why.
+    """
+    total_override = next((o for o in parsed.mass_overrides if o.override_mass is not None), None)
+    cg_override = next((o for o in parsed.mass_overrides if o.override_cg_m is not None), None)
+
+    components = _geometric_components(parsed)
+    geom_mass = sum(c[0] for c in components)
+
+    if geom_mass > 0:
+        geom_cg = sum(c[0] * c[1] for c in components) / geom_mass
+    else:
+        geom_cg = None
+
+    if total_override is not None and total_override.override_subcomponents_mass:
+        mass = total_override.override_mass
+        mass_source = f"override on '{total_override.component}'"
+    elif geom_mass > 0:
+        mass = geom_mass
+        mass_source = "geometric estimate (thin-shell approximation, see translate.py docstring)"
+    else:
+        return MassEstimate(0.0, 0.0, "FAILED: no mass override and no component material densities available - cannot build a Rocket from this")
+
+    if cg_override is not None:
+        cg = cg_override.override_cg_m
+        cg_source = f"override cg on '{cg_override.component}'"
+    elif geom_cg is not None:
+        cg = geom_cg
+        cg_source = "geometric estimate (mass-weighted component centroids)"
+    else:
+        return MassEstimate(mass, None, f"{mass_source}, but CG unknown: no overridecg and no component material densities to weight a geometric CG")
+
+    return MassEstimate(mass, cg, f"mass: {mass_source}; cg: {cg_source}")
+
+
+def estimate_dry_inertia(parsed, dry_mass_estimate):
+    """Sums each geometric component's own moment of inertia plus its
+    parallel-axis contribution about the overall dry CG. Returns
+    (I_axial_roll, I_transverse_pitch_yaw) in kg m2. Approximate - see
+    module docstring. Needs a resolved CG (dry_mass_estimate.cg_m is not
+    None); raises otherwise rather than silently producing 0 - a rocket
+    with unknown or zero inertia is not flyable (RocketPy's ODE integrator
+    will misbehave, not just be imprecise)."""
+    cg = dry_mass_estimate.cg_m
+    if cg is None:
+        raise ValueError("dry CG is unknown (see MassEstimate.source) - cannot estimate inertia without it; supply an <overridecg> or component material densities")
+
+    i_axial_total = 0.0
+    i_transverse_total = 0.0
+    for mass, comp_cg, i_ax, i_tr in _geometric_components(parsed):
+        d = comp_cg - cg
+        i_axial_total += i_ax
+        i_transverse_total += i_tr + mass * d**2
+
+    return i_axial_total, i_transverse_total
+
+
+def build_motor(parsed_eng, eng_path):
+    """Builds a rocketpy SolidMotor from a parsed .eng. Grain geometry is
+    NOT recoverable from a RASP file (it only has total propellant mass and
+    the thrust curve) - rocketpy's SolidMotor needs grain dimensions for
+    its own mass-flow model, so this builds a single-BATES-equivalent-grain
+    approximation sized to match propellant mass and casing length/diameter
+    from the .eng header. This reproduces total impulse and thrust curve
+    exactly (rocketpy takes thrust_source directly), but the mass-vs-time
+    curve during burn is an approximation - flag this in the report."""
+    h = parsed_eng.header
+    return SolidMotor(
+        thrust_source=eng_path,
+        dry_mass=h.total_mass_kg - h.propellant_mass_kg,
+        dry_inertia=(0.01, 0.01, 0.001),  # not recoverable from RASP - placeholder, same as PROMETEO's own motor.py
+        nozzle_radius=(h.diameter_mm / 1000.0) * 0.15,  # rough estimate, not in RASP header
+        grain_number=1,
+        grain_density=1750.0,  # typical KNSB cast density; not in RASP header
+        grain_outer_radius=(h.diameter_mm / 1000.0) / 2.0 * 0.95,
+        grain_initial_inner_radius=(h.diameter_mm / 1000.0) / 2.0 * 0.25,
+        grain_initial_height=(h.length_mm / 1000.0) * 0.9,
+        grain_separation=0.005,
+        grains_center_of_mass_position=(h.length_mm / 1000.0) / 2.0,
+        center_of_dry_mass_position=(h.length_mm / 1000.0) / 2.0,
+        nozzle_position=0,
+        burn_time=parsed_eng.burn_time_s,
+        throat_radius=(h.diameter_mm / 1000.0) * 0.1,
+        coordinate_system_orientation="nozzle_to_combustion_chamber",
+    )
+
+
+def build_environment(launch):
+    env = Environment(latitude=launch.latitude, longitude=launch.longitude, elevation=launch.altitude_m)
+    env.set_atmospheric_model(type="standard_atmosphere")
+    return env
+
+
+def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m):
+    """Builds the rocketpy Rocket in the "tail_to_nose" frame (see module
+    docstring for why, over CLAUDE.md's nose_to_tail prose)."""
+
+    def to_rpy(x_m_from_nose):
+        return -x_m_from_nose
+
+    rocket = Rocket(
+        radius=radius_m,
+        mass=dry_mass_estimate.mass_kg,
+        inertia=(i_transverse, i_transverse, i_axial),
+        power_off_drag=0.5,  # PLACEHOLDER - see CLAUDE.md Sec 4.2, must be replaced with a real Cd curve before this is used for a real flight
+        power_on_drag=0.5,
+        center_of_mass_without_motor=to_rpy(dry_mass_estimate.cg_m),
+        coordinate_system_orientation="tail_to_nose",
+    )
+
+    nose_tip_rpy = to_rpy(0.0)
+    rocket.add_motor(motor, position=to_rpy(parsed.body_tubes[-1].position_m + parsed.body_tubes[-1].length) if parsed.body_tubes else nose_tip_rpy)
+
+    if parsed.nose is not None:
+        rocket.add_nose(length=parsed.nose.length, kind=parsed.nose.shape, position=nose_tip_rpy)
+
+    for fin in parsed.fins:
+        rocket.add_trapezoidal_fins(
+            n=fin.count,
+            root_chord=fin.root_chord,
+            tip_chord=fin.tip_chord,
+            span=fin.span,
+            sweep_length=fin.sweep_length,
+            cant_angle=fin.cant_angle,
+            position=to_rpy(fin.position_m),
+        )
+
+    if parsed.rail_buttons is not None:
+        rocket.set_rail_buttons(
+            upper_button_position=to_rpy(parsed.rail_buttons.upper_position_m),
+            lower_button_position=to_rpy(parsed.rail_buttons.lower_position_m),
+        )
+
+    for chute in parsed.parachutes:
+        if chute.cd is None:
+            continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
+        cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+        trigger = "apogee" if chute.deploy_event == "apogee" else chute.deploy_altitude
+        rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
+
+    return rocket
+
+
+def ork_to_flight(ork_parsed, parsed_eng, eng_path, rail_length_override=None, inclination_override=None, heading_override=None, terminate_on_apogee=False):
+    """End-to-end: parsed .ork + parsed .eng -> a runnable rocketpy Flight.
+    Raises if the .ork had no launch conditions and no overrides were
+    given - CRS 10.1.8 requires exact site data, so this refuses to guess
+    a launch site silently."""
+    if ork_parsed.launch is None and None in (rail_length_override, inclination_override, heading_override):
+        raise ValueError("no launch conditions in the .ork and no manual overrides given - supply rail_length/inclination/heading or a .ork with a stored simulation")
+
+    launch = ork_parsed.launch
+    env = build_environment(launch)
+    motor = build_motor(parsed_eng, eng_path)
+
+    dry_mass_estimate = estimate_dry_mass_and_cg(ork_parsed)
+    i_axial, i_transverse = estimate_dry_inertia(ork_parsed, dry_mass_estimate)
+    radius_m = next((t.radius for t in ork_parsed.body_tubes if t.radius), None) or (ork_parsed.nose.aft_radius if ork_parsed.nose else 0.05)
+
+    rocket = build_rocket(ork_parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius_m)
+
+    flight = Flight(
+        rocket=rocket,
+        environment=env,
+        rail_length=rail_length_override if rail_length_override is not None else launch.rail_length_m,
+        inclination=inclination_override if inclination_override is not None else launch.inclination_deg,
+        heading=heading_override if heading_override is not None else launch.rail_direction_deg,
+        terminate_on_apogee=terminate_on_apogee,
+    )
+    return flight, dry_mass_estimate
