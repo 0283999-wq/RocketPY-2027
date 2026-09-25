@@ -254,6 +254,54 @@ def rocketpy_nose_kind(openrocket_shape):
     return kind
 
 
+PARACHUTE_DEPLOY_EVENT_NOTES = {
+    # 2026-09-26 review crash 2(a): OpenRocket's <deployevent> has more
+    # values than "apogee"/"altitude" - the previous code treated
+    # anything-not-"apogee" as an altitude trigger using deploy_altitude,
+    # which is WRONG for "never" (this component has NO automatic
+    # deployment configured in OpenRocket at all - deploy_altitude is
+    # just a stored-but-inactive config value, not a live threshold).
+    # PROMETEO's real .ork has exactly this: <deployevent>never</deployevent>,
+    # because the real vehicle deploys via an SRAD altimeter at apogee
+    # (confirmed in flight telemetry, not something OpenRocket's own
+    # deployevent options model) - the app was reading that "never" as
+    # "deploy at 200m AGL on the way down", so the rocket coasted in
+    # ballistic free-fall from apogee (t=16.8s) to t=31.8s at ~120 m/s
+    # before "deploying", producing a ~375g opening-shock spike that
+    # swallowed the real max acceleration (boost phase, ~5g) entirely.
+    "ejection": "OpenRocket 'ejection' deploy event (fires at the motor's own ejection-charge delay - rocketpy has no direct trigger for that) - approximated as apogee-triggered deployment.",
+    "never": "OpenRocket 'never' deploy event (no automatic deployment is configured for this component in the .ork - typical of a real SRAD altimeter system OpenRocket's own deployment options don't model). Assumed apogee-triggered deployment - verify against the actual flight computer's configured deployment altitude/delay.",
+}
+
+
+def _parachute_trigger(chute):
+    """Maps an OpenRocket <deployevent> to a rocketpy Parachute trigger.
+    Only "altitude" uses the .ork's own deploy_altitude as a live
+    trigger threshold. Returns (trigger, warning_or_None) - the warning
+    is None only for "apogee"/"altitude", which are read directly from
+    the file with no assumption involved."""
+    event = (chute.deploy_event or "").lower()
+    if event == "altitude":
+        return chute.deploy_altitude, None
+    if event == "apogee":
+        return "apogee", None
+    return "apogee", PARACHUTE_DEPLOY_EVENT_NOTES.get(
+        event, f"unrecognized deploy_event {chute.deploy_event!r} - assumed apogee-triggered deployment, verify manually."
+    )
+
+
+def parachute_import_notes(parsed):
+    """(component, status, detail) rows for the import table, so a
+    non-"apogee"/"altitude" deploy_event assumption is visible BEFORE
+    simulating, not discovered from a physically-impossible result."""
+    rows = []
+    for chute in parsed.parachutes:
+        _, warning = _parachute_trigger(chute)
+        if warning:
+            rows.append((f"{chute.name} (deployment)", "APPROXIMATED", warning))
+    return rows
+
+
 def build_environment(launch):
     env = Environment(latitude=launch.latitude, longitude=launch.longitude, elevation=launch.altitude_m)
     env.set_atmospheric_model(type="standard_atmosphere")
@@ -333,7 +381,7 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
             if chute.cd is None:
                 continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
             cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-            trigger = "apogee" if chute.deploy_event == "apogee" else chute.deploy_altitude
+            trigger, _ = _parachute_trigger(chute)  # warning already surfaced via parachute_import_notes() at load time
             rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
     # include_recovery=False is CRS 10.1.11's Ballistic case: no recovery
     # deployment at all, rocket free-falls under drag alone to ground impact.

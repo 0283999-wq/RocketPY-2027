@@ -68,6 +68,35 @@ def test_run_simulation_end_to_end_with_manual_mass_override():
     assert sim.is_stable, "with the correct mass+CG this should be stable - if not, something regressed"
     assert 500 < sim.apogee_agl_m < 2000
     assert sim.provisional_warning, "CLAUDE.md Rule 3: every result must show PROVISIONAL until V1+V2 both pass"
+
+
+def test_parachute_deploys_at_apogee_not_late_and_max_acceleration_is_boost_only():
+    """2026-09-26 review 2(a) regression test: PROMETEO's real .ork has
+    <deployevent>never</deployevent> on its only parachute (a real SRAD
+    altimeter system OpenRocket's own deployevent options don't model -
+    the real vehicle deploys at apogee, confirmed in flight telemetry).
+    The old code read "never" as an altitude-during-descent trigger at
+    deploy_altitude=200m, so the rocket free-fell from apogee (~17s) to
+    ~32s before "deploying" at ~120 m/s, producing a ~375g acceleration
+    spike that swallowed the real (boost-phase, ~5g) max acceleration.
+    If this regresses, deployment_events[0][1] (the time) will jump back
+    to ~30s+ and max_acceleration_ms2 will jump back into the hundreds."""
+    result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    sim = pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+
+    assert sim.deployment_events, "expected at least one parachute deployment event"
+    name, t, speed, warn = sim.deployment_events[0]
+    print(f"\n{name} deploys at t={t:.1f}s, speed={speed:.1f} m/s (warn={warn})")
+    assert t < 20, f"deployment at t={t:.1f}s is not near apogee (~17s) - the 'never'->apogee mapping likely regressed back to an altitude trigger"
+    assert speed < 50, f"deployment speed {speed:.1f} m/s is far above what an at-apogee deployment should produce"
+
+    print(f"max_acceleration (boost) = {sim.max_acceleration_ms2:.1f} m/s2, parachute opening accel = {sim.parachute_opening_accel_ms2:.1f} m/s2")
+    assert sim.max_acceleration_ms2 < 100, "boost-phase max acceleration should be a handful of g's for this motor, not a chute-opening spike"
+    assert 40 < sim.max_acceleration_ms2, "boost-phase max acceleration implausibly low for a K-class motor on this airframe"
+
+    for check in sim.sanity_checks:
+        print(f"  [{check.status}] {check.name}: {check.detail}")
+    assert not any(c.status == "FAIL" for c in sim.sanity_checks), "no sanity check should FAIL on this known-good config"
     assert any(v is not None for v in sim.plot_paths.values()), "no plots were produced at all"
     for name, path in sim.plot_paths.items():
         if path:

@@ -170,15 +170,32 @@ def simulate_page():
                         ("Apogee AGL", f"{sim.apogee_agl_m:.1f}", "m", True),
                         ("Max speed", f"{sim.max_speed_ms:.1f}", "m/s", True),
                         ("Max Mach", f"{sim.max_mach:.3f}", "", True),
-                        ("Max acceleration", f"{sim.max_acceleration_ms2:.1f}", "m/s2", True),
+                        ("Max acceleration (boost)", f"{sim.max_acceleration_ms2:.1f}", "m/s2", True),
                         ("Rail exit velocity", f"{sim.rail_exit_velocity_ms:.1f}", "m/s", sim.rail_exit_velocity_ms >= 30),
                         ("Flight time", f"{sim.flight_time_s:.1f}", "s", True),
-                        ("Min static margin", f"{sim.min_static_margin_cal:.2f}", "cal", 1.5 <= sim.min_static_margin_cal),
-                        ("Stable?", "YES" if sim.is_stable else "NO - UNSTABLE", "", sim.is_stable),
+                        ("Min static margin (rail exit-apogee)", f"{sim.min_static_margin_cal:.2f}", "cal", sim.is_stable),
+                        ("Stable? (FLT 4.3.5: 1.5-4 cal)", "YES" if sim.is_stable else "NO", "", sim.is_stable),
                     ]:
                         with ui.card():
                             ui.label(label).classes("text-xs text-gray-500")
                             ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold" if good else "text-xl font-bold text-red-600")
+                    if sim.parachute_opening_accel_ms2 is not None:
+                        with ui.card():
+                            ui.label("Parachute opening accel (instantaneous inflation model, upper bound)").classes("text-xs text-gray-500")
+                            ui.label(f"{sim.parachute_opening_accel_ms2:.1f} m/s2 ({sim.parachute_opening_accel_ms2 / 9.80665:.1f} g)").classes("text-xl font-bold")
+
+                if sim.deployment_events:
+                    with ui.column().classes("w-full mt-2"):
+                        for name, t, speed, warn in sim.deployment_events:
+                            cls = "text-orange-600" if warn else "text-gray-600"
+                            note = " - ABOVE the ~30 m/s clean-deployment guideline" if warn else ""
+                            ui.label(f"{name} deploys at t={t:.1f}s, speed={speed:.1f} m/s{note}").classes(f"text-sm {cls}")
+
+                if sim.sanity_checks:
+                    with ui.expansion(f"Automatic sanity checks ({sum(1 for c in sim.sanity_checks if c.status != 'OK')} flagged)").classes("w-full mt-2"):
+                        for c in sim.sanity_checks:
+                            color = {"OK": "text-green-700", "WARN": "text-orange-600", "FAIL": "text-red-600"}[c.status]
+                            ui.label(f"[{c.status}] {c.name}: {c.detail}").classes(f"text-sm {color}")
 
                 ui.label(f"Dry mass/CG used: {sim.dry_mass_kg:.4f} kg / {sim.dry_cg_m:.4f} m from nose ({sim.mass_source})").classes("text-xs text-gray-500")
 

@@ -466,3 +466,94 @@ Verification: full non-Playwright suite (26 tests) + both existing
 Playwright e2e tests, all green. New test:
 `test_phase4_monte_carlo.py::test_cancel_check_stops_early_and_keeps_partial_results`
 (N=5, per budget-mode test guidance).
+
+### Section 2: physically impossible numbers - DONE
+
+- **(a) 394g acceleration spike / parachute deploys 14s after apogee at
+  ~120 m/s**: root cause found and fixed. PROMETEO's real `.ork` has
+  `<deployevent>never</deployevent>` on its only parachute - this is
+  real, verified against the raw XML, not a parsing bug. "never" means
+  OpenRocket has NO automatic deployment configured for this component
+  at all (typical for a team using a real SRAD altimeter, which
+  OpenRocket's built-in deployevent options don't model - PROMETEO's
+  really deploys via altimeter at apogee, confirmed in flight
+  telemetry). The OLD code's fallback (`"apogee" if deploy_event ==
+  "apogee" else deploy_altitude`) treated "never" as an ACTIVE altitude
+  trigger at the stored (but inactive) `deploy_altitude=200.0` - so the
+  rocket coasted in ballistic free-fall from apogee (t=16.8s) down to
+  t=31.8s at ~120 m/s before "deploying", instant-inflation-modeled by
+  rocketpy into a ~375g spike that dominated every acceleration KPI.
+  Fixed with `translate._parachute_trigger()`: only "altitude" uses
+  deploy_altitude as a live trigger; "apogee" maps directly; everything
+  else ("never", "ejection", unrecognized values) maps to an
+  apogee-triggered deployment WITH A LOGGED WARNING (not asserted as
+  fact - `translate.parachute_import_notes()` puts it in the import
+  table before simulating, per CLAUDE.md Rule 2). Verified: deployment
+  now at t=16.8s (apogee) at 30.6 m/s - and the resulting simulated
+  descent rate (5.5 m/s) matches PROMETEO's real documented descent
+  rate (5.5 m/s, CLAUDE.md Sec 3.2) almost exactly, which is a strong
+  independent confirmation this is the right fix, not just "a" fix.
+  Added a permanent regression test
+  (`test_parachute_deploys_at_apogee_not_late_and_max_acceleration_is_boost_only`).
+  Split the acceleration KPI in two: `max_acceleration_ms2` is now
+  `flight.max_acceleration_power_on` (boost-phase only - **51.0 m/s2**,
+  matching OpenRocket's own reported 50.9 m/s2 almost exactly) and a
+  new `parachute_opening_accel_ms2` (`flight.max_acceleration_power_off`,
+  labelled on the Results page "instantaneous inflation model, upper
+  bound" per tonight's exact wording - rocketpy models canopy inflation
+  as instantaneous, which overstates the real jerk).
+- **(b) 0.08 cal margin, "Stable? YES"**: two separate fixes. First,
+  margin is now computed **rail-exit to apogee only** (both in
+  `pipeline.run_simulation` and independently in `rcsm.check_compliance`,
+  which had the exact same full-flight-window bug - found while fixing
+  the first one and audited the rest of the codebase for the same
+  pattern, none left). Full-flight margin swept in the post-deployment
+  descent phase, where "static margin" is not the aerodynamically
+  meaningful ascent quantity FLT 4.3.5/4.3.6 are about - combined with
+  2(a)'s late/high-speed deployment, a chaotic post-deployment instant
+  could dominate `min()`. Second, "Stable?" is now pass/fail against
+  the FULL 1.5-4 cal window (`1.5 <= min_margin and max_margin <= 4.0`),
+  not just `margin > 0` - a razor-thin or absurdly-high margin both used
+  to silently read "YES". Verified with the known-good override
+  (5.6622 kg / 0.6279 m): margin is now [2.61, 3.30] cal (was reading
+  whatever the full-flight window produced before) - in the right
+  ballpark vs. OpenRocket's ~1.9 cal at the pad; the remaining gap is
+  Item 3's territory (mass/CG differences), not this bug.
+  **Where "0.6279 m" comes from, and its reference frame** (Diego's
+  direct question): it is NOT independently measured - it's *derived*
+  in `reference/prometeo_mission44/src/prometeo/rocket.py`'s
+  `_solve_dry_inertia()`, by parallel-axis subtraction of the motor's
+  own CG from OpenRocket's stored **with-motor** t=0 CG
+  (`config.CG_T0_WITH_MOTOR = 0.97966` m from nose, from the Brasil-
+  config CSV export). The **0.6279 is in OpenRocket's own frame: metres
+  from the nose tip, positive aft** - confirmed by actually running that
+  derivation (`_solve_dry_inertia()['cg_dry_rpy'] = -0.6279...`, and the
+  function's own debug print divides by -1 to report "cm from nose").
+  There is NO tail_to_nose/from-nose mix-up in the current code: the
+  Advanced panel's field is explicitly labelled "m from nose", and
+  `translate.build_rocket`'s `to_rpy()` negates it internally before
+  handing it to `Rocket(center_of_mass_without_motor=...)` - which is
+  exactly what the reference implementation does by hand. So 0.6279 is
+  the right number to type into that field for PROMETEO's Brasil-config
+  dry mass, and it's a **derived** number (parallel-axis subtraction
+  from a with-motor OpenRocket export), not a direct measurement - which
+  is exactly why it's provisional/approximate for LASC's different total
+  mass (10.370 kg vs. this config's 10.400 kg), same as V1/V2's existing
+  PROVISIONAL caveats.
+- **(c) Automatic sanity checks**: new `bup_rocketpy/sanity_checks.py`,
+  `run_sanity_checks(flight, rocket, motor, dry_mass_kg)` returns a list
+  of `SanityCheck(name, status, detail)` (OK/WARN/FAIL), covering:
+  thrust-to-weight at liftoff, boost acceleration vs. a thrust/mass-g
+  hand estimate, delta-v vs. impulse/avg-mass, deployment speed per
+  parachute (>30 m/s flagged), and a descent-rate hand-check
+  (v=sqrt(2mg/(rho*CdS)) at ground density vs. simulated impact speed -
+  matched PROMETEO's real 5.5 m/s almost exactly). `pipeline.run_simulation`
+  adds a 6th, the static margin range check (FLT 4.3.5), and attaches
+  the full list to `SimResult.sanity_checks`. Shown on the Results page
+  as a collapsed "Automatic sanity checks (N flagged)" panel, color-coded
+  green/orange/red - a red flag instead of silently showing a weird
+  number, per tonight's instruction. Deliberately loose thresholds (this
+  catches gross errors, not subtle modeling imprecision) to avoid crying
+  wolf on a genuinely unusual but correct rocket.
+
+Full suite (29 tests) green; reference/ data confirmed untouched.

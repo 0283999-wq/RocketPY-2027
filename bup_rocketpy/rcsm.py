@@ -61,7 +61,13 @@ def check_compliance(category, flight, rocket, payload_mass_kg, fin_flutter_velo
     else:
         rows.append(("FLT 4.3.4", "Rail exit velocity", "FAIL", f"{rail_v:.1f} m/s, below {RAIL_EXIT_VELOCITY_ANALYSIS_FLOOR} m/s floor"))
 
-    margins = [flight.stability_margin(t) for t in flight.time]
+    # 2026-09-26 review 2(b): "(ascent)" in the rule description above was
+    # not actually true until this fix - margins were computed over the
+    # WHOLE flight (including descent under canopy, where "static margin"
+    # is not the aerodynamically meaningful ascent-stability quantity
+    # FLT 4.3.5/4.3.6 are about), the same bug pipeline.run_simulation had.
+    ascent_times = [t for t in flight.time if flight.out_of_rail_time <= t <= flight.apogee_time]
+    margins = [flight.stability_margin(t) for t in ascent_times] or [flight.stability_margin(flight.apogee_time)]
     min_margin = min(margins)
     max_margin = max(margins)
     if min_margin >= MIN_STATIC_MARGIN_CAL:

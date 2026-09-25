@@ -54,18 +54,21 @@ class SimResult:
     apogee_agl_m: float
     max_speed_ms: float
     max_mach: float
-    max_acceleration_ms2: float
+    max_acceleration_ms2: float  # 2026-09-26 review 2(a): BOOST-PHASE peak only (flight.max_acceleration_power_on) - matches what OpenRocket reports. See parachute_opening_accel_ms2 for the separate descent-phase figure.
     rail_exit_velocity_ms: float
     flight_time_s: float
-    min_static_margin_cal: float
+    min_static_margin_cal: float  # 2026-09-26 review 2(b): computed rail-exit-to-apogee only, not the whole flight (which includes the physically-different post-deployment/descent phase)
     max_static_margin_cal: float
-    is_stable: bool
+    is_stable: bool  # 2026-09-26 review 2(b): pass/fail against FLT 4.3.5's 1.5-4 cal window, not just margin > 0
     plot_paths: dict  # {"altitude": path, "velocity": path, ...}
     csv_path: str
     provisional_warning: str  # always non-empty until Phase 2's V1/V2 both pass - CLAUDE.md Rule 3
     dry_mass_kg: float = None  # the mass ACTUALLY used to build the flown rocket (override or geometric estimate) - crash (d)/(e) fix: every other page must read this, not the raw UI override field, or they show 0/None whenever no manual override was typed
     dry_cg_m: float = None
     mass_source: str = ""  # human-readable: "override" or "geometric estimate (...)"
+    parachute_opening_accel_ms2: float = None  # flight.max_acceleration_power_off - "instantaneous inflation model, upper bound" per 2026-09-26 review 2(a); rocketpy models canopy inflation as instant, which overstates the real jerk, hence "upper bound"
+    deployment_events: list = field(default_factory=list)  # [(chute_name, time_s, speed_ms, warn_bool), ...]
+    sanity_checks: list = field(default_factory=list)  # list of sanity_checks.SanityCheck, 2026-09-26 review 2(c)
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -122,6 +125,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         import_table.append((".eng thrust curve", "APPROXIMATED", w))
     for w in curve_warnings:
         import_table.append(("drag curve CSV", "APPROXIMATED", w))
+    import_table.extend(translate.parachute_import_notes(parsed_ork))
 
     return LoadResult(
         parsed_ork=parsed_ork, parsed_eng=parsed_eng, eng_path=eng_path,
@@ -162,7 +166,34 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         heading=parsed.launch.rail_direction_deg,
     )
 
-    margins = [flight.stability_margin(t) for t in flight.time]
+    # 2026-09-26 review 2(b): margin computed RAIL-EXIT TO APOGEE only.
+    # The full-flight window used to include the descent phase, where
+    # "static margin" stops being a meaningful aerodynamic concept (the
+    # rocket is under canopy, at high AoA, no longer flying nose-first) -
+    # combined with 2(a)'s late-deployment bug, a chaotic post-deployment
+    # instant could dominate min(margins) and produce a number like the
+    # 0.08 cal Diego saw, nothing to do with the actual ascent stability.
+    ascent_times = [t for t in flight.time if flight.out_of_rail_time <= t <= flight.apogee_time]
+    margins = [flight.stability_margin(t) for t in ascent_times] or [flight.stability_margin(flight.apogee_time)]
+    min_margin, max_margin = min(margins), max(margins)
+    # FLT 4.3.5: static margin must stay within 1.5-4 cal throughout
+    # ascent - "Stable?" is now a pass/fail against that window, not
+    # just "margin > 0" (which let a razor-thin or absurdly high margin
+    # both silently read "YES").
+    is_stable = 1.5 <= min_margin and max_margin <= 4.0
+
+    deployment_events = []
+    for t, chute in getattr(flight, "parachute_events", []):
+        vx, vy, vz = flight.vx(t), flight.vy(t), flight.vz(t)
+        speed = (vx**2 + vy**2 + vz**2) ** 0.5
+        deployment_events.append((getattr(chute, "name", "parachute"), t, speed, speed > 30.0))
+
+    from bup_rocketpy.sanity_checks import SanityCheck, run_sanity_checks
+    sanity = run_sanity_checks(flight, rocket, motor, mass_est.mass_kg)
+    if not (1.5 <= min_margin <= 4.0):
+        sanity.insert(0, SanityCheck("Static margin range", "WARN" if min_margin > 0 else "FAIL", f"min margin {min_margin:.2f} cal, max {max_margin:.2f} cal (rail-exit to apogee) - FLT 4.3.5 requires 1.5-4 cal throughout."))
+    else:
+        sanity.insert(0, SanityCheck("Static margin range", "OK", f"min margin {min_margin:.2f} cal, max {max_margin:.2f} cal (rail-exit to apogee) - within FLT 4.3.5's 1.5-4 cal window."))
 
     import matplotlib
     matplotlib.use("Agg")
@@ -196,16 +227,19 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         apogee_agl_m=flight.apogee - env.elevation,
         max_speed_ms=flight.max_speed,
         max_mach=flight.max_mach_number,
-        max_acceleration_ms2=flight.max_acceleration,
+        max_acceleration_ms2=flight.max_acceleration_power_on,
         rail_exit_velocity_ms=flight.out_of_rail_velocity,
         flight_time_s=flight.t_final,
-        min_static_margin_cal=min(margins),
-        max_static_margin_cal=max(margins),
-        is_stable=min(margins) > 0,
+        min_static_margin_cal=min_margin,
+        max_static_margin_cal=max_margin,
+        is_stable=is_stable,
         plot_paths=plot_paths,
         csv_path=csv_path,
         provisional_warning="PROVISIONAL: V1/V2 flight-data validation has not both passed within +-5% yet (see PROGRESS.md). Do not treat this result as final.",
         dry_mass_kg=mass_est.mass_kg,
         dry_cg_m=mass_est.cg_m,
         mass_source=mass_est.source,
+        parachute_opening_accel_ms2=flight.max_acceleration_power_off,
+        deployment_events=deployment_events,
+        sanity_checks=sanity,
     )
