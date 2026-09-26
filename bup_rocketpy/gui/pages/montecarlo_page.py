@@ -46,61 +46,16 @@ def montecarlo_page():
         cancel_button = ui.button("Cancel", color="negative").props("hidden")
         results_container = ui.column().classes("w-full mt-4")
 
-        # 2026-09-26 review crash (b) + item 7: N stochastic Flight sims
-        # run in a background thread (run.io_bound) so the event loop -
-        # and the "Connection lost" websocket heartbeat - stays alive.
-        # progress_cb/cancel_check run INSIDE that thread, so they only
-        # touch a plain dict (GIL-safe for simple read/write); a ui.timer
-        # on the main event loop polls it and is the only thing that
-        # actually touches NiceGUI elements, which is not safe to do
-        # directly from a worker thread.
-        mc_progress = {"text": "", "done": False}
-        cancel_flag = threading.Event()
-
-        def poll_progress():
-            progress_label.set_text(mc_progress["text"])
-            if mc_progress["done"]:
-                poll_timer.deactivate()
-
-        poll_timer = ui.timer(0.4, poll_progress, active=False)
-
-        async def run_mc():
-            parsed = s["load_result"].parsed_ork
-            i_ax, i_tr = _get_inertia()
-            radius = next(t.radius for t in parsed.body_tubes if t.radius)
-            n = int(n_input.value)
-
-            def progress_cb(i, total):
-                mc_progress["text"] = f"Running {i}/{total}..."
-
-            cancel_flag.clear()
-            mc_progress["done"] = False
-            progress_bar.props(remove="hidden")
-            run_button.props("hidden")
-            cancel_button.props(remove="hidden")
-            poll_timer.activate()
-
-            try:
-                result = await run.io_bound(
-                    monte_carlo.run_monte_carlo,
-                    parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                    s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
-                    s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
-                    s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
-                    include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
-                )
-            finally:
-                mc_progress["done"] = True
-                progress_bar.props("hidden")
-                run_button.props(remove="hidden")
-                cancel_button.props("hidden")
-
-            s["mc_result"] = result
-            status = f"Done: {result.n_completed} completed, {result.n_excluded} excluded."
-            if result.cancelled:
-                status = f"Cancelled - partial results kept: {status}"
-            progress_label.set_text(status)
-
+        def render_results(result):
+            # Split out so a finished run's result (s["mc_result"]) can be
+            # re-shown on a fresh page load too, not just right after
+            # run_mc() itself finishes. A run started here keeps going in
+            # a background task even if you navigate to another page and
+            # back (nicegui's click-handler tasks aren't tied to one
+            # page's connection) - but before this fix, coming back to
+            # /montecarlo just showed an empty page, as if nothing had
+            # run, even though the result was sitting in s["mc_result"]
+            # the whole time.
             results_container.clear()
             with results_container:
                 with ui.grid(columns=3).classes("gap-4"):
@@ -181,11 +136,71 @@ def montecarlo_page():
                 else:
                     ui.label("No landing ellipse: this case terminates at apogee (Ballistic) or too few samples completed.").classes("text-gray-500")
 
+        if s["mc_result"] is not None:
+            progress_label.set_text(f"Done: {s['mc_result'].n_completed} completed, {s['mc_result'].n_excluded} excluded.")
+            render_results(s["mc_result"])
+
+        # 2026-09-26 review crash (b) + item 7: N stochastic Flight sims
+        # run in a background thread (run.io_bound) so the event loop -
+        # and the "Connection lost" websocket heartbeat - stays alive.
+        # progress_cb/cancel_check run INSIDE that thread, so they only
+        # touch a plain dict (GIL-safe for simple read/write); a ui.timer
+        # on the main event loop polls it and is the only thing that
+        # actually touches NiceGUI elements, which is not safe to do
+        # directly from a worker thread.
+        mc_progress = {"text": "", "done": False}
+        cancel_flag = threading.Event()
+
+        def poll_progress():
+            progress_label.set_text(mc_progress["text"])
+            if mc_progress["done"]:
+                poll_timer.deactivate()
+
+        poll_timer = ui.timer(0.4, poll_progress, active=False)
+
         def _get_inertia():
             from bup_rocketpy import translate
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
             return translate.estimate_dry_inertia(parsed, mass_est)
+
+        async def run_mc():
+            parsed = s["load_result"].parsed_ork
+            i_ax, i_tr = _get_inertia()
+            radius = next(t.radius for t in parsed.body_tubes if t.radius)
+            n = int(n_input.value)
+
+            def progress_cb(i, total):
+                mc_progress["text"] = f"Running {i}/{total}..."
+
+            cancel_flag.clear()
+            mc_progress["done"] = False
+            progress_bar.props(remove="hidden")
+            run_button.props("hidden")
+            cancel_button.props(remove="hidden")
+            poll_timer.activate()
+
+            try:
+                result = await run.io_bound(
+                    monte_carlo.run_monte_carlo,
+                    parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                    s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                    s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
+                    s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
+                    include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
+                )
+            finally:
+                mc_progress["done"] = True
+                progress_bar.props("hidden")
+                run_button.props(remove="hidden")
+                cancel_button.props("hidden")
+
+            s["mc_result"] = result
+            status = f"Done: {result.n_completed} completed, {result.n_excluded} excluded."
+            if result.cancelled:
+                status = f"Cancelled - partial results kept: {status}"
+            progress_label.set_text(status)
+            render_results(result)
 
         run_button.on_click(run_mc)
         cancel_button.on_click(cancel_flag.set)
