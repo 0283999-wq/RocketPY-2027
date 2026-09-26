@@ -16,11 +16,11 @@ in a broken state.
 | E - small fixes (LASC filenames, MC default N, landing map) | **Done** |
 | F - new formal report (replaces old compliance-style one) | **Done** (built earlier this run, before item D) |
 | G - CSV export like OpenRocket (58 columns, events) | **Done** |
-| H - launch-day mode + competition profiles + README | Not started |
+| H - launch-day mode + competition profiles + README | **Done** |
 | I - real-weather validation (Open-Meteo historical) | Not started |
 | J - Mission Control UI redesign | Not started (lowest priority, only attempted if everything else lands safely) |
 
-Continuing now with H, I in that order; J assessed for remaining
+Continuing now with I; J assessed for remaining
 time/budget last and will be honestly reported as deferred if there
 isn't a safe amount of session left to do it without risking the working
 app.

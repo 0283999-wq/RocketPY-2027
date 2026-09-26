@@ -125,3 +125,86 @@ def compute_v1_and_v2():
     them. Real computation each time - a couple hundred ms total, not a
     hot-loop-safe call."""
     return [compute_v1(), compute_v2()]
+
+
+# 2026-09-26 review item I: re-run V1/V2 with REAL recorded weather
+# (Open-Meteo historical archive) instead of the OpenRocket-recorded
+# conditions both compute_v1/compute_v2 above use. Downloads only happen
+# on Diego's own machine (this cloud sandbox can't reach Open-Meteo) -
+# tests/test_real_weather_validation.py mocks the HTTP call, per
+# CLAUDE.md's own instruction to test this way.
+
+V1_DATE = "2026-07-04"
+V1_LATITUDE, V1_LONGITUDE, V1_ELEVATION_M = 19.967, -98.856, 2380.0
+V1_LAUNCH_HOUR_ISO = f"{V1_DATE}T12:00"  # CLAUDE.md Sec 3.2 gives no exact time for this flight; noon local is this project's existing midday assumption, same as V2's own approximation
+
+
+def compute_v1_with_real_weather(cache_dir, force_refresh=False):
+    """Same vehicle/mass/site as compute_v1(), but the wind comes from
+    Open-Meteo's historical archive for the real flight date instead of
+    the OpenRocket-recorded csv value - a genuinely independent check of
+    how much the weather source itself matters."""
+    from bup_rocketpy import weather
+
+    prom_config = _prom_config()
+    target = 1019.9
+    parsed = read_ork(ORK_PATH)
+    profile = weather.fetch_historical_weather(V1_LATITUDE, V1_LONGITUDE, V1_DATE, cache_dir, force_refresh=force_refresh)
+    speed, direction = weather.nearest_hour_wind(profile, V1_LAUNCH_HOUR_ISO)
+    launch_override = dataclasses.replace(
+        parsed.launch,
+        altitude_m=V1_ELEVATION_M, latitude=V1_LATITUDE, longitude=V1_LONGITUDE,
+        wind_average_ms=speed, wind_direction_deg=direction,
+    )
+    apogee_agl, margin0 = _run_case(
+        launch_override=launch_override,
+        total_mass_kg=10.96, motor_mass_loaded_kg=4.882948, motor_dry_mass_kg=2.866213,
+        cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
+        rail_length=3.0, inclination=89.0, heading=270.0,
+    )
+    error_pct = (apogee_agl - target) / target * 100
+    notes = (f"Conditions: REAL historical weather from Open-Meteo ({profile.source}) for "
+             f"{V1_DATE} 12:00 local at Pachuca - wind {speed:.1f} m/s from {direction:.0f} deg "
+             "(compute_v1() instead uses the OpenRocket-recorded csv wind of 3.25 m/s from 90 deg). "
+             "Dry CG is still the Brasil-config approximation (same caveat as compute_v1()).")
+    return ValidationResult("V1 (2026-07-04, Pachuca profile) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)
+
+
+class V2FlightDateUnknownError(ValueError):
+    """Raised when compute_v2_with_real_weather is called with no date.
+    The exact LASC 2026 flight date/time is NOT YET RECORDED in this
+    project (see PROGRESS.md - Diego said this is "pending from me") -
+    CLAUDE.md Rule 2 forbids guessing one, so this refuses rather than
+    silently picking an arbitrary date's weather."""
+
+
+def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
+    """date: the real LASC 2026 flight date at Iacanga (ISO "YYYY-MM-DD"),
+    which the CALLER must supply (e.g. typed into the Validation page) -
+    there is no default here, see V2FlightDateUnknownError."""
+    if not date:
+        raise V2FlightDateUnknownError(
+            "The exact LASC 2026 flight date is not yet recorded in this project - ask Diego for it "
+            "(PROGRESS.md already logs this as pending) and enter it above before re-running with real weather."
+        )
+    from bup_rocketpy import weather
+
+    prom_config = _prom_config()
+    target = 1137.0
+    parsed = read_ork(ORK_PATH)
+    site_lat, site_lon = parsed.launch.latitude, parsed.launch.longitude
+    profile = weather.fetch_historical_weather(site_lat, site_lon, date, cache_dir, force_refresh=force_refresh)
+    speed, direction = weather.nearest_hour_wind(profile, f"{date}T12:00")
+    launch_override = dataclasses.replace(parsed.launch, wind_average_ms=speed, wind_direction_deg=direction)
+    apogee_agl, margin0 = _run_case(
+        launch_override=launch_override,
+        total_mass_kg=10.370, motor_mass_loaded_kg=prom_config.MOTOR_MASS_LOADED, motor_dry_mass_kg=prom_config.MOTOR_DRY_MASS,
+        cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
+        rail_length=4.0, inclination=80.0, heading=90.0,
+    )
+    error_pct = (apogee_agl - target) / target * 100
+    notes = (f"Conditions: REAL historical weather from Open-Meteo ({profile.source}) for {date} "
+             f"12:00 local at Iacanga - wind {speed:.1f} m/s from {direction:.0f} deg. Still does NOT "
+             "reproduce LASC officials' own exact re-simulation inputs (CRS 10.2.1) - an independent replication, "
+             "same caveat as compute_v2().")
+    return ValidationResult("V2 (LASC 2026, Iacanga) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)

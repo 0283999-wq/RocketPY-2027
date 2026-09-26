@@ -1508,3 +1508,38 @@ at `docs/screenshots/12_launchday.png`).
 
 Full suite: 66 passed, 1 deselected in ~82s (headless); Playwright e2e
 run separately, both scenarios pass including the new Launch Day page.
+
+## Section I: real-weather validation (done)
+
+`bup_rocketpy/validation.py` gained `compute_v1_with_real_weather()` and
+`compute_v2_with_real_weather(date)`, reusing `weather.py` (Section H) to
+pull Open-Meteo's HISTORICAL archive for the real flight site/date
+instead of the OpenRocket-recorded wind `compute_v1()`/`compute_v2()`
+use, then re-running the exact same `_run_case()` path.
+
+- **V1** (2026-07-04, Pachuca): the real flight date is already known
+  (CLAUDE.md Sec 3.2), so this is fully wired and testable end to end.
+- **V2** (LASC 2026, Iacanga): **the exact flight date is NOT YET
+  RECORDED in this project** (PROGRESS.md's own Section 4 already logged
+  this as "pending from Diego" in an earlier session). Per CLAUDE.md
+  Rule 2 ("never invent data"), `compute_v2_with_real_weather()` takes
+  the date as a REQUIRED argument and raises a clear
+  `V2FlightDateUnknownError` if it's missing, rather than guessing one -
+  this is a real, already-logged, still-open blocker, not a new one.
+- Validation page: "Re-run V1 with real weather" button (works
+  standalone); a date input + "Re-run V2 with real weather" button that
+  shows the same honest "date not yet known, ask Diego" message inline
+  until one is typed in.
+- Every weather-fetching test mocks the HTTP layer (this cloud sandbox
+  can't reach Open-Meteo) - `tests/test_real_weather_validation.py` (3
+  tests): V1 real-weather re-run is sane and hits the historical
+  endpoint, V2 refuses with no date, V2 succeeds once a date is given.
+
+## BLOCKED / NEEDS DIEGO (carried forward, not new)
+
+- Exact LASC 2026 flight date/time at Iacanga - needed to actually use
+  Section I's "Re-run V2 with real weather" button for anything but a
+  placeholder date. Everything else about that button already works.
+
+Full suite: 69 passed, 1 deselected in ~87s (headless); Playwright e2e
+re-run separately after this section too, both scenarios still pass.
