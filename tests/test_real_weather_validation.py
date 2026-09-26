@@ -17,7 +17,7 @@ CACHE_DIR = os.path.join(REPO_ROOT, "outputs", "test_real_weather_validation_cac
 FAKE_RESPONSE = {
     "hourly": {
         "time": ["2026-07-04T06:00", "2026-07-04T12:00", "2026-07-04T18:00"],
-        "wind_speed_10m": [10.0, 14.4, 9.0],  # km/h -> 4.0 m/s at noon
+        "wind_speed_10m": [2.8, 4.0, 2.5],  # m/s (wind_speed_unit=ms is always requested now)
         "wind_direction_10m": [80, 85, 95],
         "temperature_2m": [12.0, 22.0, 17.0],
         "pressure_msl": [1015.0, 1013.0, 1014.0],

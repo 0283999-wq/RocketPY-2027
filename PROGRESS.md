@@ -1744,6 +1744,46 @@ new field entirely.
 
 Full suite: 77 passed, 1 deselected; Playwright e2e: 2/2.
 
+## Section 3: launch-day weather correctness - done
+
+**3a - the real bug**: Diego reported 0.3 m/s from 121° for a launch
+day where the public forecast said 4-9 m/s from the NE. Root cause:
+`weather.py`'s Open-Meteo requests never passed `timezone=`, so
+Open-Meteo defaulted to returning `hourly.time` in GMT while the UI's
+"launch hour" field is LOCAL time (America/Mexico_City, UTC-6) - asking
+for "12:00" silently read the row for 12:00 UTC = 06:00 local, early
+morning, characteristically much calmer than midday. Every request now
+passes `timezone=auto` (Open-Meteo resolves the site's own IANA zone and
+returns local-time timestamps) and `wind_speed_unit=ms` explicitly
+(removed the manual km/h->m/s division entirely - one less place to get
+a unit conversion wrong). Also added: a real wind-speed-vs-altitude
+table (surface + 1000/925/850/700 hPa, ICAO-standard-atmosphere-labeled
+approximate altitudes) on the Launch Day page, per Diego's "show the
+full wind profile vs altitude, not just one number" - the pressure-level
+parameter names are Open-Meteo's documented convention but could not be
+verified against the live API from this sandbox (no egress); double-check
+the first real download.
+
+**3b - dates beyond the forecast horizon**: `fetch_forecast_weather` now
+checks the date client-side against Open-Meteo's ~16-day window BEFORE
+making a request, raising a specific `ForecastHorizonError` (not a
+confusing generic network-error message) that points at the new
+"Download climatology" button. `weather.fetch_climatology()` averages
+the historical archive's wind for the SAME month/day/hour across the
+last 10 calendar years - correctly using a CIRCULAR mean for direction
+(a naive arithmetic mean of e.g. 350°/10° gives 180°, exactly
+backwards), and tolerating one bad year's fetch failure without losing
+the rest. The Launch Day page can apply the climatology mean directly to
+Simulate, or push its mean+spread into Monte Carlo's own wind
+uncertainty entry as a real planning distribution.
+
+**3c - cross-check tests**: `tests/test_weather.py` grew to 11 tests
+(was 6) - explicit assertions that `timezone=auto`/`wind_speed_unit=ms`
+are actually sent, the wind-vs-altitude table's shape, the forecast-
+horizon rejection, the circular-mean fix, and one-bad-year tolerance.
+
+Full suite: 82 passed, 1 deselected; Playwright e2e: 2/2.
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since
