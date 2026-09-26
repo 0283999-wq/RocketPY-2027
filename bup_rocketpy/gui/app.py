@@ -42,11 +42,13 @@ def simulate_page():
         with ui.row():
             async def on_ork_upload(e):
                 s["ork_path"], name = await _save_upload(e, ".ork")
+                s["ork_filename"] = name  # 2026-09-26 review item E: the REAL uploaded name - ork_path is this app's own tempfile path, previously the only thing kept
                 ui.notify(f"Loaded {name}")
             ui.upload(label=".ork file", on_upload=on_ork_upload, auto_upload=True).props("accept=.ork")
 
             async def on_eng_upload(e):
                 s["eng_path"], name = await _save_upload(e, ".eng")
+                s["eng_filename"] = name
                 ui.notify(f"Loaded {name}")
             ui.upload(label=".eng file", on_upload=on_eng_upload, auto_upload=True).props("accept=.eng")
 
@@ -206,7 +208,7 @@ def simulate_page():
             try:
                 from bup_rocketpy import run_history
                 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m, ork_path=s["ork_path"])
+                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m, ork_path=s["ork_path"], ork_filename=s["ork_filename"], eng_filename=s["eng_filename"])
             except Exception as exc:  # history is a convenience, never block a real result on it failing to save
                 print(f"WARNING: could not save run history: {exc}")
             progress.props("hidden")

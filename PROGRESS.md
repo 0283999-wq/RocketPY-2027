@@ -1339,3 +1339,43 @@ with no dual-deploy warning and REC 8.1.1 PASSes, the AGL/ASL regression
 guard, and the descent-rate helper's math.
 
 Full suite: 50 passed, 1 deselected in ~76s.
+
+## Section E: small fixes (done)
+
+- **LASC zip real filenames**: NiceGUI's upload handlers saved every
+  `.ork`/`.eng` to a random `tempfile.mkstemp()` path and discarded the
+  user's real filename right after the upload notification - so the LASC
+  zip and its README always said e.g. `tmpabc123.ork` instead of
+  `Major_tom.ork`. Fixed by threading the real name through: `state.py`
+  gained `ork_filename`/`eng_filename`; `app.py`'s upload handlers now
+  store the real name alongside the tempfile path; `lasc_package.
+  build_lasc_zip()` and `run_history.save_run()` both take optional
+  `eng_filename`/`ork_filename` params (falling back to the tempfile
+  path's own basename only if not given, so direct script/test callers
+  are unaffected); `exports_page.py` and `app.py`'s Simulate handler now
+  pass the real names through.
+- **Monte Carlo default N**: raised the UI default from 50 to 200
+  (CLAUDE.md Phase 4 says "default N=200, editable"). Added a live
+  warning under the N field when N<100 ("won't be statistically
+  meaningful").
+- **Landing map improvements**: added 1/2/5 km dashed distance rings
+  around the pad marker (plain `leaflet.circle`, meters-based, unlike the
+  flat-XY ellipse polygons) for a quick sense of scale. Added editable
+  "Rail inclination"/"Rail heading" number inputs on the Monte Carlo page
+  (defaulting to the .ork's saved simulation values) so the operator can
+  set the rail setup they actually plan to use on launch day (e.g.
+  pointed into the day's wind) before running - previously these were
+  hardcoded to the .ork's stored values with no way to override them.
+  Threaded `inclination_deg`/`heading_deg` overrides through
+  `monte_carlo.run_monte_carlo()` -> `_run_one_mc_sample()` (both the
+  nominal Flight and the StochasticFlight sampling center use the
+  override when given, the .ork's own value otherwise - so every
+  existing caller/test is unaffected by the new, defaulted-to-None
+  params).
+
+New test `test_inclination_and_heading_override_shift_the_landing_ellipse`
+in `tests/test_phase4_monte_carlo.py`: same seed, only heading differs by
+180 deg, asserts the landing point actually moves (catches a silently-
+ignored override).
+
+Full suite: 51 passed, 1 deselected in ~76s.

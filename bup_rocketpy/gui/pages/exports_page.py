@@ -84,6 +84,7 @@ def exports_page():
                 s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                 s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                 cases=[("Ballistic", False), ("Nominal", True)],
+                eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
             )
             zip_status.set_text(f"Zip written: {os.path.basename(zip_path)}")
             ui.link("Download LASC .zip", f"/outputs/{os.path.basename(zip_path)}")

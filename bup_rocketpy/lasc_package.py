@@ -6,11 +6,23 @@ import shutil
 import zipfile
 
 
-def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1):
+def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None):
     """cases: list of (case_name, include_recovery) tuples to export -
     typically [("Ballistic", False), ("Nominal", True)] at minimum
-    (CRS 10.1.14: the RocketPy award requires nominal and ballistic)."""
+    (CRS 10.1.14: the RocketPy award requires nominal and ballistic).
+
+    eng_filename/ork_filename: 2026-09-26 review item E - the user's OWN
+    uploaded filenames (e.g. "Major_tom.ork"), not os.path.basename of
+    eng_path/ork_path, which are this app's own tempfile paths
+    (NiceGUI's upload handler saves to a random tmpXXXX.ork/.eng name and
+    the original name was previously discarded right after the upload
+    notification). Falls back to the path's own basename only if the
+    real name truly isn't available (e.g. a script/test calling this
+    directly with a real, meaningfully-named path already)."""
     from bup_rocketpy import case_export
+
+    eng_filename = eng_filename or os.path.basename(eng_path)
+    ork_filename = ork_filename or os.path.basename(ork_path)
 
     base_path = output_zip_path[:-4] if output_zip_path.endswith(".zip") else output_zip_path
     staging_dir = base_path + "_staging"
@@ -18,8 +30,8 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
         shutil.rmtree(staging_dir)
     os.makedirs(staging_dir)
 
-    shutil.copy(eng_path, os.path.join(staging_dir, os.path.basename(eng_path)))
-    shutil.copy(ork_path, os.path.join(staging_dir, os.path.basename(ork_path)))
+    shutil.copy(eng_path, os.path.join(staging_dir, eng_filename))
+    shutil.copy(ork_path, os.path.join(staging_dir, ork_filename))
     shutil.copy(power_off_drag_path, os.path.join(staging_dir, "power_off_drag.csv"))
     shutil.copy(power_on_drag_path, os.path.join(staging_dir, "power_on_drag.csv"))
 
@@ -27,7 +39,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
         filename, source = case_export.generate_case_script(
             mission_id=mission_id, case_name=case_name, version=version,
             parsed=parsed, parsed_eng=parsed_eng,
-            eng_filename=os.path.basename(eng_path),
+            eng_filename=eng_filename,
             power_off_drag_filename="power_off_drag.csv", power_on_drag_filename="power_on_drag.csv",
             dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m,
             i_axial=i_axial, i_transverse=i_transverse, radius_m=radius_m,
@@ -43,8 +55,8 @@ Contents:
   scripts (CRS 10.1.6 naming). Each runs standalone with `pip install
   rocketpy` - no other files from this repo are needed, only the sibling
   files in this same folder (.eng, drag CSVs).
-- {os.path.basename(eng_path)} - the SRAD motor thrust curve (CRS 10.1.9).
-- {os.path.basename(ork_path)} - the OpenRocket design file this was built from.
+- {eng_filename} - the SRAD motor thrust curve (CRS 10.1.9).
+- {ork_filename} - the OpenRocket design file this was built from.
 - power_off_drag.csv / power_on_drag.csv - the Cd-vs-Mach curves used.
 
 PROVISIONAL: see this project's PROGRESS.md for validation status before

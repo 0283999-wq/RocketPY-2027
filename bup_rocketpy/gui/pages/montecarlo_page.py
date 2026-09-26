@@ -39,7 +39,24 @@ def montecarlo_page():
                     std_input.on_value_change(lambda e, u=u: setattr(u, "std_dev", e.value))
                     ui.label(u.source).classes("text-xs text-gray-500 flex-1")
 
-        n_input = ui.number(label="N simulations", value=50)
+        n_input = ui.number(label="N simulations", value=200)
+        n_warning_label = ui.label("").classes("text-xs text-orange-700")
+
+        def _check_n_warning():
+            if n_input.value and n_input.value < 100:
+                n_warning_label.set_text("N < 100: the apogee mean/90% interval and landing ellipse won't be statistically meaningful. Default is 200.")
+            else:
+                n_warning_label.set_text("")
+
+        n_input.on_value_change(lambda _: _check_n_warning())
+        _check_n_warning()
+
+        parsed_for_rail = s["load_result"].parsed_ork
+        with ui.row().classes("items-center gap-2"):
+            rail_inclination_input = ui.number(label="Rail inclination (deg from horizontal)", value=parsed_for_rail.launch.inclination_deg if parsed_for_rail.launch else None).classes("w-56")
+            rail_heading_input = ui.number(label="Rail heading (deg)", value=parsed_for_rail.launch.rail_direction_deg if parsed_for_rail.launch else None).classes("w-40")
+        ui.label("Defaults to the .ork's saved simulation; edit to match the rail setup you actually plan to use on launch day (e.g. pointed into the wind) before running.").classes("text-xs text-gray-500")
+
         progress_bar = ui.linear_progress(value=0).props("hidden")
         progress_label = ui.label("")
         run_button = ui.button("Run Monte Carlo")
@@ -122,6 +139,17 @@ def montecarlo_page():
                         ui.label("Landing map").classes("text-md font-bold mt-2")
                         leaflet = ui.leaflet(center=(origin_lat, origin_lon), zoom=15).classes("w-full").style("height: 400px")
                         leaflet.marker(latlng=(origin_lat, origin_lon))
+                        # 2026-09-26 review item E: distance rings give a
+                        # quick-glance sense of scale (how far is the
+                        # ellipse from the road/property line etc.)
+                        # without needing to zoom/measure - plain circles
+                        # centered on the pad, radius in meters (leaflet's
+                        # native circle() takes a radius in meters, unlike
+                        # the ellipse polygons above which are computed in
+                        # local flat-earth XY and only look like ellipses
+                        # over this small an area).
+                        for radius_m, label in [(1000, "1 km"), (2000, "2 km"), (5000, "5 km")]:
+                            leaflet.generic_layer(name="circle", args=[[origin_lat, origin_lon], {"radius": radius_m, "color": "#666666", "fill": False, "weight": 1, "dashArray": "4,4"}])
                         for n_std, color in [(3, "#e0c9a6"), (2, "#c9a876"), (1, "#8A1538")]:
                             e = ellipses[n_std]
                             poly = ellipse_to_latlon_polygon(e["center_x"], e["center_y"], e["width"], e["height"], e["angle_deg"], origin_lat, origin_lon)
@@ -188,6 +216,7 @@ def montecarlo_page():
                     s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                     s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
                     include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
+                    inclination_deg=rail_inclination_input.value, heading_deg=rail_heading_input.value,
                 )
             finally:
                 mc_progress["done"] = True

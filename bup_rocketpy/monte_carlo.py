@@ -106,7 +106,7 @@ def _seeded_rng(seed):
         np.random.default_rng = real_default_rng
 
 
-def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed):
+def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed, inclination_deg=None, heading_deg=None):
     """Builds ONE stochastic sample and flies it. Module-level (not a
     closure) and takes only plain/picklable arguments (dataclasses,
     dicts, floats, strings) so it can be sent to a separate OS process -
@@ -123,15 +123,24 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
     Returns (apogee_agl_m, x_impact_or_None, y_impact_or_None); raises on
     a degenerate/unstable sample - the caller excludes it, same as the
     old per-sample try/except did.
+
+    inclination_deg/heading_deg: 2026-09-26 review item E - lets the UI
+    set the rail heading/inclination the operator actually plans to use
+    on launch day (e.g. into the current wind), overriding the value
+    stored in the .ork's saved simulation. None (the default) keeps the
+    .ork's own value, so every existing caller/test is unaffected.
     """
     from bup_rocketpy import translate
+
+    nominal_inclination = inclination_deg if inclination_deg is not None else parsed.launch.inclination_deg
+    nominal_heading = heading_deg if heading_deg is not None else parsed.launch.rail_direction_deg
 
     motor = translate.build_motor(parsed_eng, eng_path)
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_monte_carlo")
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag, include_recovery=include_recovery)
     env = translate.build_environment(parsed.launch)
     flight = Flight(rocket=rocket, environment=env, rail_length=parsed.launch.rail_length_m,
-                     inclination=parsed.launch.inclination_deg, heading=parsed.launch.rail_direction_deg, terminate_on_apogee=not include_recovery)
+                     inclination=nominal_inclination, heading=nominal_heading, terminate_on_apogee=not include_recovery)
 
     # Seeding: see _seeded_rng's docstring for why this whole construction
     # block runs inside it (needed for Phase 6's "same random seeds"
@@ -194,8 +203,8 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
             stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
         stochastic_flight = StochasticFlight(
             flight=flight,
-            inclination=(parsed.launch.inclination_deg, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,
-            heading=(parsed.launch.rail_direction_deg, u["heading_deg"].std_dev) if "heading_deg" in u else None,
+            inclination=(nominal_inclination, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,
+            heading=(nominal_heading, u["heading_deg"].std_dev) if "heading_deg" in u else None,
         )
         sample_rocket = stochastic_rocket.create_object()
         sample_env = stochastic_env.create_object()
@@ -213,7 +222,7 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
     return apogee_agl, None, None
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None):
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None, inclination_deg=None, heading_deg=None):
     """Runs N stochastic flights IN PARALLEL across OS processes (one
     Flight() simulation doesn't parallelize internally, but N of them are
     embarrassingly parallel - CLAUDE.md never asked for this, added
@@ -230,6 +239,12 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     Flight() simulation is CPU-bound with a small memory footprint, so
     there's little reason to leave cores unused. Override it if a
     machine needs to keep some cores free for other work.
+
+    inclination_deg/heading_deg: 2026-09-26 review item E - lets the
+    operator set the rail heading/inclination they actually plan to use
+    on launch day (e.g. pointed into the day's wind) before running the
+    batch, instead of being stuck with whatever the .ork's saved
+    simulation recorded. None (the default) keeps the .ork's own value.
 
     progress_callback(i, n) is called as EACH sample finishes (i =
     however many have completed so far, not sample i's own index -
@@ -276,7 +291,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_workers)
     try:
         futures = {
-            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i]): i
+            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i], inclination_deg, heading_deg): i
             for i in range(n_simulations)
         }
         for future in concurrent.futures.as_completed(futures):

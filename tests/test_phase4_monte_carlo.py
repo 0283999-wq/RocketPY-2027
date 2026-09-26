@@ -104,7 +104,37 @@ def test_cancel_check_stops_early_and_keeps_partial_results():
     assert result.n_completed > 0, "the 2 completed-before-cancel samples must still be in the result, not discarded"
 
 
+def test_inclination_and_heading_override_shift_the_landing_ellipse():
+    """2026-09-26 review item E: the operator can set the rail
+    heading/inclination they actually plan to use on launch day, rather
+    than being stuck with whatever the .ork's saved simulation recorded.
+    A large heading change (same inclination) must move the mean landing
+    point - if the override were silently ignored, both runs would land
+    in the same place (same seed => same random offsets, only the
+    override differs)."""
+    parsed = read_ork(ORK_PATH)
+    eng = read_eng(ENG_PATH)
+    mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
+    i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+    radius = next(t.radius for t in parsed.body_tubes if t.radius)
+    uncertainties = monte_carlo.default_uncertainties(DRY_MASS_KG, 1871.3, parsed.launch.wind_average_ms)
+
+    kwargs = dict(
+        parsed=parsed, parsed_eng=eng, eng_path=ENG_PATH,
+        power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG,
+        dry_mass_kg=DRY_MASS_KG, dry_cg_m=DRY_CG_M, i_axial=i_ax, i_transverse=i_tr, radius_m=radius,
+        uncertainties=uncertainties, n_simulations=5, output_dir=OUT_DIR, include_recovery=True, seed=42,
+    )
+    baseline = monte_carlo.run_monte_carlo(**kwargs, inclination_deg=parsed.launch.inclination_deg, heading_deg=parsed.launch.rail_direction_deg)
+    rotated = monte_carlo.run_monte_carlo(**kwargs, inclination_deg=parsed.launch.inclination_deg, heading_deg=parsed.launch.rail_direction_deg + 180)
+
+    dx = rotated.impact_x_samples[0] - baseline.impact_x_samples[0]
+    dy = rotated.impact_y_samples[0] - baseline.impact_y_samples[0]
+    assert (dx ** 2 + dy ** 2) ** 0.5 > 50, "a 180deg heading override should move the landing point substantially, not leave it unchanged"
+
+
 if __name__ == "__main__":
     test_monte_carlo_produces_a_sane_apogee_distribution_with_no_excluded_samples()
     test_cancel_check_stops_early_and_keeps_partial_results()
+    test_inclination_and_heading_override_shift_the_landing_ellipse()
     print("\nPHASE 4 MONTE CARLO: OK")

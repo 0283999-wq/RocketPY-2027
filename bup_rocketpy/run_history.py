@@ -123,7 +123,7 @@ class RunRecord:
     drag_curve_source: str = ""
 
 
-def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path=None, notes=""):
+def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path=None, ork_filename=None, eng_filename=None, notes=""):
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_dir = os.path.join(_runs_dir(repo_root), run_id)
     os.makedirs(run_dir, exist_ok=True)
@@ -136,8 +136,8 @@ def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path
         # ork_path is the actual uploaded file's path - load_result.parsed_ork.name
         # is the ROCKET's declared name from inside the .ork's own XML, not a
         # filename at all (a pre-existing display bug this also fixes).
-        ork_filename=os.path.basename(ork_path) if ork_path else "unknown.ork",
-        eng_filename=os.path.basename(load_result.eng_path),
+        ork_filename=ork_filename or (os.path.basename(ork_path) if ork_path else "unknown.ork"),
+        eng_filename=eng_filename or os.path.basename(load_result.eng_path),
         dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m,
         apogee_agl_m=sim_result.apogee_agl_m, max_speed_ms=sim_result.max_speed_ms,
         min_static_margin_cal=sim_result.min_static_margin_cal, is_stable=sim_result.is_stable,
