@@ -38,7 +38,7 @@ CHROMIUM = "/opt/pw-browsers/chromium"
 
 PAGES = [("/rocket", "05_rocket.png"), ("/montecarlo", "06_montecarlo.png"),
          ("/rcsm", "07_rcsm.png"), ("/analysis", "08_analysis.png"), ("/history", "09_history.png"),
-         ("/exports", "10_exports.png"), ("/validation", "11_validation.png")]
+         ("/exports", "10_exports.png"), ("/validation", "11_validation.png"), ("/launchday", "12_launchday.png")]
 
 # Text that must appear on each page once real data exists - "no crash"
 # alone isn't enough (2026-09-25 review's whole complaint was pages that
@@ -51,6 +51,7 @@ REAL_CONTENT_MARKERS = {
     "/history": None,  # checked specially: the just-completed run's own row, not a fixed string
     "/exports": "Report (PDF",
     "/validation": "PROVISIONAL",
+    "/launchday": "Launch-day weather",
 }
 
 

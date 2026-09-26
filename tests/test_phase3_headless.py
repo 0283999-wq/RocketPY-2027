@@ -217,6 +217,22 @@ def test_section5_kpis_and_recovery_panel_are_sane():
     assert abs(row.diff_pct_at_ground) < 50, f"hand-calc vs. simulated descent rate differ by {row.diff_pct_at_ground:.0f}% - too far apart to be a useful cross-check"
 
 
+def test_launch_override_changes_the_simulated_wind_not_just_ignored():
+    """2026-09-26 review item H (launch-day mode): passing a
+    launch_override with different wind must actually change the flight,
+    not silently fall back to the .ork's own recorded conditions - this
+    is the same mechanism the Launch Day page's "Use this weather for
+    Simulate" button relies on."""
+    import dataclasses
+    result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    baseline = pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+
+    strong_wind_launch = dataclasses.replace(result.parsed_ork.launch, wind_average_ms=25.0, wind_direction_deg=90.0)
+    windy = pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279, launch_override=strong_wind_launch)
+
+    assert windy.landing_distance_m != baseline.landing_distance_m, "a 25 m/s wind override should change where the rocket lands"
+
+
 def test_app_module_imports_without_starting_a_server():
     """Confirms the NiceGUI UI layer itself at least wires up without
     error - importing it registers pages/callbacks but does not bind a

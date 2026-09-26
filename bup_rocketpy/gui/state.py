@@ -14,4 +14,6 @@ state = {
     "mc_result": None, "mc_uncertainties": None,
     "weathercocking_result": None,
     "vehicle_name": "Vehicle", "mission_id": "0",
+    "competition_profile": "lasc",  # 2026-09-26 review item H.2 - "lasc" preserves every existing default-path behavior/test
+    "weather_profile": None, "launch_override": None,  # 2026-09-26 review item H - cached real-weather + the LaunchConditions override built from it
 }

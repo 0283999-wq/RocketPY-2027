@@ -150,6 +150,7 @@ def simulate_page():
             mass_kw = dict(
                 dry_mass_override_kg=dry_mass_input.value if override_checkbox.value else None,
                 dry_cg_override_m=dry_cg_input.value if override_checkbox.value else None,
+                launch_override=s["launch_override"],  # 2026-09-26 review item H (launch-day mode): None unless the Launch Day page cached+applied real weather
             )
             progress.props(remove="hidden")
             sim_cancel_button.props(remove="hidden")
@@ -316,7 +317,7 @@ def main():
     # rebind that name, so every `await run.io_bound(...)` call in this
     # module would fail with "'function' object has no attribute
     # 'io_bound'" - found exactly this way, 2026-09-26 review.
-    from bup_rocketpy.gui.pages import analysis_page, exports_page, history_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
+    from bup_rocketpy.gui.pages import analysis_page, exports_page, history_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
     show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"

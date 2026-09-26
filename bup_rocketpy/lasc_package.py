@@ -6,7 +6,7 @@ import shutil
 import zipfile
 
 
-def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None):
+def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None, mission_id_template=None):
     """cases: list of (case_name, include_recovery) tuples to export -
     typically [("Ballistic", False), ("Nominal", True)] at minimum
     (CRS 10.1.14: the RocketPy award requires nominal and ballistic).
@@ -44,6 +44,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
             dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m,
             i_axial=i_axial, i_transverse=i_transverse, radius_m=radius_m,
             include_recovery=include_recovery,
+            mission_id_template=mission_id_template,
         )
         with open(os.path.join(staging_dir, filename), "w") as f:
             f.write(source)

@@ -1433,3 +1433,78 @@ sane apogee/Mach columns, and the CP-aft-of-CG sign regression guard
 described above.
 
 Full suite: 54 passed, 1 deselected in ~80s.
+
+## Section H: launch-day mode + competition profiles + README (done)
+
+**H.1 - launch-day mode, fully offline once downloaded:**
+- New `bup_rocketpy/weather.py`: Open-Meteo forecast + historical
+  weather, both going through one small `_http_get_json` seam so every
+  test can mock the network (this cloud sandbox can't reach
+  api.open-meteo.com - CLAUDE.md already anticipated this: "test with
+  mocked data and cache every downloaded profile"). Every successful
+  fetch is cached to `outputs/weather_cache/*.json`; a second call for
+  the same site/date reads the cache with ZERO network calls (verified
+  by a test that mocks the HTTP function and asserts it's never called
+  again). A cache-miss + network failure raises a clear
+  `WeatherUnavailableError` telling the operator to download it ahead of
+  time - never an unhandled crash. A STALE cache (network fails on a
+  forced refresh) still returns the old data, labeled "refresh failed",
+  rather than losing what was already downloaded.
+- New "Launch Day" page (`gui/pages/launchday_page.py`, in the sidebar):
+  site lat/lon (defaults to the loaded .ork's own site), launch
+  date/hour, "Download weather for launch day" button, then "Use this
+  weather for Simulate" - builds a `dataclasses.replace()`'d
+  LaunchConditions with the real wind and stores it as
+  `state["launch_override"]`.
+- `pipeline.run_simulation()` gained an optional `launch_override` param
+  (defaults to None - every existing caller/test unaffected) that
+  replaces the `.ork`'s own recorded launch conditions for that one run;
+  `app.py`'s Simulate handler now always passes `state["launch_override"]`
+  through. New test `test_launch_override_changes_the_simulated_wind_not_just_ignored`
+  proves a 25 m/s override actually moves the landing point, not just
+  gets silently ignored.
+- `translate.wind_uv()`'s speed+bearing->(u,v) formula was factored out
+  into `wind_speed_direction_to_uv()` so weather.py's real-weather
+  overrides use the EXACT same, already-verified conversion instead of a
+  second hand-written copy (Open-Meteo's `wind_direction_10m` uses the
+  same meteorological "blows FROM" convention as OpenRocket's own
+  `<winddirection>`).
+
+**H.2 - competition profiles (data-driven, replaces the previous H.2
+spec):** New `bup_rocketpy/competition_profiles.py` - a small registry
+(Test flight / LASC / ENMICE / IREC), each holding a mission-ID naming
+template and which compliance ruleset (if any) applies. **Per CLAUDE.md
+Rule 2 ("never invent data"): only LASC's profile claims a verified
+ruleset** (`RCSM_ED7_REV1`, the only one `rcsm.py` actually implements).
+ENMICE and IREC are real, selectable profiles with editable
+naming/site defaults, but their `rules_status` says plainly "NOT
+VERIFIED - ask Diego for [comp]'s rules" rather than pretending this app
+checks rules it was never given - locked in by
+`test_enmice_and_irec_do_not_claim_a_verified_ruleset`.
+- `case_export.generate_case_script()` gained an optional
+  `mission_id_template` param (None keeps CRS 10.1.6's exact hardcoded
+  naming - regression-tested); `lasc_package.build_lasc_zip()` forwards
+  it. Exports page has a "Competition profile" selector wired to both the
+  zip's naming and a `rules_status` banner; RCSM Cases page shows the
+  same honesty banner when a non-LASC profile is selected (the
+  compliance table itself is unchanged - it's always RCSM Ed.7 Rev.1,
+  since that's the only ruleset implemented, labeled "reference only" for
+  other profiles).
+
+**README.md**: added a page list, a "For new team members" section
+(how to run tests, the AGL/ASL gotcha with a real bug reference, the
+coordinate-frame conversion rule, why Monte Carlo uses processes not
+threads, why weather tests mock the network), an updated file-layout
+list (weather.py, competition_profiles.py, openrocket_csv_export.py,
+monte_carlo.py, report.py, run_history.py, validation.py all now
+listed), and corrected the stale hardcoded V1/V2 numbers to match what
+the Validation page actually computes live.
+
+New test files: `tests/test_weather.py` (6 tests, mocked HTTP),
+`tests/test_competition_profiles.py` (5 tests). Extended
+`tests/test_phase3_headless.py` (+1) and `tests/test_phase0_e2e_full.py`
+(added `/launchday` to the real-browser page sweep - passed, screenshot
+at `docs/screenshots/12_launchday.png`).
+
+Full suite: 66 passed, 1 deselected in ~82s (headless); Playwright e2e
+run separately, both scenarios pass including the new Launch Day page.

@@ -16,10 +16,18 @@ def _fmt(x):
     return repr(float(x))
 
 
-def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng_filename, power_off_drag_filename, power_on_drag_filename, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, include_recovery, coordinate_system_orientation="tail_to_nose"):
+def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng_filename, power_off_drag_filename, power_on_drag_filename, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, include_recovery, coordinate_system_orientation="tail_to_nose", mission_id_template=None):
     """Returns (filename, source_code). case_name is one of "Ballistic",
-    "Nominal", "DrogueOnly", "MainAtApogee" (CRS 10.1.6/10.1.10-13)."""
-    filename = f"Mission{mission_id}_{case_name}_RocketPy_v{version}.py"
+    "Nominal", "DrogueOnly", "MainAtApogee" (CRS 10.1.6/10.1.10-13).
+
+    mission_id_template: 2026-09-26 review item H.2 (competition
+    profiles) - an optional "{id}_{case}_{version}"-style template (see
+    bup_rocketpy.competition_profiles) for a competition other than LASC.
+    None (the default) keeps CRS 10.1.6's exact naming, unchanged."""
+    if mission_id_template is not None:
+        filename = mission_id_template.format(id=mission_id, case=case_name, version=version) + ".py"
+    else:
+        filename = f"Mission{mission_id}_{case_name}_RocketPy_v{version}.py"
 
     to_rpy_sign = -1.0 if coordinate_system_orientation == "tail_to_nose" else 1.0
     nose_pos = to_rpy_sign * 0.0

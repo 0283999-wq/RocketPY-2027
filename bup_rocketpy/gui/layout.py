@@ -20,6 +20,7 @@ PAGES = [
     ("/history", "history", "History"),
     ("/exports", "download", "Exports"),
     ("/validation", "verified", "Validation"),
+    ("/launchday", "cloud", "Launch Day"),
 ]
 
 

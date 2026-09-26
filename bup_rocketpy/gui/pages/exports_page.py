@@ -6,7 +6,7 @@ import os
 from nicegui import ui
 
 from bup_rocketpy.gui import layout, state
-from bup_rocketpy import lasc_package, rcsm_cases, report, run_history, translate
+from bup_rocketpy import competition_profiles, lasc_package, rcsm_cases, report, run_history, translate
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -71,24 +71,42 @@ def exports_page():
         report_link_container = ui.column()
 
         ui.separator().classes("my-4")
-        ui.label("LASC submission .zip").classes("text-lg font-bold")
-        ui.label("Per-case .py scripts (CRS 10.1.6 naming) + .eng + .ork + Cd curves, tested to run standalone.").classes("text-sm text-gray-500")
+        ui.label("Competition profile").classes("text-lg font-bold")
+        profile_select = ui.select(
+            {k: p.display_name for k, p in competition_profiles.PROFILES.items()},
+            value=s["competition_profile"], label="Competition",
+        )
+        profile_status = ui.label("").classes("text-sm text-gray-500")
+
+        def _refresh_profile_status():
+            profile = competition_profiles.get_profile(profile_select.value)
+            s["competition_profile"] = profile_select.value
+            profile_status.set_text(profile.rules_status)
+
+        profile_select.on_value_change(lambda _: _refresh_profile_status())
+        _refresh_profile_status()
+
+        ui.separator().classes("my-4")
+        ui.label("Competition submission .zip").classes("text-lg font-bold")
+        ui.label("Per-case .py scripts + .eng + .ork + Cd curves, tested to run standalone. Naming follows the selected competition profile above (CRS 10.1.6 for LASC).").classes("text-sm text-gray-500")
         zip_status = ui.label("")
 
         def build_zip():
+            profile = competition_profiles.get_profile(s["competition_profile"])
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI export")
             i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
-            zip_path = os.path.join(OUTPUTS_DIR, f"Mission{mission_id_input.value}_LASC.zip")
+            zip_path = os.path.join(OUTPUTS_DIR, f"Mission{mission_id_input.value}_{profile.key}.zip")
             lasc_package.build_lasc_zip(
                 zip_path, mission_id_input.value, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                 s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                 cases=[("Ballistic", False), ("Nominal", True)],
                 eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
+                mission_id_template=profile.mission_id_template,
             )
             zip_status.set_text(f"Zip written: {os.path.basename(zip_path)}")
-            ui.link("Download LASC .zip", f"/outputs/{os.path.basename(zip_path)}")
+            ui.link("Download submission .zip", f"/outputs/{os.path.basename(zip_path)}")
 
-        ui.button("Build LASC .zip", on_click=build_zip)
+        ui.button("Build submission .zip", on_click=build_zip)

@@ -4,7 +4,7 @@ import os
 from nicegui import ui
 
 from bup_rocketpy.gui import layout, state
-from bup_rocketpy import rcsm, rcsm_cases
+from bup_rocketpy import competition_profiles, rcsm, rcsm_cases
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -18,6 +18,11 @@ def rcsm_case_page():
         if s["load_result"] is None or s["sim_result"] is None:
             ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
             return
+
+        profile = competition_profiles.get_profile(s["competition_profile"])
+        if profile.compliance_ruleset != "RCSM_ED7_REV1":
+            ui.label(f"{profile.display_name}: {profile.rules_status}").classes("bup-provisional-badge px-3 py-2 rounded font-bold")
+        ui.label("The checks below are always RCSM Ed.7 Rev.1 (the only ruleset this app implements) - for a non-LASC profile they're a reference only, not a verified pass/fail for that competition.").classes("text-xs text-gray-500")
 
         category_select = ui.select(CATEGORY_OPTIONS, value="1km_solid", label="RCSM category").classes("w-64")
         results_container = ui.column().classes("w-full mt-4")

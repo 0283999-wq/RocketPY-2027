@@ -440,19 +440,29 @@ def parachute_import_notes(parsed):
     return rows
 
 
+def wind_speed_direction_to_uv(speed_ms, direction_from_deg):
+    """rocketpy's East/North wind VELOCITY components from a wind speed
+    + the compass bearing the wind blows FROM (standard meteorological
+    convention - both OpenRocket's <winddirection> and Open-Meteo's
+    wind_direction_10m use this same convention). The velocity vector
+    points the OPPOSITE way (bearing + 180 deg), which is why this
+    negates sin/cos rather than using them directly. Factored out of
+    wind_uv() (2026-09-26 review item H) so bup_rocketpy/weather.py's
+    real-weather overrides use the exact same, already-verified formula
+    rather than a second hand-written copy."""
+    if not speed_ms:
+        return 0.0, 0.0
+    theta = math.radians(direction_from_deg + 180.0)
+    return speed_ms * math.sin(theta), speed_ms * math.cos(theta)
+
+
 def wind_uv(launch):
     """rocketpy's East/North wind VELOCITY components from an OpenRocket
-    LaunchConditions' windaverage/winddirection. OpenRocket's
-    <winddirection> is the compass bearing the wind blows FROM (standard
-    meteorological convention) - the velocity vector therefore points
-    the OPPOSITE way (bearing + 180 deg), which is why this negates
-    sin/cos rather than using them directly. Shared by build_environment
-    and case_export.py's generated script (2026-09-26 review item 3's
-    "ONE path" rule) so both compute the identical vector."""
-    if not launch.wind_average_ms:
-        return 0.0, 0.0
-    theta = math.radians(launch.wind_direction_deg + 180.0)
-    return launch.wind_average_ms * math.sin(theta), launch.wind_average_ms * math.cos(theta)
+    LaunchConditions' windaverage/winddirection. Shared by
+    build_environment and case_export.py's generated script (2026-09-26
+    review item 3's "ONE path" rule) so both compute the identical
+    vector."""
+    return wind_speed_direction_to_uv(launch.wind_average_ms, launch.wind_direction_deg)
 
 
 def build_environment(launch):

@@ -150,12 +150,20 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
     )
 
 
-def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_override_m=None):
+def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None):
     """Runs the flight and produces everything the UI needs to display,
     all pre-computed and written to disk - the UI layer just points
-    ui.image/ui.table at these paths, no plotting logic lives there."""
+    ui.image/ui.table at these paths, no plotting logic lives there.
+
+    launch_override: 2026-09-26 review item H (launch-day mode) - a full
+    LaunchConditions to use INSTEAD of the .ork's own stored one, e.g.
+    dataclasses.replace(parsed.launch, wind_average_ms=..., wind_direction_deg=...)
+    with real forecast/cached weather for launch day. None (the default)
+    keeps the .ork's own recorded conditions, so every existing caller is
+    unaffected."""
     os.makedirs(outputs_dir, exist_ok=True)
     parsed = load_result.parsed_ork
+    launch = launch_override if launch_override is not None else parsed.launch
 
     # 2026-09-26 review item 2: "never hang." Both of these are exactly
     # what review item 1's real bug produced on a real .ork (a component
@@ -214,12 +222,12 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         )
 
     from rocketpy import Flight
-    env = translate.build_environment(parsed.launch)
+    env = translate.build_environment(launch)
     flight = Flight(
         rocket=rocket, environment=env,
-        rail_length=parsed.launch.rail_length_m,
-        inclination=parsed.launch.inclination_deg,
-        heading=parsed.launch.rail_direction_deg,
+        rail_length=launch.rail_length_m,
+        inclination=launch.inclination_deg,
+        heading=launch.rail_direction_deg,
     )
 
     # 2026-09-26 review 2(b): margin computed RAIL-EXIT TO APOGEE only.
