@@ -1144,3 +1144,48 @@ external signature/behavior is unchanged, just faster.
 
 Full suite: 39 passed, 1 deselected (the pre-existing, documented opt-in
 Leaflet browser test) in ~58s.
+
+---
+
+## Budget-mode review, 2026-09-26 (new): A-F
+
+### Item A: drag curve contaminated by the parachute - FIXED
+
+`ork_reader.extract_drag_curves_from_stored_sim` kept every Thrust==0
+datapoint all the way to the END of the stored sim, not just to apogee -
+past apogee, OpenRocket's "Axial drag coefficient" bakes in the deployed
+parachute's drag (no separate flag for it in the databranch), so the
+coast/power-off curve was contaminated with descent-under-canopy Cd for
+the WHOLE rest of the flight. Diego found this directly in a real
+exported zip: Cd=589.775 from Mach 0.02-0.212, 68 points.
+
+Fixed by tracking "Vertical velocity" (confirmed present in the real
+.ork's databranch types= list) and stopping coast collection the instant
+it goes negative (past apogee) - matches
+reference/prometeo_mission44/scripts/extract_drag_curves.py's own
+BURNOUT..APOGEE bound exactly (that reference script was ALREADY
+correct; only this live in-app path had the bug).
+
+New test `tests/test_drag_curve_extraction.py`: asserts no Cd > 1.5
+anywhere in the extracted curves. PROMETEO's own stored sim didn't
+actually trigger this (its coast max_cd was 0.466 before AND after - its
+descent data must fall outside the AoA filter or wasn't recorded far
+past apogee) - but `reference/openrocket_examples/Dual_parachute_deployment.ork`
+proves the bug is real: coast max_cd was **549.748 before the fix**,
+**1.203 after**. Diego's own real .ork (not in this repo) is what
+actually showed the contamination in practice.
+
+Before/after (PROMETEO, unchanged inputs otherwise):
+| | Before | After |
+|---|---|---|
+| Code-to-code, Brasil config | -1.45% | -1.79% |
+| Code-to-code, July4 config | +10.64% | +10.22% |
+| V1 (2026-07-04 real flight) | +11.44% | +11.00% |
+| V2 (LASC real flight) | -5.80% | -6.12% |
+
+All changes are small (a few tenths of a percent) - honest reporting:
+this bug was real and dangerous (proven on the dual-deploy fixture) but
+does NOT explain PROMETEO's own V1/V2 gap, since its particular stored
+sim wasn't badly contaminated. Not tuned to force any of these numbers.
+
+Full suite: 41 passed, 1 deselected (pre-existing opt-in Leaflet test) in ~65s.

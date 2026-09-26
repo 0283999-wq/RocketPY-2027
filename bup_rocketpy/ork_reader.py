@@ -672,10 +672,24 @@ def extract_drag_curves_from_stored_sim(path, sim_name=None, aoa_limit_deg=2.0, 
     OpenRocket already saved inside the .ork itself - no separate CSV
     upload needed for the common case. Mirrors
     reference/prometeo_mission44/scripts/extract_drag_curves.py's method
-    (boost = Thrust>0, coast = Thrust==0 after burnout; both filtered to
-    |AoA|<aoa_limit_deg so induced drag from a pitched-over rocket doesn't
-    contaminate the zero-yaw Barrowman curve rocketpy wants), applied to
-    the .ork's OWN stored flight instead of an exported CSV.
+    (boost = Thrust>0, coast = Thrust==0 from BURNOUT TO APOGEE ONLY;
+    both filtered to |AoA|<aoa_limit_deg so induced drag from a pitched-
+    over rocket doesn't contaminate the zero-yaw Barrowman curve rocketpy
+    wants), applied to the .ork's OWN stored flight instead of an
+    exported CSV.
+
+    2026-09-26 review item A: this used to keep every Thrust==0 point
+    all the way to the END of the stored sim, not just to apogee. Past
+    apogee, OpenRocket's "Axial drag coefficient" includes the deployed
+    parachute's drag (the databranch has no separate "chute deployed"
+    flag - it's baked into the aggregate axial Cd once one is out), so
+    the coast/power-off curve was being contaminated with descent-under-
+    canopy Cd values (Diego found this directly: 589.775 from Mach 0.02
+    to 0.212, 68 points, in an exported zip's power_off_drag.csv). Fixed
+    by tracking "Vertical velocity" and stopping coast collection the
+    moment it goes negative (past apogee) - matches the reference
+    script's own BURNOUT..APOGEE bound exactly, which was ALREADY correct
+    (it doesn't have this bug; only this live in-app path did).
 
     Returns (power_on_points, power_off_points), each a sorted list of
     (mach, cd) tuples ready to write straight to a headerless 2-column CSV
@@ -700,7 +714,7 @@ def extract_drag_curves_from_stored_sim(path, sim_name=None, aoa_limit_deg=2.0, 
         return None, None
     header = header_m.group(1).split(",")
     idx = {name: i for i, name in enumerate(header)}
-    required = ["Time", "Mach number", "Axial drag coefficient", "Thrust", "Angle of attack"]
+    required = ["Time", "Mach number", "Axial drag coefficient", "Thrust", "Angle of attack", "Vertical velocity"]
     if not all(r in idx for r in required):
         return None, None
 
@@ -722,17 +736,22 @@ def extract_drag_curves_from_stored_sim(path, sim_name=None, aoa_limit_deg=2.0, 
 
     boost, coast = [], []
     burned_out = False
+    apogee_reached = False
     for row in points:
         vals = row.split(",")
         try:
-            t, mach, cd, thrust, aoa = (float(vals[idx[c]]) for c in required)
+            t, mach, cd, thrust, aoa, vertical_velocity = (float(vals[idx[c]]) for c in required)
         except (ValueError, IndexError):
             continue
-        if mach != mach or cd != cd or abs(aoa) >= aoa_limit_deg:  # NaN check + AoA filter
+        if mach != mach or cd != cd:  # NaN check
+            continue
+        if vertical_velocity < 0:
+            apogee_reached = True  # descending - never collect coast points past this, even if aoa/thrust would otherwise pass
+        if abs(aoa) >= aoa_limit_deg:
             continue
         if thrust > 0:
             boost.append((mach, cd))
-        elif thrust == 0 and (boost or burned_out):
+        elif thrust == 0 and not apogee_reached and (boost or burned_out):
             burned_out = True
             coast.append((mach, cd))
 
