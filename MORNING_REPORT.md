@@ -68,5 +68,46 @@ this week), so no separate reinstall step is ever needed after a `git pull`.
   cross-check (not just the detection message), that has to happen on
   your Windows box, not in this cloud sandbox.
 
-No blockers logged under "BLOCKED / NEEDS DIEGO" in PROGRESS.md as of
-this point - continuing autonomously per your instructions.
+## Acceptance checklist (your 8 items) - verified just now
+
+1. **PROMETEO no-override defaults**: apogee 1088.0 m (~1080 target),
+   margin 1.94 cal (~1.9 target), descent 5.49 m/s (~5.5 target), no
+   Cd>1.5 in the extracted curve. **Verified** with a fresh direct run
+   this morning (no overrides at all).
+2. **Major Tom Mach matching or warning**: **cannot be verified on the
+   real vehicle** - there is still no Major Tom `.ork`/`.eng` anywhere in
+   this repo (CLAUDE.md flagged this as missing back in Phase 1; nothing
+   has arrived since). The Mach-coverage warning itself (Section B) is
+   real, generic code that fires for ANY loaded vehicle whose flight
+   exceeds its drag curve's Mach range - proven on PROMETEO (the only
+   real vehicle data this project has), not hardcoded to it. This is the
+   one item I could not close myself; it needs the actual Major Tom
+   files from you.
+3. **Every page opens without errors, History shows app version**:
+   verified via a real headless-Chromium run (`tests/test_phase0_e2e_full.py`,
+   including the new Launch Day page) - both scenarios pass, screenshots
+   in `docs/screenshots/`.
+4. **PDF report has figures, no compliance section**: verified - the
+   report is built from a REAL Simulate run (real PNGs on disk), and
+   `test_docx_report_builds_and_has_no_compliance_section` asserts the
+   compliance section text is gone.
+5. **CSV has OpenRocket-like columns/events**: verified - 58 columns,
+   real event markers, see Section G above.
+6. **Launch-day mode works offline**: verified - cached weather survives
+   a simulated network failure with no crash (`test_weather.py`).
+7. **Validation page can re-run V1/V2 with real weather (mocked test)**:
+   verified - V1 fully works; V2 needs the LASC flight date from you
+   (see below), by design, not by omission.
+8. **A reefed-chute rocket passes all 4 RCSM cases, no "FAIL REC 8.1.1"**:
+   verified - `test_all_four_rcsm_cases_run_with_no_dual_deploy_warning`.
+
+## BLOCKED / NEEDS DIEGO
+
+- **Major Tom's `.ork`/`.eng`** - still not in this repo. Item 2 above
+  can't be demonstrated on the real vehicle without them.
+- **Exact LASC 2026 flight date/time at Iacanga** - already logged as
+  pending in an earlier session; needed for item 7's V2 half to produce
+  a real number instead of the honest "date not yet known" message.
+
+Neither of these blocked anything else - both are isolated, clearly
+labeled gaps, not half-finished features.
