@@ -1,9 +1,9 @@
 # Morning report - overnight autonomous run (2026-09-26 -> 2026-09-27)
 
-Status as of Part 1 (Correctness) complete. This file is updated again at
-the end of the run with whatever else got done. `main` builds and passes
-its full test suite after every commit below - nothing here left the app
-in a broken state.
+**FINAL - the run is complete.** `main` builds and passes its full test
+suite after every commit below - nothing here left the app in a broken
+state. All of Parts 1-3 (A-I) are done and verified; Part 4 (J) was
+deliberately deferred - see below for exactly why.
 
 ## Status table
 
@@ -17,35 +17,69 @@ in a broken state.
 | F - new formal report (replaces old compliance-style one) | **Done** (built earlier this run, before item D) |
 | G - CSV export like OpenRocket (58 columns, events) | **Done** |
 | H - launch-day mode + competition profiles + README | **Done** |
-| I - real-weather validation (Open-Meteo historical) | Not started |
-| J - Mission Control UI redesign | Not started (lowest priority, only attempted if everything else lands safely) |
+| I - real-weather validation (Open-Meteo historical) | **Done** |
+| J - Mission Control UI redesign | **Deliberately deferred** - see below |
 
-Continuing now with I; J assessed for remaining
-time/budget last and will be honestly reported as deferred if there
-isn't a safe amount of session left to do it without risking the working
-app.
+## Why J was deferred, not attempted
+
+J (home page redesign, 3D flight playback with orthogonal views, live
+Monte Carlo visualization, an offline-bundled 3D library, Playwright
+screenshots) was explicitly your lowest priority, gated on "only after
+A-I pass, never break the working app." A-I do pass (full suite: 69
+passed, 1 deselected; Playwright e2e: 2/2 scenarios, re-verified just
+before writing this).
+
+J itself is a genuinely large, novel feature, not a polish pass:
+- The app already has a STATIC 3D trajectory plot per flight (rocketpy's
+  own `flight.plots.trajectory_3d()`, in both the plot tabs and the PDF
+  report). What you're asking for - an interactive, scrubbable playback
+  with switchable orthogonal views - needs a real WebGL/3D JS library
+  (three.js or similar) bundled for fully-offline use, which isn't in
+  this repo yet and would be a real, carefully-tested addition to
+  `requirements.txt`/the frontend bundle, not a small change.
+- Live Monte Carlo visualization touches the same
+  background-thread/`ProcessPoolExecutor` machinery that already has a
+  real, hard-won correctness fix in it from earlier tonight (the
+  index-alignment bug that broke reproducible drag comparisons) - a
+  rushed change there risks reintroducing exactly that class of bug in
+  code that is currently correct and tested.
+- Visual/3D quality genuinely can't be verified in this sandbox:
+  Playwright is already documented as flaky here, and a screenshot diff
+  can't substitute for actually looking at a live 3D scene to judge
+  whether it's good.
+
+Given the explicit instruction to never risk the working app for the
+lowest-priority item, I stopped here rather than rush it. The app is
+handed back to you in a fully working, fully tested state, with a clear
+list of the real decisions J needs before implementation should start
+(which 3D library, whether a simpler 2D orthogonal-view alternative is
+acceptable, how much of a redesign the home page actually needs).
 
 ## Validation numbers (before/after this run)
 
 No validation-affecting physics changed sign of before/after in a
-regression sense; the two real corrections this run made (A, B) sharpen
+regression sense; the real corrections this run made (A, B) sharpen
 honesty of the existing numbers rather than changing PROMETEO's own
 default-path apogee:
 
 - **V1** (2026-07-04 profile): predicted 1132.13 m vs target 1019.9 m
-  (+11.00%). Unchanged by A-E; this is a Cd-curve/atmosphere-fidelity gap
-  already flagged PROVISIONAL, not something A-E touches.
-- **V2** (LASC apogee): predicted 1067.42 m vs target 1137.0 m (-6.12%).
-  Unchanged by A-E.
-- **PROMETEO no-override default path**: apogee ~1080 m, static margin
-  ~1.9 cal, descent rate ~5.5 m/s, no Cd>1.5 in the extracted drag curve
-  (item A's fix - previously the extracted curve could include points
-  from the parachute-descent phase, which are not power-off/power-on
-  aerodynamic drag at all and could exceed physically sane Cd values).
-- **Major Tom** (single vehicle, single parachute in the .ork): now
-  correctly triggers item B's Mach-coverage warning when its flight's max
-  Mach exceeds the loaded drag curve's own Mach range, instead of
-  silently extrapolating past the curve with no indication on screen.
+  (+11.00%, FAIL). Unchanged by this run; a Cd-curve/atmosphere-fidelity
+  gap already flagged PROVISIONAL. Item I adds a "re-run with real
+  historical weather" button for this exact case (fully working, since
+  this flight's date is known) - re-run it yourself to see if real wind
+  narrows the gap.
+- **V2** (LASC apogee): predicted 1067.42 m vs target 1137.0 m (-6.12%,
+  FAIL). Unchanged by this run. Item I's real-weather re-run for this
+  case needs the exact LASC 2026 flight date from you first (see BLOCKED
+  below) - the mechanism is built and tested, just needs that one input.
+- **PROMETEO no-override default path** (verified fresh this morning,
+  no overrides at all): apogee 1088.0 m, static margin 1.94 cal, descent
+  rate 5.49 m/s, no Cd>1.5 in the extracted drag curve (item A's fix -
+  previously the extracted curve could include points from the
+  parachute-descent phase, which are not power-off/power-on aerodynamic
+  drag at all and could exceed physically sane Cd values).
+- **Major Tom**: still can't be checked on the real vehicle - see the
+  acceptance-checklist item 2 below.
 
 ## Exact PowerShell commands (unchanged from before this run)
 
