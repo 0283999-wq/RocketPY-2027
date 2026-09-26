@@ -83,6 +83,7 @@ class SimResult:
     plot_titles: dict = field(default_factory=dict)  # {"altitude": "Altitude AGL", ...} - nicer tab labels than the raw key
     drag_curve_max_mach: float = None  # 2026-09-26 review item B: highest Mach the power_off/power_on drag CSVs actually cover - None if no real curve (constant placeholder) was used
     mach_extrapolated: bool = False  # True if max_mach > drag_curve_max_mach - the flight went past what the Cd curve was ever measured at
+    openrocket_csv_path: str = None  # 2026-09-26 review item G: same flight, OpenRocket's own 58-column CSV layout
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -303,6 +304,18 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         csv_path = None
         print(f"WARNING: CSV export failed: {exc}")
 
+    # 2026-09-26 review item G: an OpenRocket-style export (same 58
+    # columns/layout as the CSVs OpenRocket itself produces - see
+    # bup_rocketpy/openrocket_csv_export.py) alongside rocketpy's own
+    # generic one above, for a judge/teammate used to reading OR's format.
+    openrocket_csv_path = os.path.join(outputs_dir, "flight_data_openrocket_style.csv")
+    try:
+        from bup_rocketpy.openrocket_csv_export import export_openrocket_style_csv
+        export_openrocket_style_csv(flight, radius_m, openrocket_csv_path, simulation_name=f"{parsed.name} (Beyond UP RocketPy)")
+    except Exception as exc:
+        openrocket_csv_path = None
+        print(f"WARNING: OpenRocket-style CSV export failed: {exc}")
+
     return SimResult(
         apogee_agl_m=flight.apogee - env.elevation,
         max_speed_ms=flight.max_speed,
@@ -315,6 +328,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         is_stable=is_stable,
         plot_paths=plot_paths,
         csv_path=csv_path,
+        openrocket_csv_path=openrocket_csv_path,
         provisional_warning="PROVISIONAL: V1/V2 flight-data validation has not both passed within +-5% yet (see PROGRESS.md). Do not treat this result as final.",
         dry_mass_kg=mass_est.mass_kg,
         dry_cg_m=mass_est.cg_m,

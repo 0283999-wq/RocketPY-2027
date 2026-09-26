@@ -25,6 +25,8 @@ def exports_page():
             ui.label("Flight data / plots").classes("text-lg font-bold")
             if s["sim_result"].csv_path:
                 ui.link("Download flight data CSV", f"/outputs/{os.path.basename(s['sim_result'].csv_path)}")
+            if s["sim_result"].openrocket_csv_path:
+                ui.link("Download flight data CSV (OpenRocket format - 58 columns, event markers)", f"/outputs/{os.path.basename(s['sim_result'].openrocket_csv_path)}")
             for name, path in s["sim_result"].plot_paths.items():
                 if path:
                     ui.link(f"Download {name}.png", f"/outputs/{os.path.basename(path)}")

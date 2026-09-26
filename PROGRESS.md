@@ -1379,3 +1379,57 @@ in `tests/test_phase4_monte_carlo.py`: same seed, only heading differs by
 ignored override).
 
 Full suite: 51 passed, 1 deselected in ~76s.
+
+## Section G: CSV export matching OpenRocket's format (done)
+
+New `bup_rocketpy/openrocket_csv_export.py`: builds the SAME 58-column
+layout OpenRocket's own "Export simulation data" produces (verified
+directly against the 3 real OR export CSVs already in
+`reference/prometeo_mission44/data/openrocket_exports/` - same column
+names/units, same "# Event X occurred at t=..." lines interleaved with
+data rows at the right position, one row per solver time step rather
+than a fixed resample - OR itself exports its own adaptive solver grid,
+not a fixed-dt resample).
+
+Every column is a REAL rocketpy value, never invented:
+- Position/velocity/acceleration/angle-of-attack/Mach/Reynolds/wind/
+  atmosphere columns map directly to existing `Flight`/`Environment`
+  Function attributes.
+- CG/CP location (cm): converts rocketpy's internal frame back to
+  OpenRocket's own nose-tip-referenced convention using the SAME
+  `translate._coordinate_transform` function that built the rocket in
+  the first place (an involution, so re-applying it inverts it) - "the
+  ONE place" per that function's own docstring. **Caught before
+  shipping**: a first version multiplied by `rocket._csys` instead
+  (coincidentally +1 for this app's always-used "tail_to_nose"
+  orientation, so it silently did nothing), giving CG/CP as *negative*
+  cm-from-nose. Caught by checking that CP must be aft of (a larger
+  from-nose distance than) CG for a stable rocket - it wasn't, both were
+  negated. Now locked in behind a regression test.
+- Drag coefficient: computed as drag_force / (dynamic_pressure *
+  reference_area) directly from the flown trajectory, rather than
+  guessing which of rocketpy's power_on/power_off Mach-Cd curves was
+  active at each instant - always correct, no internal-state guessing.
+- Columns OpenRocket has that rocketpy has no equivalent for at all
+  (component-level drag breakdown: friction/pressure/base/axial
+  coefficients; and the moment/side-force/roll coefficients; Reynolds
+  breakdown; per-step computation time; an explicit Coriolis term) are
+  left blank - and this is not a compromise unique to this app: the REAL
+  PROMETEO OpenRocket export has several of those same columns blank for
+  its entire flight too (an axisymmetric rocket with no fin cant
+  genuinely has no meaningful roll-forcing/roll-damping/side-force
+  value), verified by inspecting that file directly.
+
+Wired into the app: `pipeline.run_simulation` now also writes
+`flight_data_openrocket_style.csv` next to the existing generic CSV
+(`SimResult.openrocket_csv_path`), and the Exports page has a second
+download link for it.
+
+New `tests/test_openrocket_csv_export.py` (3 tests, using PROMETEO's
+real .ork/.eng through the same `translate.ork_to_flight` path every
+other test uses): 58-column count + real event markers (IGNITION,
+LAUNCHROD, BURNOUT, APOGEE, RECOVERY_DEVICE_DEPLOYMENT, GROUND_HIT),
+sane apogee/Mach columns, and the CP-aft-of-CG sign regression guard
+described above.
+
+Full suite: 54 passed, 1 deselected in ~80s.
