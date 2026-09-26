@@ -1,8 +1,12 @@
 @echo off
 REM Beyond UP RocketPy launcher (Windows). Double-click this file.
-REM First run: creates .venv (preferring Python 3.12) and installs
-REM requirements.txt (pinned versions). Every run: activates .venv and
-REM opens the app in your browser.
+REM First run: creates .venv (preferring Python 3.12). EVERY run:
+REM re-syncs requirements.txt (pip is a fast no-op if already satisfied),
+REM then opens the app in your browser. Re-syncing every run (not just on
+REM first creation) matters because requirements.txt gets new pinned
+REM packages over time (e.g. reportlab/python-docx for the PDF/DOCX
+REM report) - an old .venv from before that would otherwise silently keep
+REM missing them forever, since this script used to only install once.
 REM
 REM WHY 3.12 specifically (2026-09-25 review, Section 4): this project is
 REM developed and tested in the cloud on Python 3.11/3.12. If your machine
@@ -16,7 +20,7 @@ REM script prefers that.
 cd /d "%~dp0"
 
 if exist .venv (
-    goto :run
+    goto :install
 )
 
 echo Looking for Python 3.12 via the "py" launcher...
@@ -47,8 +51,8 @@ if errorlevel 1 (
 )
 
 :install
-echo Installing requirements ^(this only happens once^)...
-.venv\Scripts\pip install -r requirements.txt
+echo Checking requirements.txt is fully installed...
+.venv\Scripts\pip install -r requirements.txt -q
 if errorlevel 1 (
     echo Failed to install requirements. Check your internet connection and try again.
     echo If this keeps failing, it is likely a Python-version mismatch - see the
