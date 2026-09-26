@@ -413,6 +413,21 @@ def parachute_trigger(chute):
     )
 
 
+def required_cd_s_for_descent_rate(target_descent_rate_ms, mass_kg, air_density_kgm3=1.225, g=9.80665):
+    """2026-09-26 review item D (new lettering): "target reefed descent
+    rate" helper - inverts the standard terminal-velocity relation
+    v = sqrt(2*m*g/(rho*Cd*S)) to solve for the Cd*S a reefed canopy
+    needs to hit a target rate (e.g. "I want 30 m/s under the reefed
+    stage"). This is an ESTIMATE from the same simplified hand-calc
+    formula recovery.py already uses elsewhere in the app (constant
+    ground-density approximation, not the sim's own varying-density
+    integration) - labelled as such until measured by a real drop test,
+    per Diego's own instruction not to invent unverified precision."""
+    if target_descent_rate_ms <= 0:
+        raise ValueError("target_descent_rate_ms must be positive")
+    return 2 * mass_kg * g / (air_density_kgm3 * target_descent_rate_ms ** 2)
+
+
 def parachute_import_notes(parsed):
     """(component, status, detail) rows for the import table, so a
     non-"apogee"/"altitude" deploy_event assumption is visible BEFORE
@@ -546,8 +561,25 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
         for chute in parsed.parachutes:
             if chute.cd is None:
                 continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
-            cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
             trigger, _ = parachute_trigger(chute)  # warning already surfaced via parachute_import_notes() at load time
+            if chute.is_reefed and chute.reefed_cd is not None and chute.reefed_diameter_m is not None and chute.cutter_altitude_m is not None:
+                # 2026-09-26 review item D (new lettering): a reefed main
+                # + line cutter is ONE physical canopy that flies in TWO
+                # stages - modeled as two independent rocketpy Parachutes,
+                # not one (rocketpy has no native "reefed" concept either).
+                # This is physically safe because both triggers are
+                # "descending AND below altitude X" (rocketpy's own numeric-
+                # trigger semantics, verified in rocketpy/rocket/parachute.py:
+                # `y[5] < 0 and h < trigger` - never fires on the way up) -
+                # the cutter's altitude is always BELOW the reefed stage's
+                # own deployment altitude/apogee, so the two fire in the
+                # correct order automatically, with no shared state needed.
+                reefed_cd_s = chute.reefed_cd * math.pi * (chute.reefed_diameter_m / 2.0) ** 2
+                rocket.add_parachute(name=f"{chute.name} (reefed)", cd_s=reefed_cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay, radius=chute.reefed_diameter_m / 2.0, drag_coefficient=chute.reefed_cd)
+                full_cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+                rocket.add_parachute(name=f"{chute.name} (full)", cd_s=full_cd_s, trigger=chute.cutter_altitude_m, sampling_rate=100, lag=chute.cutter_delay_s, radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
+                continue
+            cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
             # radius/drag_coefficient: rocketpy's Parachute stores these
             # verbatim (they don't affect the physics beyond what cd_s
             # already captures) - passing them means the built Parachute

@@ -18,6 +18,26 @@ class CaseResult:
     warning: str  # empty string if none
 
 
+def _reefed_surrogates(chute):
+    """2026-09-26 review item D (new lettering): RCSM REC 8.1.1 explicitly
+    accepts "reefed main deployment" + "un-reefing of the main" as a real
+    dual-event recovery - a single reefed-with-line-cutter chute is NOT
+    the same failure mode as a genuinely single-deploy vehicle, and must
+    not get the "only ONE recovery event, FAIL REC 8.1.1" warning.
+    Returns two lightweight stand-ins (real Parachute instances,
+    dataclasses.replace'd) that _add_single_parachute can build exactly
+    like a real drogue/main pair: a "drogue" surrogate at the reefed
+    stage's own diameter/Cd/trigger, and a "main" surrogate at the FULL
+    canopy's diameter/Cd, triggered at the cutter's own altitude (its
+    normal, real behavior - MainAtApogee overrides this to apogee itself,
+    same as it already does for a real main chute)."""
+    import dataclasses
+
+    drogue_surrogate = dataclasses.replace(chute, name=f"{chute.name} (reefed stage)", diameter=chute.reefed_diameter_m, cd=chute.reefed_cd)
+    main_surrogate = dataclasses.replace(chute, name=f"{chute.name} (full stage)", deploy_event="altitude", deploy_altitude=chute.cutter_altitude_m, deploy_delay=chute.cutter_delay_s)
+    return drogue_surrogate, main_surrogate
+
+
 def _classify_parachutes(parsed):
     """Best-effort drogue/main split: "drogue" = deploys at/near apogee
     (deploy_event=="apogee" or the highest deploy_altitude); "main" =
@@ -27,7 +47,10 @@ def _classify_parachutes(parsed):
     if not chutes:
         return None, None
     if len(chutes) == 1:
-        return chutes[0], None  # can't split a single chute into a topology - caller decides how to warn
+        chute = chutes[0]
+        if chute.is_reefed and chute.reefed_cd is not None and chute.reefed_diameter_m is not None and chute.cutter_altitude_m is not None:
+            return _reefed_surrogates(chute)
+        return chute, None  # can't split a single chute into a topology - caller decides how to warn
     apogee_triggered = [c for c in chutes if c.deploy_event == "apogee"]
     altitude_triggered = sorted([c for c in chutes if c.deploy_event != "apogee"], key=lambda c: c.deploy_altitude)
     drogue = apogee_triggered[0] if apogee_triggered else max(chutes, key=lambda c: c.deploy_altitude)

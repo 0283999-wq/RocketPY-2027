@@ -1287,3 +1287,55 @@ passing) - also locks in the compliance section is gone and the old
 "credit the officials, not us" wording rule now applies to the appendix.
 
 Full suite: 46 passed, 1 deselected in ~76s.
+
+### Item D (new lettering): reefed parachute + line cutter - DONE
+
+RCSM REC 8.1.1 explicitly accepts "reefed main deployment + un-reefing"
+as real dual-event recovery - a reefed single canopy was previously
+getting the same "FAIL REC 8.1.1, only 1 parachute" as a genuinely
+single-deploy vehicle. Fixed at every level:
+
+- `ork_reader.Parachute` gained `is_reefed`/`reefed_diameter_m`/
+  `reefed_cd`/`cutter_altitude_m`/`cutter_delay_s` - always user-set (OpenRocket
+  has no concept of this at all), never parsed from the .ork.
+- `translate.build_rocket` adds TWO real rocketpy Parachutes for a reefed
+  chute (reefed-stage at the chute's own trigger, full-stage at the
+  cutter's altitude) instead of one - physically safe because rocketpy's
+  own numeric trigger only fires while descending (verified directly in
+  rocketpy/rocket/parachute.py's source: `y[5] < 0 and h < trigger`), so
+  the two stages sequence correctly with no shared state needed.
+- `rcsm_cases._classify_parachutes` returns synthetic drogue/main
+  surrogates for a reefed single chute, so DrogueOnly (cutter never
+  fires) and MainAtApogee (cutter fires at apogee, full chute at apogee)
+  reuse the exact same code path a real drogue+main vehicle already used
+  - no more "not a real dual-deploy topology" warning for a reefed one.
+- `rcsm.check_compliance`: REC 8.1.1 already worked correctly once
+  build_rocket added 2 real parachutes (just counts `len(rocket.parachutes)`).
+  Added REC 8.1.3 (drogue/reefed settled descent rate 20-45 m/s) and REC
+  8.1.4 (main/full release <=500m AGL, final <10 m/s) - these had
+  long-standing UNUSED constants but were never actually wired up to any
+  check, for ANY vehicle, reefed or not.
+- `translate.required_cd_s_for_descent_rate()`: the "target reefed
+  descent rate" helper, inverting v=sqrt(2mg/(rho*Cd*S)).
+- Rocket page: editable "Reefed parachute (line cutter)" section per
+  parachute (checkbox + reefed diameter/Cd, cutter altitude/delay, a
+  "Compute reefed diameter" button using the helper above) - mutates the
+  loaded `parsed.parachutes[i]` in place, same object every other page
+  already reads.
+
+**Real bug caught and fixed during development, not shipped**: my first
+REC 8.1.4 implementation used `flight.altitude(t) - flight.env.elevation`,
+silently giving a release altitude of ~5m instead of the real ~500m.
+`flight.altitude(t)` is ALREADY AGL in rocketpy (unlike `flight.z(t)`/
+`flight.apogee`, which are ASL and need that subtraction) - confusing the
+two conventions is an easy, quiet way to get a plausible-looking wrong
+number. Verified directly against the real trajectory before shipping,
+documented in a code comment so it doesn't happen again.
+
+New test file `tests/test_reefed_parachute.py` (4 tests) using PROMETEO's
+real .ork with its one real parachute marked reefed (not an invented
+rocket) - covers: build_rocket adds 2 parachutes, all 4 RCSM cases run
+with no dual-deploy warning and REC 8.1.1 PASSes, the AGL/ASL regression
+guard, and the descent-rate helper's math.
+
+Full suite: 50 passed, 1 deselected in ~76s.

@@ -113,6 +113,55 @@ def check_compliance(category, flight, rocket, payload_mass_kg, fin_flutter_velo
             rows.append(("REC 8.1.1", "Dual-event recovery required (apogee > 1500m)", "PASS", f"{n_chutes} parachutes configured"))
         else:
             rows.append(("REC 8.1.1", "Dual-event recovery required (apogee > 1500m)", "FAIL", f"only {n_chutes} parachute(s) configured"))
+
+        # 2026-09-26 review item D (new lettering): REC 8.1.3/8.1.4 were
+        # long-standing constants with no check ever wired up to them -
+        # a reefed main + line cutter counting as dual-event (REC 8.1.1,
+        # fixed above by translate.build_rocket now adding it as two real
+        # rocketpy Parachutes) only actually matters if these two
+        # velocity/altitude rules ALSO get checked, or "counts as dual-
+        # event" would be true in name only. Identifies the two stages by
+        # deployment ORDER (first = drogue/reefed-equivalent, higher up;
+        # last = main/full-equivalent, lower down) via flight.parachute_events,
+        # which already records (time, chute) in the order they actually
+        # fired during THIS flight - not by name pattern, works for a real
+        # drogue+main pair exactly the same as a reefed one.
+        events = sorted(getattr(flight, "parachute_events", []), key=lambda te: te[0])
+        if len(events) >= 2:
+            drogue_t, _ = events[0]
+            main_t, _ = events[-1]
+            # Sampled just BEFORE the main/full stage takes over, not at
+            # the drogue/reefed stage's own opening instant - matching
+            # recovery.py's same reasoning (recovery_panel's docstring):
+            # right at deployment is still near free-fall speed, not the
+            # settled rate under that canopy, which is what REC 8.1.3
+            # actually means by "descent rate".
+            t_settled = max(main_t - 0.5, drogue_t + 0.5)
+            vx, vy, vz = flight.vx(t_settled), flight.vy(t_settled), flight.vz(t_settled)
+            drogue_speed = (vx**2 + vy**2 + vz**2) ** 0.5
+            lo, hi = DROGUE_DESCENT_RATE_RANGE
+            if lo <= drogue_speed <= hi:
+                rows.append(("REC 8.1.3", f"Drogue/reefed descent rate {lo}-{hi} m/s", "PASS", f"{drogue_speed:.1f} m/s (settled, sampled t={t_settled:.1f}s)"))
+            else:
+                rows.append(("REC 8.1.3", f"Drogue/reefed descent rate {lo}-{hi} m/s", "FAIL", f"{drogue_speed:.1f} m/s (settled, sampled t={t_settled:.1f}s)"))
+
+            # NOTE: flight.altitude(t) is ALREADY AGL in rocketpy (unlike
+            # flight.z(t)/flight.apogee, which are ASL and need
+            # `- flight.env.elevation`) - verified directly (2026-09-26
+            # review item D): subtracting elevation again here silently
+            # gave a wildly wrong ~5m instead of the real ~500m release
+            # altitude on first pass. Confusing two different altitude
+            # conventions inside the same file is an easy, quiet way to
+            # get a plausible-looking but wrong number - flagged clearly
+            # so it doesn't happen again elsewhere.
+            main_alt_agl = flight.altitude(main_t)
+            final_speed = abs(flight.impact_velocity)
+            if main_alt_agl <= DROGUE_MAIN_DEPLOY_MAX_ALT and final_speed < 10.0:
+                rows.append(("REC 8.1.4", f"Main/full release <= {DROGUE_MAIN_DEPLOY_MAX_ALT}m AGL, final < 10 m/s", "PASS", f"released @ {main_alt_agl:.0f}m AGL, landed @ {final_speed:.1f} m/s"))
+            else:
+                rows.append(("REC 8.1.4", f"Main/full release <= {DROGUE_MAIN_DEPLOY_MAX_ALT}m AGL, final < 10 m/s", "FAIL", f"released @ {main_alt_agl:.0f}m AGL, landed @ {final_speed:.1f} m/s"))
+        elif n_chutes >= 2:
+            rows.append(("REC 8.1.3/8.1.4", "Drogue/main descent rate and release altitude", "WARN", "expected 2 parachute deployment events in this flight but found fewer - check the flight actually reached them"))
     else:
         rows.append(("REC 8.1.2", "Single-event recovery allowed (apogee <= 1500m)", "PASS", "exempt from dual-event"))
 

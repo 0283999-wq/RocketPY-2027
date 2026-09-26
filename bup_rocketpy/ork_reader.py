@@ -104,6 +104,21 @@ class Parachute:
     deploy_altitude: float
     deploy_delay: float
     position_m: float
+    # 2026-09-26 review item D (new lettering): "reefed with line cutter" -
+    # OpenRocket has NO concept of this at all, so these are always
+    # user-set in the app, never parsed from the .ork. cd/diameter above
+    # ARE the FULL (un-reefed) canopy's own values when is_reefed=True;
+    # reefed_* describe the smaller, reefed configuration that flies
+    # first, before the cutter releases it into the full canopy above.
+    # deploy_event/deploy_altitude/deploy_delay above are the REEFED
+    # stage's own trigger (when the reefed canopy first comes out) -
+    # cutter_altitude_m/cutter_delay_s are separately when the line
+    # cutter later releases it to full, a different, later event.
+    is_reefed: bool = False
+    reefed_diameter_m: float = None
+    reefed_cd: float = None
+    cutter_altitude_m: float = None
+    cutter_delay_s: float = 0.0
 
 
 @dataclass

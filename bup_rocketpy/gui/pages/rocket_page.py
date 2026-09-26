@@ -82,3 +82,50 @@ def rocket_page():
                     "cd_s": f"{c.cd * math.pi * (c.diameter / 2.0) ** 2:.3f}" if c.cd is not None else "n/a",
                 } for c in parsed.parachutes],
             ).classes("w-full")
+
+            # 2026-09-26 review item D (new lettering): OpenRocket has NO
+            # concept of "reefed with a line cutter" at all - this is
+            # always set here, by the user, never parsed from the .ork.
+            # Mutates the loaded parsed.parachutes[i] IN PLACE, the same
+            # object Simulate/Monte Carlo/RCSM Cases all already read from
+            # s["load_result"] - no separate "apply" plumbing needed,
+            # just re-run Simulate after changing this.
+            ui.label("Reefed parachute (line cutter)").classes("text-md font-bold mt-4")
+            ui.label("For a main canopy that deploys reefed (small) and is later released to full size by a line cutter - RCSM REC 8.1.1 accepts this as real dual-event recovery. Leave off for a normal single-stage parachute.").classes("text-xs text-gray-500")
+            for i, c in enumerate(parsed.parachutes):
+                with ui.card().classes("w-full mt-2"):
+                    ui.label(c.name).classes("font-bold")
+                    reefed_checkbox = ui.checkbox("Reefed with line cutter", value=c.is_reefed)
+                    with ui.grid(columns=4).classes("gap-2 mt-1").bind_visibility_from(reefed_checkbox, "value"):
+                        reefed_diam_input = ui.number(label="Reefed diameter (m)", value=c.reefed_diameter_m)
+                        reefed_cd_input = ui.number(label="Reefed Cd", value=c.reefed_cd)
+                        cutter_alt_input = ui.number(label="Cutter release altitude AGL (m)", value=c.cutter_altitude_m)
+                        cutter_delay_input = ui.number(label="Cutter release delay (s)", value=c.cutter_delay_s or 0.0)
+                    with ui.row().classes("items-center gap-2 mt-1").bind_visibility_from(reefed_checkbox, "value"):
+                        target_rate_input = ui.number(label="Target reefed descent rate (m/s)", value=None)
+
+                        def compute_target(i=i, target_rate_input=target_rate_input, reefed_diam_input=reefed_diam_input, reefed_cd_input=reefed_cd_input):
+                            if not target_rate_input.value or s["dry_mass_kg"] is None:
+                                ui.notify("Need a target rate and a completed Simulate (for the descending mass) first.", type="warning")
+                                return
+                            from bup_rocketpy import translate
+                            import math
+                            descent_mass_kg = s["dry_mass_kg"]  # approximate: dry rocket only, ignoring the spent motor casing's small addition - good enough for this estimate helper
+                            cd = reefed_cd_input.value or 1.5
+                            required_cd_s = translate.required_cd_s_for_descent_rate(target_rate_input.value, descent_mass_kg)
+                            reefed_diam_input.value = 2.0 * math.sqrt(required_cd_s / (cd * math.pi))
+                            ui.notify(f"Reefed diameter set to {reefed_diam_input.value:.2f} m for ~{target_rate_input.value:.0f} m/s (ESTIMATE - verify with a real drop test).", type="info")
+
+                        ui.button("Compute reefed diameter", on_click=compute_target)
+
+                    def apply_reefing(i=i, reefed_checkbox=reefed_checkbox, reefed_diam_input=reefed_diam_input, reefed_cd_input=reefed_cd_input, cutter_alt_input=cutter_alt_input, cutter_delay_input=cutter_delay_input):
+                        import dataclasses
+                        parsed.parachutes[i] = dataclasses.replace(
+                            parsed.parachutes[i],
+                            is_reefed=reefed_checkbox.value,
+                            reefed_diameter_m=reefed_diam_input.value, reefed_cd=reefed_cd_input.value,
+                            cutter_altitude_m=cutter_alt_input.value, cutter_delay_s=cutter_delay_input.value or 0.0,
+                        )
+                        ui.notify("Saved - re-run Simulate to see the effect.", type="positive")
+
+                    ui.button("Save", on_click=apply_reefing).classes("mt-1")
