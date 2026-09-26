@@ -47,6 +47,7 @@ def exports_page():
                     s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
                     s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                     s["dry_mass_kg"], s["dry_cg_m"],
+                    i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
                 )
 
             data = report.build_report_data(
@@ -95,7 +96,11 @@ def exports_page():
             profile = competition_profiles.get_profile(s["competition_profile"])
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI export")
-            i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+            # 2026-09-27 review item 1: the LASC submission script must
+            # describe the EXACT SAME rocket Simulate/RCSM Cases already
+            # ran - use its actually-used inertia, not a fresh geometric
+            # re-derivation.
+            i_ax, i_tr = (s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]) if s["dry_i_axial_kgm2"] is not None else translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
             zip_path = os.path.join(OUTPUTS_DIR, f"Mission{mission_id_input.value}_{profile.key}.zip")
             lasc_package.build_lasc_zip(

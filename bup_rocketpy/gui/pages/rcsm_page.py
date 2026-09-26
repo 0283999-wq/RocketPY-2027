@@ -33,6 +33,7 @@ def rcsm_case_page():
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                 s["dry_mass_kg"], s["dry_cg_m"],
+                i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
             )
             s["case_results"] = results
 

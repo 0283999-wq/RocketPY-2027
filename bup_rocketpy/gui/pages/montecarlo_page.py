@@ -187,6 +187,11 @@ def montecarlo_page():
         poll_timer = ui.timer(0.4, poll_progress, active=False)
 
         def _get_inertia():
+            # 2026-09-27 review item 1: use the SAME inertia Simulate itself
+            # used for this rocket, not a fresh geometric re-derivation that
+            # could silently disagree with it.
+            if s["dry_i_axial_kgm2"] is not None:
+                return s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]
             from bup_rocketpy import translate
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")

@@ -9,6 +9,7 @@ state = {
     "load_result": None, "sim_result": None,
     "dry_mass_override": None, "dry_cg_override": None,  # raw manual-override UI fields (None unless the user checked "use manual override")
     "dry_mass_kg": None, "dry_cg_m": None, "mass_source": "",  # the mass/CG ACTUALLY used by the last successful Simulate (override or geometric estimate) - every other page reads THESE, never the override fields above, so they work on the default no-override path too (2026-09-26 review crash d)
+    "dry_i_axial_kgm2": None, "dry_i_transverse_kgm2": None, "inertia_source": "",  # 2026-09-27 review item 1: same rule as above, for inertia - Monte Carlo/RCSM cases/exports must read THESE, not re-derive their own, or they can silently disagree with Simulate's own result for the identical rocket
     "case_results": None,  # dict from rcsm_cases.run_all_cases
     "compliance_rows": None,
     "mc_result": None, "mc_uncertainties": None,

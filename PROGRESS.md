@@ -1581,3 +1581,117 @@ decision on how J should actually be scoped (which 3D library, whether a
 simpler 2D orthogonal-view alternative is acceptable, how much of a
 redesign the home page actually needs) before real implementation work
 starts on it.
+
+---
+
+# 2026-09-27 overnight run (MEGA_PROMPT_2): mass/CG accuracy, reefing/
+mission persistence, weather correctness, History UX, validation
+consistency, a real prose report, and finishing the Mission Control
+redesign (J is now in scope).
+
+## Section 1: mass/CG/inertia matching OpenRocket (done, mostly)
+
+Diego tested Major Tom on his own machine: OpenRocket says dry mass
+15.006 kg / CG 122 cm; the app said 12.274 kg / CG 80.4 cm - a ~2.7 kg /
+34% gap, almost certainly the dominant cause of the reported Mach 1.05
+vs. OpenRocket's own 0.91 and the apogee gap. Major Tom's `.ork`/`.eng`
+are STILL not in this repo (flagged since Phase 1) - can't be verified
+on the real vehicle - but the root cause and fix generalize to any
+vehicle, and are proven here against PROMETEO's real `.ork` and both
+OpenRocket example files.
+
+**Root cause**: the app's ONLY mass/CG source (absent a manual/.ork
+override) was a from-scratch geometric thin-shell approximation
+(`translate.estimate_dry_mass_and_cg`) that ignores every component
+OpenRocket itself accounts for beyond nose/tubes/transitions/fins/point
+masses - inner tubes, centering rings, bulkheads, launch lugs, adhesive,
+hardware. Checked directly against BOTH shipped OpenRocket example
+`.ork` files' own stored-simulation mass (their real ground truth): the
+geometric estimate was **-34.9% and -49.7%** off. For PROMETEO
+specifically the gap happened to be small (~1.3%, big airframe shell
+dominates), which is exactly why this bug went unnoticed until a
+smaller/differently-proportioned rocket (Major Tom) exposed it.
+
+**Fix (item 1a - the one that matters)**: `translate.
+estimate_best_dry_mass_cg_inertia()` (new) now prefers OpenRocket's OWN
+computed t=0 with-motor mass/CG/inertia - read straight from the `.ork`'s
+stored simulation databranch via the already-existing (but previously
+UNUSED outside a dev script) `ork_reader.parse_stored_simulation_references()`
+- minus the motor (`translate.derive_dry_mass_and_inertia_from_with_motor`,
+itself already validated by V1/V2), whenever a stored simulation exists.
+Priority order: (1) whole-rocket/subcomponent MASS override (team-
+measured, unchanged, still wins outright), (2) NEW: OpenRocket-computed
+from stored sim, (3) geometric estimate (unchanged fallback, only for a
+geometry-only `.ork` nobody has ever simulated in OpenRocket). Wired into
+`pipeline.run_simulation` (the real default path) and `rocket_page.py`'s
+pre-Simulate preview.
+
+**Real bug caught while building this, fixed before shipping**: OpenRocket's
+own "Longitudinal moment of inertia" column is actually the TRANSVERSE
+(pitch/yaw) inertia, and "Rotational moment of inertia" is the AXIAL
+(roll) one - the opposite of what the names suggest in isolation.
+Confirmed via `config.py`'s own OpenRocket-sourced constants
+(`INERTIA_LONG_T0_WITH_MOTOR=1.612` >> `INERTIA_ROT_T0_WITH_MOTOR=0.020`,
+and physically: a long slender rocket's transverse inertia is always
+much larger than its roll inertia). This ALSO meant Section G's
+OpenRocket-style CSV export (from last night) had shipped these two
+columns backwards - fixed there too, with a regression test in both
+places.
+
+**Item 1c (rocket length)**: `ork_reader.airframe_length_m()` (already
+existed, used only for the "component outside airframe" safety check)
+now also accounts for a transition/boat-tail placed AFTER the last body
+tube - previously silently excluded from EVERY "rocket length"
+computation in the app (5+ duplicated body-tubes-only formulas across
+`report.py`, `rocket_drawing.py`, `rocket_page.py`, `case_export.py`, and
+critically `translate.build_rocket`'s own motor-position placement,
+which assumes the motor/nozzle sits at the airframe's aft end). All 5
+duplicates now call this ONE function instead. A missed boat-tail would
+have pushed the assumed motor CG too far forward for any rocket that has
+one - part of the same class of bug as the mass mismatch.
+
+**Item 1b (deep per-component geometric model)**: DEFERRED, honestly -
+not silently skipped. Given 1a's fix, this only matters for a
+geometry-only `.ork` with no stored simulation ever run (a narrow case);
+whenever a stored sim exists (true for PROMETEO, both OpenRocket
+examples, and almost certainly Major Tom too, since Diego quoted its own
+"PACHUCA" sim numbers), 1a already gives an exact match to OpenRocket's
+own total. Modeling inner tubes/centering rings/bulkheads/launch lugs
+individually would be a substantial `ork_reader.py` parser expansion for
+comparatively little additional accuracy given 1a's coverage - flagged
+here rather than attempted partially/rushed.
+
+**Item 1d (Major Tom code-to-code re-check)**: BLOCKED - no Major Tom
+`.ork`/`.eng` in this repo (see NEEDS DIEGO below). The mechanism itself
+(1a) is proven against PROMETEO's real `.ork` and both OpenRocket
+examples instead - `tests/test_mass_cg_from_stored_sim.py` (4 tests):
+stored-sim-derived mass/CG is sane for PROMETEO, a whole-rocket override
+still wins over it, a geometry-only rocket still falls back to the
+geometric estimate, and the `airframe_length_m()` transition fix (a
+synthetic boat-tail rocket, since neither real `.ork` on hand has one).
+
+PROMETEO's own default-path numbers with the new source: apogee 1072 m
+(was 1088 m; acceptance target ~1080 m - closer, not worse), static
+margin 2.04 cal (was 1.94; target ~1.9), descent 5.51 m/s (was 5.49;
+target ~5.5) - a real accuracy improvement, not a regression, even
+though it no longer reproduces the OLD geometric estimate's exact
+numbers.
+
+Also fixed for consistency (same principle Diego's item 2 argues for
+reefing): `SimResult` now carries the inertia ACTUALLY used to build the
+flown rocket (`i_axial_kgm2`/`i_transverse_kgm2`/`inertia_source`), and
+Monte Carlo/RCSM Cases/Exports all read that instead of silently
+re-deriving their own (possibly different) geometric estimate - the same
+"single source of truth" bug class as the reefing-not-applied issue,
+just for mass/inertia instead of parachute settings.
+
+New test `test_longitudinal_inertia_column_is_the_larger_transverse_value`
+in `test_openrocket_csv_export.py`. Full suite: 74 passed, 1 deselected;
+Playwright e2e: 2/2.
+
+## BLOCKED / NEEDS DIEGO
+
+- **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since
+  Phase 1, and again in last night's MORNING_REPORT.md). Item 1d (the
+  actual code-to-code re-check against the "PACHUCA" sim you quoted)
+  needs these files.

@@ -11,6 +11,8 @@ File name: Mission[ID]_[Case]_RocketPy_v[N].py (CRS 10.1.6).
 import math
 import os
 
+from bup_rocketpy.ork_reader import airframe_length_m
+
 
 def _fmt(x):
     return repr(float(x))
@@ -31,7 +33,11 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
 
     to_rpy_sign = -1.0 if coordinate_system_orientation == "tail_to_nose" else 1.0
     nose_pos = to_rpy_sign * 0.0
-    motor_pos = to_rpy_sign * (parsed.body_tubes[-1].position_m + parsed.body_tubes[-1].length) if parsed.body_tubes else nose_pos
+    # 2026-09-27 review item 1c: airframe_length_m() (nose + body tubes +
+    # transitions), matching translate.build_rocket's own motor placement -
+    # a body-tubes-only formula silently missed a transition/boat-tail
+    # placed after the last body tube.
+    motor_pos = to_rpy_sign * airframe_length_m(parsed)
     cg_rpy = to_rpy_sign * dry_cg_m
 
     lines = []

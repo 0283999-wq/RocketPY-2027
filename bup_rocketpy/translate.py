@@ -356,6 +356,82 @@ def derive_dry_mass_and_inertia_from_with_motor(motor, total_mass_kg, motor_mass
     return mass_est, i_axial, i_transverse
 
 
+@dataclass
+class BestMassEstimate:
+    mass_est: "MassEstimate"
+    i_axial_kgm2: float
+    i_transverse_kgm2: float
+    inertia_source: str
+
+
+def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=None):
+    """2026-09-27 review item 1a: picks the BEST available dry mass/CG/
+    inertia source, in priority order:
+
+    1. A whole-rocket/subcomponent MASS override on the .ork
+       (estimate_dry_mass_and_cg's own top priority already) - a
+       team-measured number, unchanged, still wins outright.
+    2. NEW: OpenRocket's OWN computed t=0 with-motor mass/CG/inertia,
+       from the .ork's stored simulation databranch (parse_stored_
+       simulation_references), minus the motor - via
+       derive_dry_mass_and_inertia_from_with_motor(). This is strictly
+       better than our own geometric thin-shell approximation whenever
+       it's available: it's OpenRocket's own actual computed total,
+       already accounting for every real component/material/hardware
+       detail (inner tubes, centering rings, bulkheads, adhesive,
+       overrides, "override subcomponents") that a from-scratch
+       geometric approximation can't fully capture - closing the real
+       Major Tom mass/CG mismatch Diego reported (OpenRocket 122 cm CG
+       vs. this app's 80.4 cm, a ~2.7 kg/34% gap) without needing to
+       perfectly reproduce OpenRocket's internal per-component model.
+    3. The existing geometric thin-shell estimate (unchanged fallback,
+       only reached with no override AND no usable stored simulation
+       data - e.g. a geometry-only .ork nobody has simulated in
+       OpenRocket yet).
+
+    Returns a BestMassEstimate. Never raises for a missing stored sim -
+    that's an expected, common case (falls through to step 3)."""
+    from bup_rocketpy.ork_reader import airframe_length_m, parse_stored_simulation_references
+
+    override_est = estimate_dry_mass_and_cg(parsed)
+    has_mass_override = override_est.source.startswith("mass: override")
+
+    if not has_mass_override and ork_path:
+        refs = parse_stored_simulation_references(ork_path)
+        # Same convention read_ork() itself uses for launch conditions:
+        # the FIRST stored simulation in the file, not a specific name -
+        # a .ork can (and PROMETEO's does) hold more than one, and there
+        # is no general way to know which one the operator considers
+        # authoritative without asking; using the first is at least
+        # deterministic and documented, same as launch conditions already are.
+        ref = next(iter(refs.values()), None)
+        if ref is not None and ref.mass_with_motor_t0_kg and ref.motor_mass_t0_kg and ref.cg_with_motor_t0_m is not None:
+            motor = build_motor(parsed_eng, eng_path)
+            dry_mass_kg = ref.mass_with_motor_t0_kg - ref.motor_mass_t0_kg
+            if dry_mass_kg > 0:
+                rocket_length_m = airframe_length_m(parsed)
+                mass_est, i_ax, i_tr = derive_dry_mass_and_inertia_from_with_motor(
+                    motor, ref.mass_with_motor_t0_kg, ref.motor_mass_t0_kg, dry_mass_kg,
+                    ref.cg_with_motor_t0_m, rocket_length_m,
+                    # OpenRocket's own "Longitudinal moment of inertia" is
+                    # the TRANSVERSE (pitch/yaw) value and "Rotational
+                    # moment of inertia" is the AXIAL (roll) one - the
+                    # opposite of what the names suggest in isolation
+                    # (see openrocket_csv_export.py's own regression test
+                    # for the numeric check that caught this the same day).
+                    i_total_axial_kgm2=ref.i_rot_t0, i_total_transverse_kgm2=ref.i_long_t0,
+                )
+                mass_est.source = f"OpenRocket computed (stored simulation '{ref.name}', t=0, minus motor - see translate.estimate_best_dry_mass_cg_inertia)"
+                if i_ax is not None and i_tr is not None and i_ax > 0 and i_tr > 0:
+                    return BestMassEstimate(mass_est, i_ax, i_tr, f"OpenRocket computed (stored simulation '{ref.name}', minus motor)")
+                i_ax_geom, i_tr_geom = estimate_dry_inertia(parsed, mass_est)
+                return BestMassEstimate(mass_est, i_ax_geom, i_tr_geom, "geometric estimate (stored simulation had no usable inertia columns)")
+
+    i_ax, i_tr = estimate_dry_inertia(parsed, override_est)
+    inertia_source = "geometric estimate" if not has_mass_override else "geometric estimate (mass override present, but inertia is still estimated geometrically - the .ork doesn't store inertia directly)"
+    return BestMassEstimate(override_est, i_ax, i_tr, inertia_source)
+
+
 NOSE_SHAPE_MAP = {
     # OpenRocket XML <shape> value -> rocketpy NoseCone kind. Found by
     # feeding this translator a real .ork (PROMETEO's) - "ellipsoid" isn't
@@ -544,8 +620,15 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
         coordinate_system_orientation=coordinate_system_orientation,
     )
 
+    from bup_rocketpy.ork_reader import airframe_length_m
+
     nose_tip_rpy = to_rpy(0.0)
-    rocket.add_motor(motor, position=to_rpy(parsed.body_tubes[-1].position_m + parsed.body_tubes[-1].length) if parsed.body_tubes else nose_tip_rpy)
+    # 2026-09-27 review item 1c: airframe_length_m() (nose + body tubes +
+    # transitions) replaces a body-tubes-only formula that silently
+    # ignored a transition/boat-tail placed after the last body tube -
+    # a real, common layout that put the assumed motor position too far
+    # forward for any such rocket.
+    rocket.add_motor(motor, position=to_rpy(airframe_length_m(parsed)))
 
     if parsed.nose is not None:
         rocket.add_nose(length=parsed.nose.length, kind=rocketpy_nose_kind(parsed.nose.shape), position=nose_tip_rpy)

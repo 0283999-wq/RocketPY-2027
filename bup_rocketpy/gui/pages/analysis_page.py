@@ -29,7 +29,12 @@ def analysis_page():
         def run_weathercocking():
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
-            i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+            # 2026-09-27 review item 1: start from the SAME inertia Simulate
+            # itself used for this rocket (state["dry_i_*"]), not a fresh
+            # geometric re-derivation that could silently disagree with it -
+            # the sweep below still recomputes inertia per candidate ballast
+            # position, this is only the baseline/no-ballast starting point.
+            i_ax, i_tr = (s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]) if s["dry_i_axial_kgm2"] is not None else translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
             result = analysis.weathercocking_sweep(
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
@@ -88,7 +93,11 @@ def analysis_page():
                 return
             parsed = s["load_result"].parsed_ork
             mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
-            i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+            # 2026-09-27 review item 1: same rocket as Simulate's own
+            # Nominal result - use its actually-used inertia, not a fresh
+            # geometric re-derivation, or the two drag curves being
+            # compared would each fly a subtly different rocket.
+            i_ax, i_tr = (s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]) if s["dry_i_axial_kgm2"] is not None else translate.estimate_dry_inertia(parsed, mass_est)
             radius = next(t.radius for t in parsed.body_tubes if t.radius)
             uncertainties = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
             result = analysis.drag_comparison(

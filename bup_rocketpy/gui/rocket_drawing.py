@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from bup_rocketpy.gui import theme
+from bup_rocketpy.ork_reader import airframe_length_m
 
 matplotlib.use("Agg")
 
@@ -70,8 +71,8 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
         ys_bot = [-y for y in ys_top]
         ax.fill(xs, ys_bot, facecolor=theme.WINE, alpha=0.55, edgecolor=fg, linewidth=1.0)
 
-    if motor_length_m and parsed.body_tubes:
-        tail_x = parsed.body_tubes[-1].position_m + parsed.body_tubes[-1].length
+    if motor_length_m and (parsed.body_tubes or parsed.transitions):
+        tail_x = airframe_length_m(parsed)
         ax.add_patch(plt.Rectangle((tail_x - motor_length_m, -body_radius * 0.6), motor_length_m, body_radius * 1.2, fill=True, facecolor="#555555", alpha=0.6))
 
     for pm in parsed.point_masses:
@@ -85,7 +86,7 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
         ax.axvline(cp_m, color=theme.GOLD, linestyle="--", linewidth=1.5)
         ax.annotate(f"CP {cp_m*100:.1f} cm", (cp_m, -body_radius * 2.0), color=theme.GOLD, fontsize=9, ha="center", fontweight="bold")
 
-    total_length = max((t.position_m + t.length for t in parsed.body_tubes), default=(parsed.nose.length if parsed.nose else 1.0))
+    total_length = airframe_length_m(parsed) or (parsed.nose.length if parsed.nose else 1.0)
     subtitle = f"Length {total_length*100:.1f} cm, diameter {body_radius*2*100:.1f} cm"
     if static_margin_cal is not None:
         subtitle += f", static margin {static_margin_cal:.2f} cal"

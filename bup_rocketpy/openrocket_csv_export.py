@@ -165,7 +165,17 @@ def build_openrocket_style_rows(flight, radius_m):
             math.degrees(flight.w3(t[i])), math.degrees(flight.w1(t[i])), math.degrees(flight.w2(t[i])),
             flight.attitude_angle(t[i]), flight.lateral_attitude_angle(t[i]),
             total_mass_kg[i] * 1000.0, motor_mass_kg[i] * 1000.0,
-            rocket.I_33(t[i]), rocket.I_11(t[i]),
+            # 2026-09-27 review item 1: this was shipped BACKWARDS
+            # (I_33, I_11) and caught by cross-checking against
+            # config.py's own OpenRocket-sourced constants
+            # (INERTIA_LONG_T0_WITH_MOTOR=1.612 >> INERTIA_ROT_T0_WITH_MOTOR
+            # =0.020) - for a long slender rocket the TRANSVERSE
+            # (pitch/yaw, I_11/I_22) inertia is much larger than the
+            # AXIAL (roll, I_33) one, so OpenRocket's "Longitudinal
+            # moment of inertia" column is the transverse/pitch-yaw
+            # value and "Rotational moment of inertia" is the roll one -
+            # the opposite of what the column names suggest in isolation.
+            rocket.I_11(t[i]), rocket.I_33(t[i]),
             gravity[i],
             cp_cm[i], cg_cm[i], flight.stability_margin(t[i]),
             rocket.motor.thrust(t[i]), rocket.thrust_to_weight(t[i]),

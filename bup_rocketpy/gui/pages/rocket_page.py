@@ -6,6 +6,7 @@ import os
 from nicegui import ui
 
 from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
+from bup_rocketpy.ork_reader import airframe_length_m
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -33,10 +34,13 @@ def rocket_page():
         elif cg is None:
             # Haven't run Simulate yet - show the best available estimate
             # anyway rather than an empty drawing (default path must work).
+            # Same source-priority as pipeline.run_simulation itself
+            # (2026-09-27 review item 1a), so this preview never shows a
+            # different CG than what Simulate will actually use.
             from bup_rocketpy import translate
-            estimate = translate.estimate_dry_mass_and_cg(parsed)
-            if estimate.cg_m is not None:
-                cg = estimate.cg_m
+            best = translate.estimate_best_dry_mass_cg_inertia(parsed, s["load_result"].parsed_eng, s["load_result"].eng_path, ork_path=s["load_result"].ork_path)
+            if best.mass_est.cg_m is not None:
+                cg = best.mass_est.cg_m
 
         fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=cg, cp_m=None, static_margin_cal=margin)
         path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
@@ -44,7 +48,7 @@ def rocket_page():
         ui.image(path).classes("w-full max-w-4xl")
 
         body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
-        total_length = max((t.position_m + t.length for t in parsed.body_tubes), default=0.0)
+        total_length = airframe_length_m(parsed)
         with ui.grid(columns=4).classes("gap-4 mt-4"):
             for label, value in [
                 ("Length", f"{total_length*100:.1f} cm"),

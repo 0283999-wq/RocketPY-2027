@@ -109,7 +109,14 @@ def _add_single_parachute(rocket, chute, force_apogee_trigger=False):
     rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
 
 
-def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m):
+def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial_override=None, i_transverse_override=None):
+    """i_axial_override/i_transverse_override: 2026-09-27 review item 1 -
+    use the SAME inertia Simulate itself used for this rocket (its
+    caller passes state["dry_i_axial_kgm2"]/state["dry_i_transverse_kgm2"]),
+    instead of this function silently re-deriving its own geometric
+    estimate that could disagree with it. None (the default) keeps the
+    existing geometric fallback, so every existing test/caller that
+    doesn't pass these is unaffected."""
     from bup_rocketpy import translate
     from bup_rocketpy.ork_reader import components_outside_airframe
 
@@ -123,6 +130,9 @@ def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, d
 
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_all_cases")
     motor = translate.build_motor(parsed_eng, eng_path)
-    i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
+    if i_axial_override is not None and i_transverse_override is not None:
+        i_axial, i_transverse = i_axial_override, i_transverse_override
+    else:
+        i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
     radius_m = next(t.radius for t in parsed.body_tubes if t.radius)
     return {name: run_case(name, parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag, power_on_drag) for name in CASE_NAMES}

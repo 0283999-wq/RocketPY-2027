@@ -93,8 +93,25 @@ def test_cg_and_cp_are_in_nose_referenced_cm_with_cp_aft_of_cg():
     assert cg_cm_t0 < total_length_cm and cp_cm_t0 < total_length_cm
 
 
+def test_longitudinal_inertia_column_is_the_larger_transverse_value():
+    """Regression guard for a real bug caught and fixed 2026-09-27: a
+    first version wrote (I_33, I_11) under the (Longitudinal, Rotational)
+    headers - backwards. For a long slender rocket the TRANSVERSE
+    (pitch/yaw) inertia is much larger than the AXIAL (roll) one, and
+    OpenRocket's own "Longitudinal moment of inertia" column IS the
+    transverse value (confirmed against config.py's real OpenRocket-
+    sourced constants: INERTIA_LONG_T0_WITH_MOTOR=1.612 kg.m2 >>
+    INERTIA_ROT_T0_WITH_MOTOR=0.020 kg.m2), so "Longitudinal" must stay
+    larger than "Rotational" here too."""
+    flight, radius_m = _build_flight()
+    rows, _ = openrocket_csv_export.build_openrocket_style_rows(flight, radius_m)
+    longitudinal_t0, rotational_t0 = rows[0][23], rows[0][24]
+    assert longitudinal_t0 > rotational_t0, f"Longitudinal ({longitudinal_t0}) should be >> Rotational ({rotational_t0}) for a long slender rocket"
+
+
 if __name__ == "__main__":
     test_csv_has_58_columns_and_real_event_markers()
     test_sane_apogee_and_mach_columns()
+    test_longitudinal_inertia_column_is_the_larger_transverse_value()
     test_cg_and_cp_are_in_nose_referenced_cm_with_cp_aft_of_cg()
     print("\nOPENROCKET CSV EXPORT: OK")

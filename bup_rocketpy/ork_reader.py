@@ -797,12 +797,23 @@ def read_ork(path):
 
 
 def airframe_length_m(parsed):
-    """Nose tip to the aft end of the last body tube, m - the modeled
-    rocket's own total length, used as the sanity bound for
-    components_outside_airframe()."""
+    """Nose tip to the aft-most point of ANY airframe component, m - the
+    modeled rocket's own total length, used both as the sanity bound for
+    components_outside_airframe() and (2026-09-27 review item 1c) as the
+    ONE place every other "rocket length" computation in the app should
+    call, instead of each re-deriving its own (previously
+    body-tubes-only) formula. A transition/boat-tail placed AFTER the
+    last body tube - a common real layout for a tapered motor mount -
+    was silently excluded from every one of those duplicated formulas,
+    under-stating both the reported length AND (in translate.build_rocket
+    and translate.derive_dry_mass_and_inertia_from_with_motor, which
+    assumes the motor/nozzle sits at this airframe's own aft end) the
+    assumed motor position - part of the real Major Tom mass/CG
+    mismatch Diego reported (2026-09-27 review item 1)."""
     nose_len = parsed.nose.length if parsed.nose is not None else 0.0
     tube_end = max((t.position_m + t.length for t in parsed.body_tubes), default=nose_len)
-    return max(nose_len, tube_end)
+    transition_end = max((tr.position_m + tr.length for tr in parsed.transitions), default=0.0)
+    return max(nose_len, tube_end, transition_end)
 
 
 def components_outside_airframe(parsed):

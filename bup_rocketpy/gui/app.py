@@ -203,6 +203,9 @@ def simulate_page():
             s["dry_mass_kg"] = sim.dry_mass_kg
             s["dry_cg_m"] = sim.dry_cg_m
             s["mass_source"] = sim.mass_source
+            s["dry_i_axial_kgm2"] = sim.i_axial_kgm2
+            s["dry_i_transverse_kgm2"] = sim.i_transverse_kgm2
+            s["inertia_source"] = sim.inertia_source
             if override_checkbox.value:
                 s["dry_mass_override"] = dry_mass_input.value
                 s["dry_cg_override"] = dry_cg_input.value

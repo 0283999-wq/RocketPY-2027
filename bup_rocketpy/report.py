@@ -128,8 +128,10 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     eng_header = load_result.parsed_eng.header
     launch = parsed.launch
 
+    from bup_rocketpy.ork_reader import airframe_length_m
+
     body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
-    total_length_m = max((t.position_m + t.length for t in parsed.body_tubes), default=parsed.nose.length if parsed.nose else 0.0)
+    total_length_m = airframe_length_m(parsed)
 
     cp_m = None
     nominal_flight = case_results.get("Nominal").flight if case_results.get("Nominal") else None

@@ -52,6 +52,7 @@ class LoadResult:
     power_off_drag_path: str  # None means placeholder-only (see drag_curve_source)
     power_on_drag_path: str
     import_table: list  # list of (component, status, detail) tuples, ready for a UI table
+    ork_path: str = None  # 2026-09-27 review item 1a: needed to re-read the .ork's own stored-simulation mass/CG (parse_stored_simulation_references) without a separate path threaded everywhere
 
 
 @dataclass
@@ -84,6 +85,9 @@ class SimResult:
     drag_curve_max_mach: float = None  # 2026-09-26 review item B: highest Mach the power_off/power_on drag CSVs actually cover - None if no real curve (constant placeholder) was used
     mach_extrapolated: bool = False  # True if max_mach > drag_curve_max_mach - the flight went past what the Cd curve was ever measured at
     openrocket_csv_path: str = None  # 2026-09-26 review item G: same flight, OpenRocket's own 58-column CSV layout
+    i_axial_kgm2: float = None  # 2026-09-27 review item 1: the inertia ACTUALLY used to build this flight's rocket - every other page (Monte Carlo, RCSM cases, exports, report) must read THIS, not re-derive its own, or they can silently disagree with Simulate's own result for the identical rocket
+    i_transverse_kgm2: float = None
+    inertia_source: str = ""
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -146,7 +150,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         parsed_ork=parsed_ork, parsed_eng=parsed_eng, eng_path=eng_path,
         drag_curve_source=source,
         power_off_drag_path=power_off_drag_path, power_on_drag_path=power_on_drag_path,
-        import_table=import_table,
+        import_table=import_table, ork_path=ork_path,
     )
 
 
@@ -196,13 +200,23 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
 
     if dry_mass_override_kg is not None and dry_cg_override_m is not None:
         mass_est = translate.MassEstimate(dry_mass_override_kg, dry_cg_override_m, "user-entered override (LoadResult UI field)")
+        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
+        i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
+        inertia_source = "geometric estimate (mass/CG were manually overridden, so inertia is re-estimated for that override's shape)"
     else:
-        mass_est = translate.estimate_dry_mass_and_cg(parsed)
+        # 2026-09-27 review item 1a: prefers OpenRocket's OWN computed
+        # mass/CG/inertia (from the .ork's stored simulation, minus the
+        # motor) over our from-scratch geometric estimate whenever one
+        # is available - see translate.estimate_best_dry_mass_cg_inertia's
+        # own docstring for why (it directly targets the real Major Tom
+        # mass/CG mismatch Diego reported).
+        best = translate.estimate_best_dry_mass_cg_inertia(parsed, load_result.parsed_eng, load_result.eng_path, ork_path=load_result.ork_path)
+        mass_est = best.mass_est
+        i_axial, i_transverse, inertia_source = best.i_axial_kgm2, best.i_transverse_kgm2, best.inertia_source
         if mass_est.mass_kg <= 0 or mass_est.cg_m is None:
             raise ValueError(f"cannot simulate: {mass_est.source}. Enter a manual dry mass + CG override, or complete the .ork's overrides in OpenRocket.")
+        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
 
-    motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
-    i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
     radius_m = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off, power_on_drag=power_on)
 
@@ -341,6 +355,9 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         dry_mass_kg=mass_est.mass_kg,
         dry_cg_m=mass_est.cg_m,
         mass_source=mass_est.source,
+        i_axial_kgm2=i_axial,
+        i_transverse_kgm2=i_transverse,
+        inertia_source=inertia_source,
         parachute_opening_accel_ms2=flight.max_acceleration_power_off,
         deployment_events=deployment_events,
         sanity_checks=sanity,
