@@ -22,6 +22,16 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 app.add_static_files("/outputs", OUTPUTS_DIR)
 
+# 2026-09-27 review item 4: the History detail page serves a saved run's
+# own flight_data.csv/plots straight from its runs/<run_id>/ folder - a
+# SEPARATE static route from /outputs above (a different directory
+# entirely; the two must never be confused). Same BUP_ROCKETPY_RUNS_DIR
+# override run_history._runs_dir() itself already honors, so tests that
+# redirect the runs folder also get this route pointed at the right place.
+_RUNS_DIR = os.environ.get("BUP_ROCKETPY_RUNS_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runs")
+os.makedirs(_RUNS_DIR, exist_ok=True)
+app.add_static_files("/runs", _RUNS_DIR)
+
 s = state.state
 
 

@@ -184,5 +184,69 @@ def test_default_path_every_page_and_second_ork(tmp_path):
     print(f"\nScreenshots written to {SCREENSHOTS_DIR}")
 
 
+def test_history_delete_does_not_duplicate_controls_and_detail_page_opens(tmp_path):
+    """2026-09-27 review item 4's specific reported bug: "clicking
+    'Delete A' adds MORE rows of Compare/Delete controls every time."
+    Root cause was the compare/delete row living OUTSIDE the container
+    render_table() clears - fixed by moving everything inside it. Seeds
+    2 real runs (via save_run, not a hand-typed record.json) so the
+    detail page's "Reopen this mission" has real files to work with."""
+    runs_dir = str(tmp_path / "runs")
+    os.makedirs(runs_dir)
+    sys.path.insert(0, REPO_ROOT)
+    from bup_rocketpy import run_history
+    from bup_rocketpy.gui import pipeline
+    os.environ["BUP_ROCKETPY_RUNS_DIR"] = runs_dir
+    try:
+        outdir = str(tmp_path / "load_outputs")
+        load_result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=outdir)
+        sim = pipeline.run_simulation(load_result, outdir, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+        for _ in range(2):
+            run_history.save_run(REPO_ROOT, sim, load_result, 5.6622, 0.6279, ork_path=ORK_PATH)
+            time.sleep(1.1)  # run_id has second-level granularity - without this, both saves collide on the same run_id and overwrite each other
+    finally:
+        os.environ.pop("BUP_ROCKETPY_RUNS_DIR", None)
+
+    port = 8181
+    proc, base_url = _start_app(port, runs_dir)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(executable_path=CHROMIUM)
+            page = browser.new_page()
+            page.goto(base_url + "/history", wait_until="networkidle")
+            page.wait_for_timeout(500)
+
+            # Open the first run's detail page (icon buttons have no
+            # accessible text name in this NiceGUI version - locate by icon).
+            page.locator("button:has(i:text('open_in_new'))").first.click()
+            page.wait_for_timeout(500)
+            # NiceGUI/Quasar buttons render their label upper-cased via CSS
+            # (text-transform), which inner_text() reflects - compare
+            # case-insensitively rather than assume the literal casing.
+            body_text = page.inner_text("body")
+            assert "reopen this mission" in body_text.lower()
+            assert "Results" in body_text
+
+            page.go_back(wait_until="networkidle")
+            page.wait_for_timeout(500)
+
+            delete_buttons_before = page.locator("button:has(i:text('delete'))").count()
+            assert delete_buttons_before == 2, f"expected 2 delete buttons for 2 seeded runs, found {delete_buttons_before}"
+
+            page.locator("button:has(i:text('delete'))").first.click()
+            page.wait_for_timeout(300)
+            page.get_by_role("button", name="Delete", exact=True).click()
+            page.wait_for_timeout(500)
+
+            delete_buttons_after = page.locator("button:has(i:text('delete'))").count()
+            assert delete_buttons_after == 1, f"expected exactly 1 delete button left after deleting 1 of 2 runs, found {delete_buttons_after} (the reported duplication bug would show MORE, not fewer)"
+            cancel_buttons = page.locator("button", has_text="Cancel").count()
+            assert cancel_buttons == 0, "the confirmation dialog's own Cancel button must not linger after a completed delete"
+            browser.close()
+    finally:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

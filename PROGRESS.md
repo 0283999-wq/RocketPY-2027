@@ -1784,6 +1784,43 @@ horizon rejection, the circular-mean fix, and one-bad-year tolerance.
 
 Full suite: 82 passed, 1 deselected; Playwright e2e: 2/2.
 
+## Section 4: History page - detail view, reopen, real delete fix - done
+
+**The reported bug, root-caused**: "clicking 'Delete A' adds MORE rows
+of Compare/Delete controls every time." The old page built the compare/
+delete row (`with ui.row()...`) OUTSIDE the container `render_table()`
+clears before rebuilding - every `render_table()` call (after a delete,
+a cleanup, anything) appended a fresh copy of those controls that was
+never removed. Fixed by moving EVERYTHING (rows, checkboxes, delete
+buttons) inside the one container that gets `.clear()`'d each render -
+proven with a real Playwright test that deletes a run and counts the
+remaining delete buttons (would show MORE under the old bug, not fewer).
+
+**Rewrite**: each run is now one row with a checkbox (pick up to 2 for
+Compare), a "view" icon, and a trash icon that opens a confirmation
+dialog before deleting (no more accidental single-click deletes). A
+"Only show runs from the current app version" filter checkbox (the
+"filter/hide old-version runs" ask) replaces the old passive banner-only
+warning.
+
+**New detail page** (`/history/{run_id}`): every KPI, the settings
+actually used (mass/CG override or not, weather override or not,
+competition profile, reefing per parachute), the files used (.ork/.eng
+filenames + hashes + app version), that run's own saved plots, a CSV
+download link (new `/runs` static route in `app.py`, separate from the
+existing `/outputs` route - a different directory), and a "Reopen this
+mission" button wired to Section 2's `run_history.reopen_run()` -
+installs everything into `state.state` and jumps to Simulate.
+
+New Playwright test `test_history_delete_does_not_duplicate_controls_and_detail_page_opens`
+(2 real saved runs via `save_run`, not hand-typed records): opens a run's
+detail page and confirms real content, deletes one of two runs through
+the actual confirmation dialog, and asserts exactly one delete button
+remains - the literal reported symptom, verified through a real browser.
+
+Full suite: 83 passed, 1 deselected; Playwright e2e: 3/3 (including the
+new History test).
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since

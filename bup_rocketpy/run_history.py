@@ -315,6 +315,13 @@ def delete_run(repo_root, run_id):
     return False
 
 
+def run_dir_path(repo_root, run_id):
+    """Public wrapper for the History detail page (2026-09-27 review item
+    4) - the on-disk folder a saved run's own .ork/.eng/CSV/plots live in,
+    served by app.py's "/runs" static route."""
+    return os.path.join(_runs_dir(repo_root), run_id)
+
+
 def current_app_commit_hash(repo_root):
     """Public wrapper for the History page - lets it compare a saved
     run's app_commit_hash against what's actually running NOW, to
