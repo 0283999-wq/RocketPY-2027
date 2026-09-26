@@ -32,6 +32,13 @@ _RUNS_DIR = os.environ.get("BUP_ROCKETPY_RUNS_DIR") or os.path.join(os.path.dirn
 os.makedirs(_RUNS_DIR, exist_ok=True)
 app.add_static_files("/runs", _RUNS_DIR)
 
+# 2026-09-27 review item 7 (redesign): three.js, vendored offline (MIT
+# license, bup_rocketpy/gui/static/vendor/three.min.js - see the LICENSE
+# file next to it) - served locally so the 3D flight playback/live Monte
+# Carlo views work with no internet access at all, not just "usually".
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+app.add_static_files("/static", _STATIC_DIR)
+
 s = state.state
 
 
@@ -47,7 +54,20 @@ async def _save_upload(e, suffix):
 
 @ui.page("/")
 def simulate_page():
+    # 2026-09-27 review item 7 (Mission Control redesign): three.js,
+    # vendored offline (gui/static/three.min.js, MIT license) + the
+    # flight-playback viewer built on it (gui/static/playback.js) - both
+    # loaded once per page visit, same pattern theme.apply() already uses
+    # for CSS. Only THIS page and Monte Carlo need it, so it's not loaded
+    # globally in layout.py for every page.
+    ui.add_head_html('<script src="/static/vendor/three.min.js"></script><script src="/static/playback.js"></script>')
     with layout.layout("Simulate", current_path="/"):
+        if s["sim_result"] is not None:
+            with ui.row().classes("items-center gap-2 mb-2"):
+                ui.label(f"Mission control - {s.get('vehicle_name') or 'Vehicle'}").classes("text-lg font-bold")
+                ui.label("Quick actions:").classes("text-xs text-gray-500 ml-4")
+                for label, path in [("Monte Carlo", "/montecarlo"), ("RCSM Cases", "/rcsm"), ("Exports", "/exports"), ("History", "/history")]:
+                    ui.link(label, path).classes("text-xs")
         ui.label("1. Load files").classes("text-lg font-bold")
         with ui.row():
             async def on_ork_upload(e):
@@ -317,9 +337,30 @@ def simulate_page():
                 fig.savefig(rocket_png)
                 ui.image(rocket_png).classes("w-full max-w-3xl")
 
+                PLAYBACK_TAB = "Flight playback (3D)"
                 with ui.tabs().classes("w-full") as tabs:
+                    ui.tab(PLAYBACK_TAB)
                     plot_tabs = [ui.tab(sim.plot_titles.get(name, name.replace("_", " ").title())) for name in sim.plot_paths if sim.plot_paths[name]]
-                with ui.tab_panels(tabs).classes("w-full"):
+                with ui.tab_panels(tabs, value=PLAYBACK_TAB).classes("w-full"):
+                    with ui.tab_panel(PLAYBACK_TAB):
+                        if sim.flight is not None:
+                            import json
+                            import uuid as _uuid
+                            from bup_rocketpy.gui import flight_playback
+                            playback_data = flight_playback.build_playback_data(sim.flight, sim.motor)
+                            container_id = f"playback-{_uuid.uuid4().hex[:8]}"
+                            ui.html(f'<div id="{container_id}" style="width:100%"></div>')
+                            # Polls for window.BUP/THREE instead of a fixed
+                            # delay - three.min.js is a ~600KB file loaded
+                            # via <script src> in add_head_html above, and
+                            # its load time shouldn't be guessed at.
+                            ui.run_javascript(
+                                "(function poll(){ if (window.BUP && window.BUP.playback && window.THREE) { "
+                                f"BUP.playback.create('{container_id}', {json.dumps(playback_data)}); "
+                                "} else { setTimeout(poll, 50); } })();"
+                            )
+                        else:
+                            ui.label("Flight playback needs a fresh Simulate run.").classes("text-gray-500")
                     for name, path in sim.plot_paths.items():
                         if path:
                             title = sim.plot_titles.get(name, name.replace("_", " ").title())

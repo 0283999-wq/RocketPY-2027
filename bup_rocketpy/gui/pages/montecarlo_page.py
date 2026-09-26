@@ -1,8 +1,10 @@
 """The "Monte Carlo" page: uncertainties table (editable, sourced),
 run/cancel, apogee histogram, landing ellipses.
 """
+import json
 import os
 import threading
+import uuid
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -18,6 +20,9 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 
 @ui.page("/montecarlo")
 def montecarlo_page():
+    # 2026-09-27 review item 7: three.js + the live-MC viewer, vendored
+    # offline - see gui/app.py's simulate_page for the same pattern.
+    ui.add_head_html('<script src="/static/vendor/three.min.js"></script><script src="/static/playback.js"></script>')
     with layout.layout("Monte Carlo", current_path="/montecarlo"):
         if s["load_result"] is None or s["sim_result"] is None:
             ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
@@ -61,6 +66,9 @@ def montecarlo_page():
         progress_label = ui.label("")
         run_button = ui.button("Run Monte Carlo")
         cancel_button = ui.button("Cancel", color="negative").props("hidden")
+
+        ui.label("Live 3D view (fills in as each trajectory completes)").classes("text-md font-bold mt-4")
+        live_mc_container = ui.column().classes("w-full")
         results_container = ui.column().classes("w-full mt-4")
 
         def render_results(result):
@@ -178,9 +186,25 @@ def montecarlo_page():
         # directly from a worker thread.
         mc_progress = {"text": "", "done": False}
         cancel_flag = threading.Event()
+        # 2026-09-27 review item 7: on_sample_complete (called from the
+        # SAME background thread as progress_cb) appends to this plain
+        # list - GIL-safe list.append/pop, same reasoning as mc_progress
+        # above. poll_progress (on the event loop) drains it and is the
+        # only thing that actually calls ui.run_javascript.
+        mc_live_queue = []
+        live_mc_state = {"container_id": None}
 
         def poll_progress():
             progress_label.set_text(mc_progress["text"])
+            container_id = live_mc_state["container_id"]
+            while mc_live_queue:
+                trajectory, x_impact, y_impact = mc_live_queue.pop(0)
+                if container_id:
+                    ui.run_javascript(
+                        f"(function(){{ var v = window.BUP && window.BUP._mcViewers && window.BUP._mcViewers['{container_id}']; "
+                        f"if (!v) return; v.addSample({json.dumps(trajectory)}); "
+                        f"if ({json.dumps(x_impact)} !== null) v.addLanding({json.dumps(x_impact)}, {json.dumps(y_impact)}); }})();"
+                    )
             if mc_progress["done"]:
                 poll_timer.deactivate()
 
@@ -206,11 +230,25 @@ def montecarlo_page():
             def progress_cb(i, total):
                 mc_progress["text"] = f"Running {i}/{total}..."
 
+            def on_sample_complete(trajectory, x_impact, y_impact):
+                mc_live_queue.append((trajectory, x_impact, y_impact))
+
             cancel_flag.clear()
             mc_progress["done"] = False
+            mc_live_queue.clear()
             progress_bar.props(remove="hidden")
             run_button.props("hidden")
             cancel_button.props(remove="hidden")
+
+            container_id = f"livemc-{uuid.uuid4().hex[:8]}"
+            live_mc_state["container_id"] = container_id
+            live_mc_container.clear()
+            with live_mc_container:
+                ui.html(f'<div id="{container_id}" style="width:100%"></div>')
+            ui.run_javascript(
+                "(function poll(){ if (window.BUP && window.BUP.livemc && window.THREE) { "
+                f"BUP.livemc.create('{container_id}'); }} else {{ setTimeout(poll, 50); }} }})();"
+            )
             poll_timer.activate()
 
             try:
@@ -222,12 +260,26 @@ def montecarlo_page():
                     s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
                     include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
                     inclination_deg=rail_inclination_input.value, heading_deg=rail_heading_input.value,
+                    on_sample_complete=on_sample_complete, trajectory_points=25,
                 )
             finally:
                 mc_progress["done"] = True
                 progress_bar.props("hidden")
                 run_button.props(remove="hidden")
                 cancel_button.props("hidden")
+
+            # Drain any samples that finished after the last poll tick, then
+            # draw the final 1/2/3-sigma ellipses on the live view too - the
+            # SAME numbers landing_ellipses() already gives the static plot.
+            poll_progress()
+            ellipses = monte_carlo.landing_ellipses(result)
+            if ellipses and live_mc_state["container_id"]:
+                colors = {1: "0x8a1538", 2: "0xc9a876", 3: "0xe0c9a6"}
+                payload = [dict(e, color=int(colors[n], 16)) for n, e in ellipses.items()]
+                ui.run_javascript(
+                    f"(function(){{ var v = window.BUP && window.BUP._mcViewers && window.BUP._mcViewers['{live_mc_state['container_id']}']; "
+                    f"if (v) v.setEllipses({json.dumps(payload)}); }})();"
+                )
 
             s["mc_result"] = result
             status = f"Done: {result.n_completed} completed, {result.n_excluded} excluded."

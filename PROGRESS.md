@@ -1975,6 +1975,123 @@ tests, to open the generated PDF and inspect its outline/page text -
 Full suite: 92 passed, 1 skipped; Playwright e2e: 3/3 (including the new
 real-report-generation click).
 
+## Section 7: Mission Control redesign - 3D flight playback + live Monte Carlo (done)
+
+Explicitly IN SCOPE this run (deferred in the previous overnight run's
+Section J). Vendored **three.js r128** (MIT license) via `npm pack
+three@0.128.0` - the cdnjs/most CDN hosts are blocked from this sandbox,
+but `registry.npmjs.org` is directly reachable, so the UMD minified
+build was extracted from the real npm tarball, not hand-copied from
+memory. Lives at `bup_rocketpy/gui/static/vendor/three.min.js` (+ its
+own `LICENSE` file next to it) and is served by a new `/static` static
+route in `app.py` - loaded via a plain `<script src=...>` tag, **no
+CDN, works fully offline**.
+
+**New `bup_rocketpy/gui/static/playback.js`**: a hand-written (not a
+three.js example copy-paste) viewer with two entry points:
+- `BUP.playback.create(containerId, data)` - the flight playback view:
+  1 perspective camera (drag to rotate, scroll to zoom) + 3 fixed
+  orthographic cameras (side X-Z, side Y-Z, top X-Y) all rendering the
+  SAME three.js scene (one rocket marker, one trajectory line, one set
+  of event-marker spheres - four synced views, not four separate
+  scenes to keep in sync by hand). Play/Pause, a 0.25x-4x speed select,
+  and a seek slider; live readouts (time/altitude AGL/speed/Mach/
+  acceleration) and a "Last event: X @ Ys" line, all updated by the
+  browser's own `requestAnimationFrame` loop - once the dataset is
+  sent, the Python backend is never involved again until a fresh
+  Simulate run.
+- `BUP.livemc.create(containerId)` - the live Monte Carlo view: starts
+  with just a ground grid, and `addSample()`/`addLanding()` add one
+  faint trajectory line / one landing-point marker as each Monte Carlo
+  sample finishes; `setEllipses()` draws the final 1/2/3-sigma
+  ellipses once the batch is done, reusing `monte_carlo.landing_ellipses()`'s
+  own numbers - never a separate, potentially-disagreeing computation.
+
+**New `bup_rocketpy/gui/flight_playback.py`**: builds the DECIMATED
+(250-frame default) dataset the viewer animates - time/x/y/z(AGL)/
+speed/Mach/acceleration per frame, plus event markers (rail exit,
+burnout, apogee, every parachute deployment, landing) in ascending
+time order. Kept separate from `plotting.py` (matplotlib PNGs) and has
+no NiceGUI import at all, so `tests/test_flight_playback.py` (4 tests)
+exercises it with no browser involved - decimated max altitude within
+2% of the real apogee AGL, bounds actually cover every frame, events
+present and ordered.
+
+**`bup_rocketpy/monte_carlo.py`**: `_run_one_mc_sample`/`run_monte_carlo`
+gained `trajectory_points` (each worker optionally also returns a small
+decimated x/y/z-AGL polyline) and `on_sample_complete` (fires once per
+finished sample, same timing as `progress_callback`, carrying that ONE
+sample's own trajectory/landing point) - the hook the live Monte Carlo
+view uses. Both default to off/None, so every existing caller is
+unaffected (verified: the full existing Monte Carlo test file still
+passes unchanged) - new test
+`test_on_sample_complete_fires_once_per_sample_with_a_decimated_trajectory`
+confirms the callback fires exactly `n_completed` times with real
+3-float points.
+
+**`bup_rocketpy/gui/pipeline.py`**: `SimResult` gained `flight`/`motor`
+fields (the LIVE rocketpy objects, not JSON/dict data) - safe to hold
+here since `run_simulation` runs in a background THREAD
+(`run.io_bound`), never a separate process, so nothing ever needs to
+pickle them; confirmed nothing in the codebase tries to serialize a
+whole `SimResult` (only specific numeric fields are read off it, e.g.
+by `run_history.save_run`).
+
+**`bup_rocketpy/gui/app.py`** (the Simulate/"Home" page): a "Mission
+control" header row with quick-action links (Monte Carlo/RCSM Cases/
+Exports/History) when a mission is loaded; a new "Flight playback (3D)"
+tab (the default-active one) alongside the existing plot tabs, built
+from `sim.flight`/`sim.motor` via `flight_playback.build_playback_data`.
+
+**`bup_rocketpy/gui/pages/montecarlo_page.py`**: a "Live 3D view" panel
+above the histogram/ellipse, created fresh each run; `on_sample_complete`
+appends to a plain list from the background thread (same GIL-safe
+pattern the existing `progress_cb`/`mc_progress` dict already used -
+commented at the same site), and the existing 0.4s `poll_timer` (on the
+event loop) drains it and is the only thing that calls
+`ui.run_javascript`. Final ellipses are pushed once the batch completes.
+
+**A real bug caught and fixed before it ever reached Diego**: the first
+end-to-end Playwright run of this feature found `net::404` on
+`three.min.js` - the script tag pointed at `/static/three.min.js` but
+the vendored file actually lives at `/static/vendor/three.min.js` (the
+`vendor/` subfolder). Caught by a debug script that checked the
+browser's own console log and cross-referenced against a direct `curl`
+of the static route, not by reading the code again - fixed in both
+`app.py` and `montecarlo_page.py`.
+
+**New `tests/test_mission_control_e2e.py`** (Playwright, real browser):
+loads PROMETEO, Simulates, asserts >=4 canvases render on the playback
+tab, clicks Play, asserts the Time (s) readout actually advances,
+changes speed to 4x and confirms it advances faster, then runs a real
+N=5 Monte Carlo and asserts the live view's canvas + "N trajectory(ies)
+completed" status line update, with a specific "Done: 5 completed"
+check (an earlier draft of this test used the wrong locator for the "N
+simulations" field and silently ran the full N=200 default instead -
+caught by checking the actual completed count, not just "did it
+finish"). Also asserts no unexpected JavaScript console errors (with an
+explicit, commented carve-out for the pre-existing Leaflet/OpenStreetMap
+tile fetches, which always fail with no internet in this sandbox and
+are unrelated to this feature). Screenshots:
+`docs/screenshots/13_playback_start.png`, `14_playback_midflight.png`
+(readouts live-updating, "Last event: Rail exit @ 0.5s"), and
+`15_live_montecarlo.png`.
+
+**What this section does NOT cover** (an honest scope note, not a
+silent gap): the mega-prompt's fuller "minimalist, polished, animated"
+redesign vision - a from-scratch Home dashboard layout distinct from
+the Simulate page, a site-map ground texture (grid is used - explicitly
+the documented fallback when no offline site imagery exists, not a
+placeholder for one that was skipped), and animated transitions/KPI
+count-up elsewhere in the app - was not attempted tonight. The two
+functionally hardest, most-requested pieces (3D flight playback with
+synced multi-view + live Monte Carlo) are real, tested, and vendored
+fully offline; broader visual polish across every other page is a
+separate, lower-risk follow-up, not blocked on anything.
+
+Full suite: 97 passed, 1 skipped (93 unit/integration + 4 Playwright,
+including both new e2e files above).
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since

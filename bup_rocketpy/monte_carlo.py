@@ -106,7 +106,7 @@ def _seeded_rng(seed):
         np.random.default_rng = real_default_rng
 
 
-def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed, inclination_deg=None, heading_deg=None):
+def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed, inclination_deg=None, heading_deg=None, trajectory_points=0):
     """Builds ONE stochastic sample and flies it. Module-level (not a
     closure) and takes only plain/picklable arguments (dataclasses,
     dicts, floats, strings) so it can be sent to a separate OS process -
@@ -217,12 +217,27 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
         )
 
     apogee_agl = sample_flight.apogee - sample_env.elevation
+    trajectory = None
+    if trajectory_points > 1:
+        # 2026-09-27 review item 7: a small, DECIMATED (x, y, z-AGL)
+        # polyline per sample - just enough for the live Monte Carlo 3D
+        # view (static/playback.js BUP.livemc) to draw a faint line as
+        # each trajectory finishes. Kept tiny on purpose: this crosses a
+        # process boundary (pickled back from the worker) for every one
+        # of up to a few hundred samples, so it must stay cheap.
+        t0, t1 = float(sample_flight.time[0]), float(sample_flight.t_final)
+        step = (t1 - t0) / (trajectory_points - 1) if t1 > t0 else 0.0
+        elevation = sample_env.elevation
+        trajectory = [
+            [float(sample_flight.x(t)), float(sample_flight.y(t)), float(sample_flight.z(t) - elevation)]
+            for t in (t0 + i * step for i in range(trajectory_points))
+        ]
     if include_recovery:  # ballistic (terminate_on_apogee=True) never reaches a real impact
-        return apogee_agl, sample_flight.x_impact, sample_flight.y_impact
-    return apogee_agl, None, None
+        return apogee_agl, sample_flight.x_impact, sample_flight.y_impact, trajectory
+    return apogee_agl, None, None, trajectory
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None, inclination_deg=None, heading_deg=None):
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None, inclination_deg=None, heading_deg=None, on_sample_complete=None, trajectory_points=0):
     """Runs N stochastic flights IN PARALLEL across OS processes (one
     Flight() simulation doesn't parallelize internally, but N of them are
     embarrassingly parallel - CLAUDE.md never asked for this, added
@@ -256,7 +271,17 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     returned (a cancelled run must save its partial results, not throw
     them away) - already-running worker processes finish on their own
     rather than being killed mid-flight, the same "detach, don't kill"
-    limitation as this review's Simulate-button timeout/cancel."""
+    limitation as this review's Simulate-button timeout/cancel.
+
+    on_sample_complete(trajectory_or_None, x_impact_or_None, y_impact_or_None)
+    (2026-09-27 review item 7): called once per sample AS IT FINISHES,
+    same timing as progress_callback but carrying that ONE sample's own
+    data - the hook the live Monte Carlo 3D view uses to draw each
+    trajectory/landing point as it lands, instead of waiting for the
+    whole batch. trajectory_points>0 asks each worker to also return a
+    small decimated (x, y, z-AGL) polyline for exactly this purpose;
+    leave it 0 (the default) to skip that extra pickled payload when
+    nothing is watching for it (e.g. every existing caller/test)."""
     os.makedirs(output_dir, exist_ok=True)
     u = {x.name: x for x in uncertainties if x.enabled}
 
@@ -291,13 +316,14 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_workers)
     try:
         futures = {
-            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i], inclination_deg, heading_deg): i
+            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i], inclination_deg, heading_deg, trajectory_points): i
             for i in range(n_simulations)
         }
         for future in concurrent.futures.as_completed(futures):
             i = futures[future]
+            trajectory = None
             try:
-                apogee, x_impact, y_impact = future.result()
+                apogee, x_impact, y_impact, trajectory = future.result()
                 apogees_by_index[i] = apogee
                 if include_recovery:
                     impact_x_by_index[i] = x_impact
@@ -309,6 +335,8 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
             completed += 1
             if progress_callback:
                 progress_callback(completed, n_simulations)
+            if on_sample_complete and i not in excluded_indices:
+                on_sample_complete(trajectory, impact_x_by_index[i] if include_recovery else None, impact_y_by_index[i] if include_recovery else None)
             if cancel_check is not None and cancel_check():
                 cancelled = True
                 break

@@ -88,6 +88,8 @@ class SimResult:
     i_axial_kgm2: float = None  # 2026-09-27 review item 1: the inertia ACTUALLY used to build this flight's rocket - every other page (Monte Carlo, RCSM cases, exports, report) must read THIS, not re-derive its own, or they can silently disagree with Simulate's own result for the identical rocket
     i_transverse_kgm2: float = None
     inertia_source: str = ""
+    flight: object = None  # 2026-09-27 review item 7: the live rocketpy Flight object itself, for the 3D playback view (gui/flight_playback.py) to sample - NOT JSON-serialized anywhere (run_history.save_run pulls specific numeric fields off THIS object, never the whole SimResult), safe to hold a live object here since run_simulation runs in a thread (run.io_bound), not a separate process
+    motor: object = None
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -370,4 +372,6 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         plot_titles=plot_titles,
         drag_curve_max_mach=drag_curve_max_mach,
         mach_extrapolated=mach_extrapolated,
+        flight=flight,
+        motor=motor,
     )

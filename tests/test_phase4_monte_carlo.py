@@ -75,6 +75,35 @@ def test_monte_carlo_produces_a_sane_apogee_distribution_with_no_excluded_sample
     assert ellipses[3]["width"] > ellipses[2]["width"] > ellipses[1]["width"] > 0, "sigma ellipses should nest (3-sigma widest)"
 
 
+def test_on_sample_complete_fires_once_per_sample_with_a_decimated_trajectory():
+    """2026-09-27 review item 7: the live Monte Carlo 3D view needs each
+    completed sample's own trajectory/landing point AS IT FINISHES, not
+    just the batch's final arrays."""
+    parsed = read_ork(ORK_PATH)
+    eng = read_eng(ENG_PATH)
+    mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
+    i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+    radius = next(t.radius for t in parsed.body_tubes if t.radius)
+    uncertainties = monte_carlo.default_uncertainties(DRY_MASS_KG, 1871.3, parsed.launch.wind_average_ms)
+
+    calls = []
+
+    def on_sample_complete(trajectory, x_impact, y_impact):
+        calls.append((trajectory, x_impact, y_impact))
+
+    result = monte_carlo.run_monte_carlo(
+        parsed, eng, ENG_PATH, POWER_OFF_DRAG, POWER_ON_DRAG,
+        DRY_MASS_KG, DRY_CG_M, i_ax, i_tr, radius,
+        uncertainties, n_simulations=6, output_dir=OUT_DIR, include_recovery=True,
+        on_sample_complete=on_sample_complete, trajectory_points=15,
+    )
+    assert len(calls) == result.n_completed
+    for trajectory, x_impact, y_impact in calls:
+        assert trajectory is not None and len(trajectory) == 15
+        assert all(len(p) == 3 for p in trajectory), "each trajectory point must be [x, y, z-AGL]"
+        assert x_impact is not None and y_impact is not None
+
+
 def test_cancel_check_stops_early_and_keeps_partial_results():
     """2026-09-26 review, item 7 (Monte Carlo background+cancel): a
     cancelled run must save whatever samples it already completed, not
