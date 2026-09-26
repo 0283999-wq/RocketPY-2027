@@ -1189,3 +1189,31 @@ does NOT explain PROMETEO's own V1/V2 gap, since its particular stored
 sim wasn't badly contaminated. Not tuned to force any of these numbers.
 
 Full suite: 41 passed, 1 deselected (pre-existing opt-in Leaflet test) in ~65s.
+
+### Item B: drag curve doesn't cover the flight's Mach range - DONE (warning), scope-cut on the "real fix"
+
+`pipeline.run_simulation` now computes the drag curve's own max Mach
+(`curve_utils.curve_max_x`) and compares it to the flight's actual max
+Mach - if exceeded, a red "Drag curve Mach coverage" WARN sanity check
+fires on the Results page naming both numbers and explaining rocketpy
+holds the last known Cd past the curve's end (misses the transonic drag
+rise). Confirmed on REAL data, not synthetic: PROMETEO's own default
+(no-override) flight organically exceeds its own curve (reaches Mach
+0.477, curve only covers to 0.463) - now a permanent regression test.
+
+**RocketSerializer scope cut, stated plainly**: `rocketserializer_check.py`
+detects a usable Java (OpenRocket's bundled Windows JRE first, then PATH)
+and gives the plain-English fallback message Diego asked for either way.
+It does NOT actually invoke RocketSerializer - that needs the separate
+`rocketserializer` package (not installed, not a rocketpy dependency) and
+an OpenRocket .jar, and its CLI's real invocation/output format isn't
+something this sandbox can verify (no Java+OpenRocket+rocketserializer
+combination available to test against). Writing that blind would risk
+shipping broken, unverifiable code - exactly what CLAUDE.md Rule 2 says
+not to do. Diego: if you want this wired up for real, the fastest path is
+testing it yourself on your machine (Java + OpenRocket already there) and
+sending back the exact command + output format, or I can attempt it
+blind next time if you'd rather have an untested first draft to fix
+together.
+
+Full suite: 42 passed, 1 deselected in ~63s.

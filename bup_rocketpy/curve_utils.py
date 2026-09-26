@@ -53,6 +53,18 @@ def _read_csv_points(path):
     return points
 
 
+def curve_max_x(path_or_constant):
+    """2026-09-26 review item B: highest Mach a power_off/power_on drag
+    CSV actually covers - None if `path_or_constant` isn't a real CSV
+    (translate.DRAG_CURVE_PLACEHOLDER_CD is a bare float, not a path -
+    there's no "coverage limit" to check for a constant Cd, it's already
+    flagged elsewhere as low-confidence)."""
+    if not isinstance(path_or_constant, str):
+        return None
+    points = _read_csv_points(path_or_constant)
+    return max((x for x, _ in points), default=None)
+
+
 def dedupe_sort_csv(src_path, dst_path, eps=1e-9):
     """Reads a 2-column headerless (x, y) CSV from src_path, applies
     dedupe_sort_curve, and writes the result to dst_path (which may be

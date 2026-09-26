@@ -81,6 +81,8 @@ class SimResult:
     landing_distance_m: float = None  # straight-line drift from the pad, sqrt(x_impact^2 + y_impact^2)
     recovery_rows: list = field(default_factory=list)  # list of recovery.ParachutePanelRow - the LASC-requested recovery panel
     plot_titles: dict = field(default_factory=dict)  # {"altitude": "Altitude AGL", ...} - nicer tab labels than the raw key
+    drag_curve_max_mach: float = None  # 2026-09-26 review item B: highest Mach the power_off/power_on drag CSVs actually cover - None if no real curve (constant placeholder) was used
+    mach_extrapolated: bool = False  # True if max_mach > drag_curve_max_mach - the flight went past what the Cd curve was ever measured at
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -174,6 +176,15 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     power_off = load_result.power_off_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
     power_on = load_result.power_on_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
 
+    # 2026-09-26 review item B: the drag curve's own Mach coverage - a
+    # flight that goes faster than this was measured at gets constant
+    # extrapolation past the curve's last point (rocketpy doesn't
+    # extrapolate the transonic drag rise, it just holds the last known
+    # Cd), which over-predicts speed and apogee for anything that goes
+    # transonic on a curve that was only ever measured subsonic.
+    from bup_rocketpy.curve_utils import curve_max_x
+    drag_curve_max_mach = max((m for m in (curve_max_x(power_off), curve_max_x(power_on)) if m is not None), default=None)
+
     if dry_mass_override_kg is not None and dry_cg_override_m is not None:
         mass_est = translate.MassEstimate(dry_mass_override_kg, dry_cg_override_m, "user-entered override (LoadResult UI field)")
     else:
@@ -234,6 +245,10 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
 
     from bup_rocketpy.sanity_checks import SanityCheck, run_sanity_checks
     sanity = run_sanity_checks(flight, rocket, motor, mass_est.mass_kg)
+    mach_extrapolated = bool(drag_curve_max_mach is not None and flight.max_mach_number > drag_curve_max_mach)
+    if mach_extrapolated:
+        from bup_rocketpy.rocketserializer_check import rocketserializer_status_message
+        sanity.insert(0, SanityCheck("Drag curve Mach coverage", "WARN", f"flight reaches Mach {flight.max_mach_number:.2f}, but the drag curve only covers 0-{drag_curve_max_mach:.2f} - results above that Mach are CONSTANT EXTRAPOLATION (rocketpy holds the last known Cd, missing the transonic drag rise), don't trust them. {rocketserializer_status_message()}"))
     if not (1.5 <= min_margin <= 4.0):
         sanity.insert(0, SanityCheck("Static margin range", "WARN" if min_margin > 0 else "FAIL", f"min margin {min_margin:.2f} cal, max {max_margin:.2f} cal (rail-exit to apogee) - FLT 4.3.5 requires 1.5-4 cal throughout."))
     else:
@@ -314,4 +329,6 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         landing_distance_m=landing_distance,
         recovery_rows=recovery_rows,
         plot_titles=plot_titles,
+        drag_curve_max_mach=drag_curve_max_mach,
+        mach_extrapolated=mach_extrapolated,
     )
