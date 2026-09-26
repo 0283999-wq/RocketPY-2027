@@ -318,7 +318,19 @@ def main():
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
     show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"
-    ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port)
+    # 2026-09-26 review: "Connection lost" during a Monte Carlo run.
+    # nicegui's default reconnect_timeout is 3.0s - the grace period the
+    # SERVER gives a dropped websocket to reconnect before it gives up on
+    # that browser session entirely. A CPU-heavy background thread (a
+    # rocketpy Flight() simulation doesn't release the GIL as generously
+    # as I/O does) can delay the event loop's own message delivery enough,
+    # on some machines, to blow through that 3s window even though the
+    # simulation itself (a background task independent of any one
+    # connection - it isn't cancelled by this) keeps running fine. Raised
+    # to 30s so a brief stall reconnects instead of dropping the session;
+    # this does NOT change how long a truly closed browser tab is kept
+    # around, only how patient the server is with a flaky/delayed socket.
+    ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port, reconnect_timeout=30.0)
 
 
 if __name__ in ("__main__", "__mp_main__"):
