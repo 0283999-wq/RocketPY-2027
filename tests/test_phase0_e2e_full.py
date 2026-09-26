@@ -155,6 +155,17 @@ def test_default_path_every_page_and_second_ork(tmp_path):
                     marker = REAL_CONTENT_MARKERS[path]
                     if marker not in body_text:
                         missing_content[path] = f"expected {marker!r} on the page, not found"
+                if path == "/exports":
+                    # 2026-09-27 review item 6: click the actual button a
+                    # real report gets generated from (not just a unit
+                    # test of report.py in isolation) - the new prose/TOC/
+                    # editable-text-block rewrite must work through the
+                    # real running app, not just when called directly.
+                    page.get_by_role("button", name=re.compile("Generate PDF report", re.I)).click()
+                    page.wait_for_selector("text=/Report written/i", timeout=20000)
+                    report_text = page.inner_text("body")
+                    if "Traceback" in report_text or "Internal Server Error" in report_text:
+                        errors_by_page["/exports (report generation)"] = report_text[:500]
 
             assert not errors_by_page, f"pages with errors: {errors_by_page}"
             assert not missing_content, f"pages missing real content: {missing_content}"

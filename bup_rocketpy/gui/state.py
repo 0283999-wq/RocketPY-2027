@@ -17,4 +17,6 @@ state = {
     "vehicle_name": "Vehicle", "mission_id": "0",
     "competition_profile": "lasc",  # 2026-09-26 review item H.2 - "lasc" preserves every existing default-path behavior/test
     "weather_profile": None, "launch_override": None,  # 2026-09-26 review item H - cached real-weather + the LaunchConditions override built from it
+    "report_text": {},  # 2026-09-27 review item 6: editable report blocks (introduction/objectives/discussion/conclusions/team) - empty values fall back to report.py's auto-generated defaults, never blank
+    "current_run_id": None,  # the History run_id THIS session's last Simulate saved to, or reopened from - lets the Exports page patch report_text/author into that same run instead of minting a new one
 }

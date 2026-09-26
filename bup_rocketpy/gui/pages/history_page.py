@@ -32,6 +32,9 @@ def _reopen_mission(run_id):
     s["launch_override"] = reopened["launch_override"]
     s["competition_profile"] = reopened["competition_profile"]
     s["vehicle_name"] = reopened["vehicle_name"]
+    s["mission_id"] = reopened["mission_id"]
+    s["report_text"] = reopened["report_text"]
+    s["current_run_id"] = reopened["current_run_id"]
     # A reopened mission has no fresh Simulate result yet - every page
     # that reads dry_mass_kg/dry_cg_m/sim_result must see "not simulated
     # yet", not stale numbers from whatever was loaded before.

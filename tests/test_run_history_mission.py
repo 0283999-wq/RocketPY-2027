@@ -83,6 +83,26 @@ def test_save_and_reopen_round_trips_reefing_and_settings():
     assert len(rocket.parachutes) == 2, f"expected 2 real parachutes (reefed + full) after reopening, got {len(rocket.parachutes)}"
 
 
+def test_update_run_text_patches_report_text_without_minting_a_new_run():
+    """2026-09-27 review item 6: editable report text blocks are filled in
+    on the Exports page AFTER Simulate already saved the run - this must
+    patch the EXISTING record (same run_id), not create a duplicate
+    history entry, and round-trip through reopen_run()."""
+    _fresh_runs_dir()
+    load_result, sim = _build_and_reef()
+    record = run_history.save_run(REPO_ROOT, sim, load_result, DRY_MASS_KG, DRY_CG_M, ork_path=ORK_PATH)
+    assert record.report_text == {} and record.author == ""
+
+    updated = run_history.update_run_text(REPO_ROOT, record.run_id, author="Diego", report_text={"introduction": "Custom intro."})
+    assert updated.run_id == record.run_id, "must patch the same run, not create a new one"
+    records, _ = run_history.list_runs(REPO_ROOT)
+    assert len(records) == 1, "update_run_text must not duplicate the history entry"
+
+    reopened = run_history.reopen_run(REPO_ROOT, record.run_id, OUT_DIR)
+    assert reopened["report_text"]["introduction"] == "Custom intro."
+    assert reopened["current_run_id"] == record.run_id
+
+
 def test_reopen_raises_a_clear_error_for_a_run_with_no_saved_ork():
     _fresh_runs_dir()
     load_result, sim = _build_and_reef()
@@ -119,6 +139,7 @@ def test_old_schema_record_without_new_fields_still_loads():
 
 if __name__ == "__main__":
     test_save_and_reopen_round_trips_reefing_and_settings()
+    test_update_run_text_patches_report_text_without_minting_a_new_run()
     test_reopen_raises_a_clear_error_for_a_run_with_no_saved_ork()
     test_old_schema_record_without_new_fields_still_loads()
     print("\nRUN HISTORY MISSION: OK")

@@ -28,6 +28,29 @@ def _line_plot(path, x, y, xlabel, ylabel, title, color=WINE):
     plt.close(fig)
 
 
+def _plot_static_margin_with_limits(path, t, margins):
+    """FLT 4.3.5/4.3.6 (CLAUDE.md Sec 5): static margin must stay within
+    1.5-4.0 cal through the ascent. Drawn ON the plot (shaded allowed band
+    + labelled limit lines) rather than left for a reader to infer from an
+    unmarked curve, per the report's "annotated figures" requirement."""
+    fig, ax = plt.subplots(figsize=(6, 3.5))
+    ax.axhspan(1.5, 4.0, color=GOLD, alpha=0.12, label="RCSM allowed band (1.5-4.0 cal)")
+    ax.axhline(1.5, color=WINE, linestyle="--", linewidth=1.0)
+    ax.axhline(4.0, color=WINE, linestyle="--", linewidth=1.0)
+    t_max = t[-1] * 0.98 if len(t) else 1.0
+    ax.text(t_max, 1.5, "FLT 4.3.5 min", color=WINE, fontsize=7, ha="right", va="bottom")
+    ax.text(t_max, 4.0, "FLT 4.3.6 max", color=WINE, fontsize=7, ha="right", va="top")
+    ax.plot(t, margins, color="#211A16", linewidth=1.4, label="static margin", zorder=5)
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Margin (cal)")
+    ax.set_title("Static margin vs. time", fontsize=10)
+    ax.legend(fontsize=7, loc="upper right")
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def generate_all_plots(flight, rocket, motor, env, outputs_dir):
     """Returns an ordered {key: (title, path)} dict - the UI just needs
     to make one tab per entry and ui.image(path)."""
@@ -77,7 +100,9 @@ def generate_all_plots(flight, rocket, motor, env, outputs_dir):
     plt.close(fig)
     plots["cg_cp"] = ("CG and CP vs. time", cg_cp_path)
 
-    add("static_margin", "Static margin vs. time", t, [flight.stability_margin(ti) for ti in t], "Time (s)", "Margin (cal)")
+    sm_path = fresh_image_path(outputs_dir, "plot_static_margin")
+    _plot_static_margin_with_limits(sm_path, t, [flight.stability_margin(ti) for ti in t])
+    plots["static_margin"] = ("Static margin vs. time", sm_path)
     add("angle_of_attack", "Angle of attack", t, [flight.angle_of_attack(ti) for ti in t], "Time (s)", "AoA (deg)")
     add("dynamic_pressure", "Dynamic pressure", t, [flight.dynamic_pressure(ti) / 1000.0 for ti in t], "Time (s)", "Dynamic pressure (kPa)")
 

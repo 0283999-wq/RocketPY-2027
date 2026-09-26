@@ -36,12 +36,35 @@ def exports_page():
         ui.label("A formal simulation report - vehicle, propulsion, aerodynamics, environment, every plot, recovery, flight cases, Monte Carlo, assumptions. Not a compliance report (see the RCSM Cases page for that table).").classes("text-sm text-gray-500")
         mission_id_input = ui.input(label="Mission ID", value=s["mission_id"])
         author_input = ui.input(label="Author (optional)")
-        appendix_checkbox = ui.checkbox("Include validation appendix (model's track record vs. real PROMETEO flights - computed live, takes a couple extra seconds)", value=False)
+        appendix_checkbox = ui.checkbox("Include validation appendix (model's track record vs. real PROMETEO flights - computed live, takes a couple extra seconds) + RCSM compliance table", value=False)
         report_status = ui.label("")
+
+        with ui.expansion("Editable report text (Introduction, Objectives, Discussion, Conclusions, Team)", value=False).classes("w-full"):
+            ui.label("Leave any of these blank to use an auto-generated default built from this run's own numbers. Saved with the mission (see History) so it survives a reopen.").classes("text-sm text-gray-500")
+            text_inputs = {}
+            for key, label in [
+                ("introduction", "Introduction"), ("objectives", "Objectives"),
+                ("discussion", "Discussion"), ("conclusions", "Conclusions"),
+                ("team", "Team block (page 1 header, right side)"),
+            ]:
+                text_inputs[key] = ui.textarea(label=label, value=s["report_text"].get(key, "")).classes("w-full")
+
+            def _save_report_text():
+                s["report_text"] = {k: inp.value for k, inp in text_inputs.items()}
+                if s.get("current_run_id"):
+                    run_history.update_run_text(REPO_ROOT, s["current_run_id"], author=author_input.value, report_text=s["report_text"])
+                    ui.notify("Report text saved to this mission.", type="positive")
+                else:
+                    ui.notify("Report text saved for this session (no saved mission yet to attach it to - click Simulate first).", type="warning")
+
+            ui.button("Save text to mission", on_click=_save_report_text)
 
         def build_report(fmt):
             mission_id = mission_id_input.value
             s["mission_id"] = mission_id
+            s["report_text"] = {k: inp.value for k, inp in text_inputs.items()}
+            if s.get("current_run_id"):
+                run_history.update_run_text(REPO_ROOT, s["current_run_id"], author=author_input.value, report_text=s["report_text"])
             if s["case_results"] is None:
                 s["case_results"] = rcsm_cases.run_all_cases(
                     s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
@@ -50,11 +73,20 @@ def exports_page():
                     i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
                 )
 
+            # Reuses whatever the RCSM Cases page already computed (same
+            # "ONE place" rule as dry_i_axial_kgm2 etc.) rather than
+            # re-deriving a compliance table with its own guessed category -
+            # if Diego hasn't run RCSM Cases yet, the appendix just omits
+            # the table instead of guessing.
+            compliance_rows = s["compliance_rows"] if appendix_checkbox.value else None
+
             data = report.build_report_data(
                 mission_id, author_input.value, s["load_result"], s["sim_result"], s["case_results"],
                 s["mc_result"], s["mc_uncertainties"], OUTPUTS_DIR,
                 app_commit_hash=run_history.current_app_commit_hash(REPO_ROOT),
                 include_appendix=appendix_checkbox.value,
+                report_text=s["report_text"], competition_profile_key=s["competition_profile"],
+                compliance_rows=compliance_rows,
             )
             path = os.path.join(OUTPUTS_DIR, f"report.{fmt}")
             if fmt == "docx":

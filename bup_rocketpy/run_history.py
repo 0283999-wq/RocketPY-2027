@@ -137,10 +137,13 @@ class RunRecord:
     ork_saved: bool = False  # whether THIS run's own .ork copy exists in its run_dir (older runs, saved before this field existed, do not have one)
     power_off_drag_saved: bool = False
     power_on_drag_saved: bool = False
+    author: str = ""  # 2026-09-27 review item 6: the report's author field, saved with the mission so it doesn't have to be retyped on reopen
+    report_text: dict = field(default_factory=dict)  # editable report blocks (introduction/objectives/discussion/conclusions/team) - empty/missing keys fall back to report.py's auto-generated defaults
 
 
 def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path=None, ork_filename=None, eng_filename=None, notes="",
-             dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None, competition_profile=""):
+             dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None, competition_profile="",
+             author="", report_text=None):
     """dry_mass_override_kg/dry_cg_override_m: the RAW override fields (None
     if no manual override was active this run) - kept separate from
     dry_mass_kg/dry_cg_m (the value ACTUALLY used, override or estimate)
@@ -187,6 +190,7 @@ def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path
         dry_mass_override_kg=dry_mass_override_kg, dry_cg_override_m=dry_cg_override_m,
         launch_override=launch_override, competition_profile=competition_profile,
         ork_saved=ork_saved, power_off_drag_saved=power_off_saved, power_on_drag_saved=power_on_saved,
+        author=author, report_text=report_text or {},
     )
     _atomic_write_json(os.path.join(run_dir, "record.json"), asdict(record))
 
@@ -304,7 +308,28 @@ def reopen_run(repo_root, run_id, outputs_dir):
         "launch_override": launch_override,
         "competition_profile": record.competition_profile or "lasc",
         "vehicle_name": record.vehicle_name, "mission_id": record.run_id,
+        "report_text": dict(record.report_text or {}),
+        "current_run_id": record.run_id,
     }
+
+
+def update_run_text(repo_root, run_id, author=None, report_text=None):
+    """2026-09-27 review item 6: the report's editable text blocks are
+    filled in on the Exports page, AFTER Simulate already saved this run -
+    a read-modify-write patch of the existing record.json (not a new
+    save_run() call, which would mint a brand new run_id/timestamp and
+    duplicate the history entry). No-ops quietly if the run no longer
+    exists (e.g. it was deleted from History in another tab)."""
+    record = get_run(repo_root, run_id)
+    if record is None:
+        return None
+    if author is not None:
+        record.author = author
+    if report_text is not None:
+        record.report_text = dict(report_text)
+    run_dir = os.path.join(_runs_dir(repo_root), run_id)
+    _atomic_write_json(os.path.join(run_dir, "record.json"), asdict(record))
+    return record
 
 
 def delete_run(repo_root, run_id):

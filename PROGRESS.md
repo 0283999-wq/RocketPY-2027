@@ -1869,6 +1869,112 @@ that V2 now passes).
 
 Full suite: 84 passed, 1 deselected; Playwright e2e: 3/3.
 
+## Section 6: real technical report (done)
+
+Read both reference reports in `docs/report_references/` in full before
+touching any code, per your explicit instruction (PROMETEO's own
+submitted report - 14 pages, the structure/look template; the Colibri
+Hybrid report - 54 pages, the narrative-prose tone reference). Then read
+the CURRENT `bup_rocketpy/report.py` (576 lines) in full to know exactly
+what already existed before rewriting it, instead of guessing.
+
+**What was actually wrong** (found by reading the code, not assumed):
+the PDF's `TableOfContents` flowable was built and added to the story,
+but the `BaseDocTemplate` was never subclassed to call
+`notify('TOCEntry', ...)` in `afterFlowable` - reportlab's own two-pass
+TOC mechanism needs that hook to populate itself. With no entries ever
+notified, the TOC silently rendered empty on every report ever
+generated - this **was** a real bug, not Diego misreading an old PDF.
+Fixed with a proper `_ReportDocTemplate` subclass (new in `report.py`)
+that detects the "H1Numbered"/"H2Numbered" heading styles, calls
+`notify`, and also registers a real PDF bookmark/outline entry for each
+section (so a PDF viewer's own sidebar outline works too, not just the
+in-document TOC page). Verified with a new test that opens the generated
+PDF via `pypdf` and asserts the outline actually has >= 8 entries - a
+regression test that would have caught the original bug.
+
+**The report was rebuilt around the requested 12-section structure**
+(1 Deliverables and setup, 2 Vehicle configuration and mass properties,
+3 Propulsion, 4 Trajectory (nominal+ballistic), 5 Aerodynamics,
+6 Stability (incl. an independent hand Barrowman check), 7 Recovery and
+landing footprint, 8 Flight cases (RCSM), 9 Monte Carlo dispersion,
+10 Flight-test correlation, 11 Discussion and conclusions, 12 Files
+delivered, Appendix - compliance table + model validation, off by
+default) instead of the old flat "Executive summary" numbers dump.
+Every section now has a **written paragraph generated from the report's
+own data** (never hand-typed per report - see `_prose_*` functions in
+`report.py`), referencing figures by their actual assigned number
+("Figure 3 shows...") - both the PDF and DOCX renderers assign figure
+numbers at render time from the same presence checks, so they always
+agree with each other.
+
+**Page 1** now has the PROMETEO-style header (bold title + mission +
+vehicle name on the left, a "BEYOND UP / Universidad Panamericana ·
+México / <event>" team block on the right, a thick black rule + thin
+gold rule underneath), a one-paragraph auto-generated abstract, and 4 KPI
+cards (apogee, max Mach, min static margin, flight time) styled as
+colored boxes, not another table row. Section headings are numbered,
+UPPERCASE, with a thin wine rule underneath (matching the reference
+report's look). The footer is now "Beyond UP · Mission X · Computational
+Simulation Report · <event>" on the left and "Page N of M" on the right
+(was page-number-only before) - verified with a test that extracts a
+real page's text via `pypdf` and checks for both strings.
+
+**New `bup_rocketpy/barrowman.py`**: an independent hand-calculated
+center-of-pressure check using the classical Barrowman (1966) method
+(nose + fins only, the textbook dominant-term simplification - body tube
+and transition contributions are neglected on purpose, and the report
+says so). This is a genuine from-scratch calculation, not a call into
+RocketPy's own CP code - verified against RocketPy's own answer for
+PROMETEO: **1.221 m (hand) vs. 1.211 m (RocketPy), a 0.8% difference**,
+which is exactly the kind of "close but not identical, because RocketPy's
+model is more complete" result you'd expect from a real independent
+check, not a rigged one. This now appears as report Section 6.1.
+
+**Static margin plot** (`bup_rocketpy/gui/plotting.py`) now draws the
+RCSM's 1.5-4.0 cal allowed band directly on the figure (shaded region +
+labelled dashed limit lines for FLT 4.3.5/4.3.6), instead of leaving a
+reader to compare an unmarked curve against a number in the text - this
+is the report's "annotated figures" requirement, and it's the same plot
+the app's own Simulate page shows, not a report-only special case.
+
+**Editable text blocks** (Introduction, Objectives, Discussion,
+Conclusions, Team) added to the Exports page as a collapsible section;
+each falls back to a sensible auto-generated default (built from the
+report's own numbers) when left blank, so a first report is never blank.
+Saved to the mission via a new `run_history.update_run_text()` - a
+read-modify-write PATCH of the existing run's `record.json`, not a new
+`save_run()` call, so editing report text after Simulate never mints a
+duplicate History entry. Round-trips through "Reopen this mission."
+
+**RCSM compliance table** now available in the optional Appendix (off by
+default), reusing whatever the RCSM Cases page already computed
+(`state["compliance_rows"]`) rather than re-deriving it with a guessed
+category - if Diego hasn't run RCSM Cases yet, the appendix just omits
+the table instead of guessing at a category.
+
+**No internal jargon leaked in** - verified by test (`CLAUDE.md`,
+`PROGRESS.md`, `Rule 3`, `Phase 5` all asserted absent from the rendered
+DOCX text).
+
+New tests: `tests/test_barrowman.py` (2 tests, including the 0.8%
+cross-check above), `tests/test_phase5_report_and_zip.py` fully rewritten
+(8 tests: real sections/no jargon, data-driven prose + Barrowman check,
+editable text blocks used verbatim, appendix crediting LASC officials,
+appendix compliance table, PDF TOC/outline actually populated, PDF footer
+branding, LASC zip contents), `tests/test_run_history_mission.py` +1 test
+(`update_run_text` patches in place, round-trips through reopen).
+`tests/test_phase0_e2e_full.py` now also clicks "Generate PDF report"
+through the real running app (not just report.py in isolation) and
+checks for "Report written" with no traceback.
+
+New dependency: `pypdf==6.19.0` added to `requirements.txt` (used only by
+tests, to open the generated PDF and inspect its outline/page text -
+`start.bat` picks it up automatically on the next `git pull`).
+
+Full suite: 92 passed, 1 skipped; Playwright e2e: 3/3 (including the new
+real-report-generation click).
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since

@@ -1,5 +1,6 @@
-"""Phase 5 + 2026-09-26 review item D: the new simulation report (PDF/
-DOCX, replacing the old compliance-style one) and the LASC .zip package.
+"""Phase 5 + 2026-09-26/27 review items D and 6: the simulation report
+(PDF/DOCX, real prose + real TOC + annotated figures, not a numbers dump)
+and the LASC .zip package.
 """
 import os
 import sys
@@ -29,7 +30,7 @@ def _build_common():
     return load_result, sim_result, case_results
 
 
-def test_docx_report_builds_and_has_no_compliance_section():
+def test_docx_report_has_real_sections_and_no_jargon():
     load_result, sim_result, case_results = _build_common()
     data = report.build_report_data("44", "Test Author", load_result, sim_result, case_results, None, None, OUT_DIR)
     path = report.generate_docx(os.path.join(OUT_DIR, "report.docx"), data)
@@ -37,9 +38,51 @@ def test_docx_report_builds_and_has_no_compliance_section():
     from docx import Document
     doc = Document(path)
     full_text = "\n".join(p.text for p in doc.paragraphs)
-    assert "RCSM compliance" not in full_text, "the compliance section must be REMOVED from the report per 2026-09-26 review item D - RCSM page only"
-    assert "CLAUDE.md" not in full_text and "PROGRESS.md" not in full_text, "no internal jargon in a report a judge/teammate reads"
-    assert "Executive summary" in full_text and "Propulsion" in full_text and "Recovery" in full_text
+    assert "RCSM compliance" not in full_text, "the compliance table only appears in the optional Appendix, off by default"
+    for jargon in ("CLAUDE.md", "PROGRESS.md", "Rule 3", "Phase 5"):
+        assert jargon not in full_text, f"no internal jargon ({jargon!r}) in a report a judge/teammate reads"
+    for section in ("Deliverables and setup", "Vehicle configuration", "Propulsion", "Trajectory", "Aerodynamics",
+                     "Stability", "Recovery", "Monte Carlo", "Flight-test correlation", "Discussion and conclusions",
+                     "Files delivered"):
+        assert section in full_text, f"missing section {section!r}"
+
+
+def test_docx_report_has_data_driven_prose_and_barrowman_check():
+    """2026-09-27 review item 6: a real report, not a data dump - every
+    section needs written paragraphs, not just tables/pictures."""
+    load_result, sim_result, case_results = _build_common()
+    data = report.build_report_data("44", "Test Author", load_result, sim_result, case_results, None, None, OUT_DIR)
+    assert data["barrowman"] is not None, "PROMETEO has a nose + fins - the hand Barrowman check should compute"
+    assert data["barrowman"]["rocketpy_cp_m"] is not None
+    assert abs(data["barrowman"]["diff_pct"]) < 10, "hand Barrowman CP should be in the same ballpark as RocketPy's own"
+    path = report.generate_docx(os.path.join(OUT_DIR, "report_prose.docx"), data)
+    from docx import Document
+    doc = Document(path)
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Figure 1." in full_text and "Figure 2." in full_text, "figures must be numbered and captioned"
+    assert "Barrowman" in full_text
+    assert data["vehicle_name"] in full_text
+    assert f"{sim_result.apogee_agl_m:.1f}" in full_text, "prose should cite the actual computed apogee, not a placeholder"
+
+
+def test_docx_report_editable_text_blocks_are_used_verbatim():
+    load_result, sim_result, case_results = _build_common()
+    report_text = {
+        "introduction": "CUSTOM INTRO TEXT FOR TEST.",
+        "conclusions": "CUSTOM CONCLUSION TEXT FOR TEST.",
+    }
+    data = report.build_report_data("44", "Test Author", load_result, sim_result, case_results, None, None, OUT_DIR, report_text=report_text)
+    assert data["report_text"]["introduction"] == "CUSTOM INTRO TEXT FOR TEST."
+    assert data["report_text"]["conclusions"] == "CUSTOM CONCLUSION TEXT FOR TEST."
+    # objectives/discussion/team were not overridden - must fall back to a real (non-empty) auto-generated default
+    assert data["report_text"]["objectives"].strip() != ""
+    assert data["report_text"]["discussion"].strip() != ""
+    path = report.generate_docx(os.path.join(OUT_DIR, "report_custom_text.docx"), data)
+    from docx import Document
+    doc = Document(path)
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "CUSTOM INTRO TEXT FOR TEST." in full_text
+    assert "CUSTOM CONCLUSION TEXT FOR TEST." in full_text
 
 
 def test_docx_report_appendix_credits_lasc_officials_not_us():
@@ -56,7 +99,21 @@ def test_docx_report_appendix_credits_lasc_officials_not_us():
     assert "our rocketpy predicted 1,138" not in full_text.lower()
 
 
-def test_pdf_report_generates_with_monte_carlo():
+def test_docx_report_appendix_includes_compliance_table_when_provided():
+    load_result, sim_result, case_results = _build_common()
+    compliance_rows = [("FLT 4.3.4", "Rail exit velocity", "PASS", "23.4 m/s >= 30 m/s required")]
+    data = report.build_report_data("44", "", load_result, sim_result, case_results, None, None, OUT_DIR,
+                                     include_appendix=True, compliance_rows=compliance_rows)
+    path = report.generate_docx(os.path.join(OUT_DIR, "report_compliance.docx"), data)
+    from docx import Document
+    doc = Document(path)
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
+    assert "Appendix" in full_text
+    assert "FLT 4.3.4" in table_text
+
+
+def test_pdf_report_generates_with_monte_carlo_and_has_populated_toc():
     load_result, sim_result, case_results = _build_common()
     mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
     i_ax, i_tr = translate.estimate_dry_inertia(load_result.parsed_ork, mass_est)
@@ -67,6 +124,25 @@ def test_pdf_report_generates_with_monte_carlo():
     assert data["monte_carlo"]["low_n_warning"] is True, "N=5 must trigger the 'not statistically meaningful' warning"
     path = report.generate_pdf(os.path.join(OUT_DIR, "report.pdf"), data)
     assert os.path.exists(path) and os.path.getsize(path) > 1000
+
+    # 2026-09-27 review item 6: the TOC was a placeholder before (the doc
+    # template never called notify('TOCEntry', ...)) - reportlab's own TOC
+    # bookmarks are inspectable via the outline entries it registers.
+    import pypdf
+    reader = pypdf.PdfReader(path)
+    assert len(reader.pages) > 5, "a real multi-section report should be more than a handful of pages"
+    outline = reader.outline
+    assert len(outline) >= 8, f"expected a populated outline/bookmark list (one per numbered section), got {outline}"
+
+
+def test_pdf_report_footer_has_mission_and_event_not_just_page_number():
+    load_result, sim_result, case_results = _build_common()
+    data = report.build_report_data("44", "", load_result, sim_result, case_results, None, None, OUT_DIR)
+    path = report.generate_pdf(os.path.join(OUT_DIR, "report_footer.pdf"), data)
+    import pypdf
+    reader = pypdf.PdfReader(path)
+    page_text = reader.pages[2].extract_text() or ""
+    assert "Beyond UP" in page_text and "Mission 44" in page_text, f"footer branding missing from page text: {page_text[-200:]}"
 
 
 def test_lasc_zip_contains_expected_files():
@@ -90,8 +166,12 @@ def test_lasc_zip_contains_expected_files():
 
 
 if __name__ == "__main__":
-    test_docx_report_builds_and_has_no_compliance_section()
+    test_docx_report_has_real_sections_and_no_jargon()
+    test_docx_report_has_data_driven_prose_and_barrowman_check()
+    test_docx_report_editable_text_blocks_are_used_verbatim()
     test_docx_report_appendix_credits_lasc_officials_not_us()
-    test_pdf_report_generates_with_monte_carlo()
+    test_docx_report_appendix_includes_compliance_table_when_provided()
+    test_pdf_report_generates_with_monte_carlo_and_has_populated_toc()
+    test_pdf_report_footer_has_mission_and_event_not_just_page_number()
     test_lasc_zip_contains_expected_files()
     print("\nPHASE 5 REPORT + ZIP: OK")

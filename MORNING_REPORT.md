@@ -1,7 +1,7 @@
-# Morning report - autonomous run 2 (MEGA_PROMPT_2), Sections 1-5 done
+# Morning report - autonomous run 2 (MEGA_PROMPT_2), Sections 1-6 done
 
-Status as of Section 5. This file is updated again at the end of the run
-with whatever else got done in Sections 6-7. `main` builds and passes
+Status as of Section 6. This file is updated again at the end of the run
+with whatever else got done in Section 7. `main` builds and passes
 its full test suite + Playwright e2e after every commit below - nothing
 here left the app in a broken state.
 
@@ -14,11 +14,38 @@ here left the app in a broken state.
 | 3 - launch-day weather correctness (timezone bug) | **Done** |
 | 4 - History page (detail view, real delete fix, reopen) | **Done** |
 | 5 - validation consistency (V2 now passes) | **Done** |
-| 6 - real technical report (prose, not a data dump) | Not started |
+| 6 - real technical report (prose, not a data dump) | **Done** |
 | 7 - Mission Control redesign (3D playback, live MC) | Not started - now IN SCOPE per this prompt, unlike last night |
 
-Continuing now with Section 6 (reading the two reference PDFs first, as
-instructed), then Section 7.
+Continuing now with Section 7 (the largest remaining item).
+
+## Section 6 in a few lines
+
+- Read both reference reports in `docs/report_references/` in full
+  first, as instructed, then the CURRENT `report.py` (576 lines) before
+  touching anything.
+- Found and fixed a REAL bug: the PDF's table of contents was never
+  actually populated (the doc template never called reportlab's
+  `notify('TOCEntry', ...)` hook) - it silently rendered empty on every
+  report ever generated. This was your "placeholder for table of
+  contents" complaint, and it's a genuine fix, not a UI polish - verified
+  by a test that opens the generated PDF and checks its outline has real
+  entries.
+- Rebuilt the report around the requested 12-section structure with a
+  **written paragraph per section generated from that report's own
+  numbers** (never hand-typed), figures numbered and captioned, a
+  PROMETEO-style page-1 header (Beyond UP branding, team block, 4 KPI
+  cards), and a footer reading "Beyond UP · Mission X · Computational
+  Simulation Report · <event>".
+- New independent hand-Barrowman stability check
+  (`bup_rocketpy/barrowman.py`) - a from-scratch CP calculation, not a
+  call into RocketPy's own code, that lands within **0.8%** of RocketPy's
+  own CP for PROMETEO (Section 6.1 of the report).
+- Editable report text blocks (Introduction/Objectives/Discussion/
+  Conclusions/Team) on the Exports page, saved with the mission, restored
+  on "Reopen this mission."
+- Full suite: 92 passed, 1 skipped; Playwright e2e: 3/3, including a real
+  click of "Generate PDF report" through the running app.
 
 ## Numbers before/after this run
 
