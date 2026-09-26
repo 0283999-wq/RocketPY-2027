@@ -52,7 +52,45 @@ def validation_page():
 
         ui.label("Code-to-code check vs. OpenRocket").classes("text-lg font-bold mt-4")
         ui.label("Reproducing OpenRocket's own CSV-exported simulation with its EXACT inputs (no weather uncertainty at all, same site/rail/mass/wind the .ork itself recorded) currently passes within 2% (see PROGRESS.md for the exact number and history - not re-computed live on this page, it needs an OpenRocket CSV export as its reference that isn't loaded here).").classes("text-sm")
-        ui.label("Because that zero-weather-uncertainty case passes tightly, V2's remaining gap above increasingly looks like a real difference between the .ork's recorded weather and the actual Iacanga flight-day conditions, not a code bug - real weather data can help resolve this further, below.").classes("text-sm text-gray-500 mt-1")
+        ui.label("V2's remaining gap above is most likely the difference between the .ork's recorded weather and the actual Iacanga flight-day conditions, not a code bug - real weather data can help resolve this further, below.").classes("text-sm text-gray-500 mt-1")
+
+        # 2026-09-27 review item 5: "print a side-by-side input table" -
+        # V2's inputs next to the unconstrained default path's own, so a
+        # real difference between them (or the lack of one) is visible,
+        # not just asserted. Both now go through the exact same
+        # translate.estimate_best_dry_mass_cg_inertia() code path.
+        ui.label("V2 vs. the default (no-override) path - side by side").classes("text-lg font-bold mt-4")
+        v2_result = next(r for r in results if r.name.startswith("V2"))
+        default_ref = validation.compute_default_path_reference()
+        input_keys = [
+            ("Dry mass", "dry_mass_kg", "{:.4f} kg"),
+            ("Dry CG (from nose)", "dry_cg_m", "{:.4f} m"),
+            ("Mass/CG source", "mass_source", "{}"),
+            ("Total (with-motor) mass", "total_mass_kg", "{}"),
+            ("Site altitude", "site_altitude_m", "{:.1f} m"),
+            ("Rail length", "rail_length_m", "{:.1f} m"),
+            ("Rail inclination", "inclination_deg", "{:.1f} deg"),
+            ("Rail heading", "heading_deg", "{:.1f} deg"),
+        ]
+        with ui.grid(columns=3).classes("gap-2"):
+            ui.label("Input").classes("font-bold")
+            ui.label("V2 (10.370 kg, as-flown)").classes("font-bold")
+            ui.label("Default path (.ork's own stored-sim mass)").classes("font-bold")
+
+            ui.label("Predicted apogee AGL")
+            ui.label(f"{v2_result.predicted_agl_m:.1f} m")
+            ui.label(f"{default_ref.predicted_agl_m:.1f} m")
+
+            ui.label("Site (lat, lon)")
+            ui.label(f"{v2_result.inputs['site_lat']:.4f}, {v2_result.inputs['site_lon']:.4f}")
+            ui.label(f"{default_ref.inputs['site_lat']:.4f}, {default_ref.inputs['site_lon']:.4f}")
+
+            for label, key, fmt in input_keys:
+                ui.label(label)
+                v2_val, def_val = v2_result.inputs.get(key), default_ref.inputs.get(key)
+                ui.label("n/a" if v2_val is None else fmt.format(v2_val))
+                ui.label("n/a" if def_val is None else fmt.format(def_val))
+        ui.label("Both rows use the IDENTICAL code path (translate.estimate_best_dry_mass_cg_inertia + translate.ork_to_flight) - the only real input difference is the total mass (10.370 kg scale-measured for V2 vs. the .ork's own stored-sim design-phase total). The lighter V2 config correctly predicts a HIGHER apogee than the default path, as physics requires - this used to be backwards due to a data-consistency bug (see PROGRESS.md Section 5).").classes("text-xs text-gray-500 mt-1")
 
         ui.separator().classes("my-4")
         ui.label("Re-run with real weather (Open-Meteo historical)").classes("text-lg font-bold")

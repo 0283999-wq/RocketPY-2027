@@ -39,6 +39,11 @@ class ValidationResult:
     static_margin_at_t0_cal: float
     passes: bool
     notes: str
+    # 2026-09-27 review item 5: "print a side-by-side input table" - the
+    # actual dry mass/CG/site/rail numbers THIS case used, so a case-to-
+    # case difference (e.g. V2 vs. the unconstrained default run) can be
+    # visually audited rather than taken on faith.
+    inputs: dict = None
 
 
 def _prom_config():
@@ -72,7 +77,15 @@ def _run_case(launch_override, total_mass_kg, motor_mass_loaded_kg, motor_dry_ma
     )
     apogee_agl = flight.apogee - flight.env.elevation
     margin0 = flight.stability_margin(0)
-    return apogee_agl, margin0
+    launch = launch_override if launch_override is not None else parsed.launch
+    inputs = {
+        "dry_mass_kg": round(mass_est.mass_kg, 4), "dry_cg_m": round(mass_est.cg_m, 4),
+        "mass_source": mass_est.source,
+        "site_lat": launch.latitude, "site_lon": launch.longitude, "site_altitude_m": launch.altitude_m,
+        "rail_length_m": rail_length, "inclination_deg": inclination, "heading_deg": heading,
+        "total_mass_kg": total_mass_kg, "motor_mass_loaded_kg": motor_mass_loaded_kg,
+    }
+    return apogee_agl, margin0, inputs
 
 
 def compute_v1():
@@ -88,7 +101,7 @@ def compute_v1():
         altitude_m=2380.0, latitude=19.967, longitude=-98.856,
         wind_average_ms=3.247, wind_direction_deg=90.0,
     )
-    apogee_agl, margin0 = _run_case(
+    apogee_agl, margin0, inputs = _run_case(
         launch_override=launch_override,
         total_mass_kg=10.96, motor_mass_loaded_kg=4.882948, motor_dry_mass_kg=2.866213,
         cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
@@ -96,28 +109,99 @@ def compute_v1():
     )
     error_pct = (apogee_agl - target) / target * 100
     notes = ("Conditions: OpenRocket-recorded (prometeo4dejulio.csv), NOT live weather. "
-             "Dry CG is a Brasil-config approximation, not a July4-specific measurement.")
-    return ValidationResult("V1 (2026-07-04, Pachuca profile)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)
+             "Dry CG is a Brasil-config approximation, not a July4-specific measurement. "
+             "NEEDS DIEGO: rebuild this from the actual July 4 .ork if it exists (not currently in "
+             "reference/prometeo_mission44/data/rockets/) instead of the Brasil-config CG approximation.")
+    return ValidationResult("V1 (2026-07-04, Pachuca profile)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
 
 
 def compute_v2():
     """LASC (Iacanga), the official competition flight. Target 1137 m
     (SRAD telemetry - the "1138 m" figure is the officials' own on-site
-    prediction, a different thing, never relabeled as ours)."""
-    prom_config = _prom_config()
+    prediction, a different thing, never relabeled as ours).
+
+    2026-09-27 review item 5: rewritten to use the EXACT SAME path
+    pipeline.run_simulation's own no-override default takes for this
+    .ork (translate.estimate_best_dry_mass_cg_inertia, reading mass/CG/
+    inertia straight from the .ork's own stored simulation databranch),
+    changing ONLY the total mass to 10.370 kg (scale-measured at
+    Iacanga) - not a hand-rolled duplicate computation with its own,
+    separately-sourced CG/rocket-length constants (the OLD version used
+    config.py's CG_T0_WITH_MOTOR=0.97966 m and LENGTH=1.54 m, both from
+    DIFFERENT source documents than the .ork's own stored databranch,
+    which independently give 1.000 m and 1.47 m for the SAME nominal
+    configuration). That mismatch is what caused the reported
+    "V2 is 150 g LIGHTER but predicts a LOWER apogee than the
+    unconstrained default run" bug - physically backwards for a lighter
+    rocket with everything else equal, and it was a data-consistency
+    bug, not a real physics effect. Rail/inclination/heading are no
+    longer separately overridden either - confirmed the .ork's own
+    launch conditions already ARE 4.0 m / 80 deg / 90 deg, so passing
+    them again was pure redundant duplication of the same numbers,
+    with the same silent-drift risk."""
     target = 1137.0
-    apogee_agl, margin0 = _run_case(
-        launch_override=None,
-        total_mass_kg=10.370, motor_mass_loaded_kg=prom_config.MOTOR_MASS_LOADED, motor_dry_mass_kg=prom_config.MOTOR_DRY_MASS,
-        cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
-        rail_length=4.0, inclination=80.0, heading=90.0,
+    parsed = read_ork(ORK_PATH)
+    parsed_eng = read_eng(ENG_PATH)
+    best = translate.estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, ENG_PATH, ork_path=ORK_PATH, total_mass_override_kg=10.370)
+
+    flight, _ = translate.ork_to_flight(
+        parsed, parsed_eng, ENG_PATH,
+        power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG,
+        terminate_on_apogee=True, include_recovery=False,
+        dry_mass_override_kg=best.mass_est.mass_kg, dry_cg_override_m=best.mass_est.cg_m,
+        i_axial_override=best.i_axial_kgm2, i_transverse_override=best.i_transverse_kgm2,
     )
+    apogee_agl = flight.apogee - flight.env.elevation
+    margin0 = flight.stability_margin(0)
     error_pct = (apogee_agl - target) / target * 100
     notes = ("Conditions: the .ork's OWN recorded wind/atmosphere, NOT the actual Iacanga flight-day weather. "
              "At the Launch Readiness Review, LASC officials independently re-simulated this vehicle on-site "
              "and predicted 1138 m (RocketPy, CRS 10.2.1) - we did not reproduce their exact inputs; this is our "
-             "own independent replication, not a claim of matching their number.")
-    return ValidationResult("V2 (LASC 2026, Iacanga)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)
+             "own independent replication, not a claim of matching their number. "
+             f"Mass/CG source: {best.mass_est.source}.")
+    inputs = {
+        "dry_mass_kg": round(best.mass_est.mass_kg, 4), "dry_cg_m": round(best.mass_est.cg_m, 4),
+        "mass_source": best.mass_est.source,
+        "site_lat": parsed.launch.latitude, "site_lon": parsed.launch.longitude, "site_altitude_m": parsed.launch.altitude_m,
+        "rail_length_m": parsed.launch.rail_length_m, "inclination_deg": parsed.launch.inclination_deg, "heading_deg": parsed.launch.rail_direction_deg,
+        "total_mass_kg": 10.370, "motor_mass_loaded_kg": round(10.370 - best.mass_est.mass_kg, 4),
+    }
+    return ValidationResult("V2 (LASC 2026, Iacanga)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
+
+
+def compute_default_path_reference():
+    """2026-09-27 review item 5: "print a side-by-side input table for
+    both" - runs PROMETEO's .ork through the EXACT SAME unconstrained
+    default path pipeline.run_simulation itself takes for a fresh
+    Simulate click (no overrides at all), so its inputs can be shown
+    next to V2's in one table and any real difference between them is
+    visible at a glance, not just asserted in prose. NOT a validation
+    case (no real-flight target to compare against - this .ork's own
+    stored simulation is a design-phase report config, 10.4-10.5 kg,
+    never flown), so it isn't part of compute_v1_and_v2()."""
+    parsed = read_ork(ORK_PATH)
+    parsed_eng = read_eng(ENG_PATH)
+    best = translate.estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, ENG_PATH, ork_path=ORK_PATH)
+    flight, _ = translate.ork_to_flight(
+        parsed, parsed_eng, ENG_PATH,
+        power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG,
+        terminate_on_apogee=True, include_recovery=False,
+        dry_mass_override_kg=best.mass_est.mass_kg, dry_cg_override_m=best.mass_est.cg_m,
+        i_axial_override=best.i_axial_kgm2, i_transverse_override=best.i_transverse_kgm2,
+    )
+    apogee_agl = flight.apogee - flight.env.elevation
+    inputs = {
+        "dry_mass_kg": round(best.mass_est.mass_kg, 4), "dry_cg_m": round(best.mass_est.cg_m, 4),
+        "mass_source": best.mass_est.source,
+        "site_lat": parsed.launch.latitude, "site_lon": parsed.launch.longitude, "site_altitude_m": parsed.launch.altitude_m,
+        "rail_length_m": parsed.launch.rail_length_m, "inclination_deg": parsed.launch.inclination_deg, "heading_deg": parsed.launch.rail_direction_deg,
+        "total_mass_kg": None, "motor_mass_loaded_kg": None,
+    }
+    return ValidationResult(
+        "Default path (no overrides, .ork's own stored-sim mass/CG)", apogee_agl, None, None, flight.stability_margin(0), None,
+        "Not a validation case (no real-flight target - this .ork's own stored simulation is a design-phase report config, never flown). Shown for side-by-side comparison with V2 only.",
+        inputs=inputs,
+    )
 
 
 def compute_v1_and_v2():
@@ -156,7 +240,7 @@ def compute_v1_with_real_weather(cache_dir, force_refresh=False):
         altitude_m=V1_ELEVATION_M, latitude=V1_LATITUDE, longitude=V1_LONGITUDE,
         wind_average_ms=speed, wind_direction_deg=direction,
     )
-    apogee_agl, margin0 = _run_case(
+    apogee_agl, margin0, inputs = _run_case(
         launch_override=launch_override,
         total_mass_kg=10.96, motor_mass_loaded_kg=4.882948, motor_dry_mass_kg=2.866213,
         cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
@@ -167,7 +251,7 @@ def compute_v1_with_real_weather(cache_dir, force_refresh=False):
              f"{V1_DATE} 12:00 local at Pachuca - wind {speed:.1f} m/s from {direction:.0f} deg "
              "(compute_v1() instead uses the OpenRocket-recorded csv wind of 3.25 m/s from 90 deg). "
              "Dry CG is still the Brasil-config approximation (same caveat as compute_v1()).")
-    return ValidationResult("V1 (2026-07-04, Pachuca profile) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)
+    return ValidationResult("V1 (2026-07-04, Pachuca profile) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
 
 
 class V2FlightDateUnknownError(ValueError):
@@ -181,7 +265,12 @@ class V2FlightDateUnknownError(ValueError):
 def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
     """date: the real LASC 2026 flight date at Iacanga (ISO "YYYY-MM-DD"),
     which the CALLER must supply (e.g. typed into the Validation page) -
-    there is no default here, see V2FlightDateUnknownError."""
+    there is no default here, see V2FlightDateUnknownError.
+
+    2026-09-27 review item 5: same fix as compute_v2() - uses the SAME
+    stored-sim-derived mass/CG/inertia path (total mass overridden to
+    10.370 kg), not a hand-rolled duplicate with separately-sourced
+    CG/length constants."""
     if not date:
         raise V2FlightDateUnknownError(
             "The exact LASC 2026 flight date is not yet recorded in this project - ask Diego for it "
@@ -189,22 +278,35 @@ def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
         )
     from bup_rocketpy import weather
 
-    prom_config = _prom_config()
     target = 1137.0
     parsed = read_ork(ORK_PATH)
+    parsed_eng = read_eng(ENG_PATH)
     site_lat, site_lon = parsed.launch.latitude, parsed.launch.longitude
     profile = weather.fetch_historical_weather(site_lat, site_lon, date, cache_dir, force_refresh=force_refresh)
     speed, direction = weather.nearest_hour_wind(profile, f"{date}T12:00")
     launch_override = dataclasses.replace(parsed.launch, wind_average_ms=speed, wind_direction_deg=direction)
-    apogee_agl, margin0 = _run_case(
+
+    best = translate.estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, ENG_PATH, ork_path=ORK_PATH, total_mass_override_kg=10.370)
+    flight, _ = translate.ork_to_flight(
+        parsed, parsed_eng, ENG_PATH,
+        power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG,
+        terminate_on_apogee=True, include_recovery=False,
+        dry_mass_override_kg=best.mass_est.mass_kg, dry_cg_override_m=best.mass_est.cg_m,
+        i_axial_override=best.i_axial_kgm2, i_transverse_override=best.i_transverse_kgm2,
         launch_override=launch_override,
-        total_mass_kg=10.370, motor_mass_loaded_kg=prom_config.MOTOR_MASS_LOADED, motor_dry_mass_kg=prom_config.MOTOR_DRY_MASS,
-        cg_with_motor_m_from_nose=prom_config.CG_T0_WITH_MOTOR,
-        rail_length=4.0, inclination=80.0, heading=90.0,
     )
+    apogee_agl = flight.apogee - flight.env.elevation
+    margin0 = flight.stability_margin(0)
     error_pct = (apogee_agl - target) / target * 100
     notes = (f"Conditions: REAL historical weather from Open-Meteo ({profile.source}) for {date} "
              f"12:00 local at Iacanga - wind {speed:.1f} m/s from {direction:.0f} deg. Still does NOT "
              "reproduce LASC officials' own exact re-simulation inputs (CRS 10.2.1) - an independent replication, "
-             "same caveat as compute_v2().")
-    return ValidationResult("V2 (LASC 2026, Iacanga) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes)
+             f"same caveat as compute_v2(). Mass/CG source: {best.mass_est.source}.")
+    inputs = {
+        "dry_mass_kg": round(best.mass_est.mass_kg, 4), "dry_cg_m": round(best.mass_est.cg_m, 4),
+        "mass_source": best.mass_est.source,
+        "site_lat": site_lat, "site_lon": site_lon, "site_altitude_m": parsed.launch.altitude_m,
+        "rail_length_m": parsed.launch.rail_length_m, "inclination_deg": parsed.launch.inclination_deg, "heading_deg": parsed.launch.rail_direction_deg,
+        "total_mass_kg": 10.370, "motor_mass_loaded_kg": round(10.370 - best.mass_est.mass_kg, 4),
+    }
+    return ValidationResult("V2 (LASC 2026, Iacanga) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)

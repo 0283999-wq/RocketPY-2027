@@ -1821,9 +1821,61 @@ remains - the literal reported symptom, verified through a real browser.
 Full suite: 83 passed, 1 deselected; Playwright e2e: 3/3 (including the
 new History test).
 
+## Section 5: validation consistency (V2 now PASSES) - done
+
+**The reported bug, root-caused**: the no-override default run
+(PROMETEO, Brasil config, ~10.5 kg) gave 1088 m, but V2 (10.370 kg, 130-
+150 g LIGHTER, same site) gave 1067 m - LOWER. Physically backwards: a
+lighter rocket on the same motor with everything else equal must reach a
+HIGHER apogee, never a lower one. Root cause: `compute_v2()` was a hand-
+rolled duplicate of the default path that pulled its with-motor CG
+(`config.py`'s `CG_T0_WITH_MOTOR=0.97966 m`) and rocket length
+(`config.py`'s `LENGTH=1.54 m`) from a DIFFERENT source document than
+the .ork's own stored databranch, which independently give 1.000 m and
+1.47 m for the SAME nominal configuration - a real data-consistency bug,
+not a physics effect.
+
+**Fix**: `translate.estimate_best_dry_mass_cg_inertia()` (Section 1)
+gained an optional `total_mass_override_kg` param - `compute_v2()`
+(and its real-weather variant) now calls the EXACT SAME function the
+unconstrained default path uses, overriding ONLY the total mass to
+10.370 kg. Rail/inclination/heading overrides were also dropped entirely
+- confirmed the .ork's own launch conditions already ARE 4.0 m/80 deg/
+90 deg, so re-specifying them was pure redundant duplication with the
+same silent-drift risk.
+
+**Result**: V2 now predicts 1098.3 m (target 1137 m) - **-3.4% error,
+PASSES within +-5%** (was -6.1%, FAIL). This is a real, earned
+improvement from fixing a genuine bug, not tuning - V1 (+11.0%) is
+unchanged and still fails, so the app-wide PROVISIONAL badge correctly
+stays up per CLAUDE.md Rule 3 (needs BOTH to pass).
+
+**Side-by-side input table** (the explicit ask): new
+`validation.compute_default_path_reference()` runs the SAME .ork through
+the unconstrained default path; the Validation page now shows V2 and the
+default path's inputs (dry mass/CG/source, site, rail) next to each
+other, so the "same path, only the mass differs" claim is visually
+auditable, not just asserted in prose - see
+`docs/screenshots/11_validation.png`.
+
+**V1 (July 4 .ork)**: checked `reference/prometeo_mission44/data/rockets/`
+per your instruction - only the two drag CSVs are there, no July-4-
+specific `.ork`. Logged below, not fabricated.
+
+New `test_v2_lighter_config_predicts_a_higher_apogee_than_the_default_path`
+in `tests/test_validation_live.py` - a permanent regression guard for
+this exact bug class (asserts the lighter config's apogee is HIGHER, and
+that V2 now passes).
+
+Full suite: 84 passed, 1 deselected; Playwright e2e: 3/3.
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since
   Phase 1, and again in last night's MORNING_REPORT.md). Item 1d (the
   actual code-to-code re-check against the "PACHUCA" sim you quoted)
   needs these files.
+- **The July 4 .ork** - not in `reference/prometeo_mission44/data/rockets/`
+  (only the drag CSVs are there) - V1 still uses the Brasil-config CG
+  approximation, not a July-4-specific measurement, per your own
+  fallback instruction.

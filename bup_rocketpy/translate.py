@@ -364,7 +364,7 @@ class BestMassEstimate:
     inertia_source: str
 
 
-def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=None):
+def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=None, total_mass_override_kg=None):
     """2026-09-27 review item 1a: picks the BEST available dry mass/CG/
     inertia source, in priority order:
 
@@ -389,6 +389,18 @@ def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=Non
        data - e.g. a geometry-only .ork nobody has simulated in
        OpenRocket yet).
 
+    total_mass_override_kg: 2026-09-27 review item 5 ("V2 uses the same
+    path as the default run, changing only the mass") - when a scale-
+    measured TOTAL (with-motor) mass is known for a specific flight but
+    no with-motor CG was separately measured for that exact
+    configuration (V2's 10.370 kg vs. this .ork's own stored-sim 10.523/
+    10.400 kg design-phase config), this substitutes ONLY the total mass
+    into the SAME stored-sim-derived CG/inertia/length computation,
+    instead of a hand-rolled duplicate that risked silently pulling a
+    different CG/length from a different, inconsistent source (exactly
+    the "physically backwards" V2-lighter-but-lower-apogee bug this was
+    written to fix - see bup_rocketpy/validation.py's compute_v2()).
+
     Returns a BestMassEstimate. Never raises for a missing stored sim -
     that's an expected, common case (falls through to step 3)."""
     from bup_rocketpy.ork_reader import airframe_length_m, parse_stored_simulation_references
@@ -407,11 +419,12 @@ def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=Non
         ref = next(iter(refs.values()), None)
         if ref is not None and ref.mass_with_motor_t0_kg and ref.motor_mass_t0_kg and ref.cg_with_motor_t0_m is not None:
             motor = build_motor(parsed_eng, eng_path)
-            dry_mass_kg = ref.mass_with_motor_t0_kg - ref.motor_mass_t0_kg
+            total_mass_kg = total_mass_override_kg if total_mass_override_kg is not None else ref.mass_with_motor_t0_kg
+            dry_mass_kg = total_mass_kg - ref.motor_mass_t0_kg
             if dry_mass_kg > 0:
                 rocket_length_m = airframe_length_m(parsed)
                 mass_est, i_ax, i_tr = derive_dry_mass_and_inertia_from_with_motor(
-                    motor, ref.mass_with_motor_t0_kg, ref.motor_mass_t0_kg, dry_mass_kg,
+                    motor, total_mass_kg, ref.motor_mass_t0_kg, dry_mass_kg,
                     ref.cg_with_motor_t0_m, rocket_length_m,
                     # OpenRocket's own "Longitudinal moment of inertia" is
                     # the TRANSVERSE (pitch/yaw) value and "Rotational
@@ -421,7 +434,8 @@ def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=Non
                     # for the numeric check that caught this the same day).
                     i_total_axial_kgm2=ref.i_rot_t0, i_total_transverse_kgm2=ref.i_long_t0,
                 )
-                mass_est.source = f"OpenRocket computed (stored simulation '{ref.name}', t=0, minus motor - see translate.estimate_best_dry_mass_cg_inertia)"
+                mass_override_note = f", total mass overridden to {total_mass_kg:.4f} kg" if total_mass_override_kg is not None else ""
+                mass_est.source = f"OpenRocket computed (stored simulation '{ref.name}', t=0, minus motor{mass_override_note} - see translate.estimate_best_dry_mass_cg_inertia)"
                 if i_ax is not None and i_tr is not None and i_ax > 0 and i_tr > 0:
                     return BestMassEstimate(mass_est, i_ax, i_tr, f"OpenRocket computed (stored simulation '{ref.name}', minus motor)")
                 i_ax_geom, i_tr_geom = estimate_dry_inertia(parsed, mass_est)

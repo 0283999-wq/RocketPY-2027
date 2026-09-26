@@ -26,6 +26,20 @@ Diego re-runs with Open-Meteo/GFS on his machine tomorrow.
 Tolerance: +-5% per CLAUDE.md. A miss is reported with a cause breakdown,
 NOT tuned away, and the result stays PROVISIONAL either way (single-flight
 comparisons, not a statistically validated model).
+
+2026-09-27 review item 5: bup_rocketpy.validation.compute_v2() was fixed
+today to STOP duplicating this file's own hand-rolled _run_case() call -
+it found a genuine data-consistency bug (a different, separately-sourced
+with-motor CG and rocket-length between the two paths made V2's LIGHTER
+10.370 kg config predict a LOWER apogee than the unconstrained default
+run, physically backwards) and now reuses the exact same stored-sim-
+derived mass/CG/inertia the default no-override Simulate path itself
+uses, changing only the total mass. THIS file's own test_v2_lasc_apogee()
+below still calls the OLD hand-rolled path on purpose, as a historical/
+audit snapshot of the pre-fix numbers - it is intentionally NOT expected
+to match bup_rocketpy.validation.compute_v2()'s own (now different,
+now-passing) number any more. See PROGRESS.md Section 5 for the numbers
+before/after.
 """
 import dataclasses
 import os
