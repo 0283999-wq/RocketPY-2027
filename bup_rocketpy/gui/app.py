@@ -211,8 +211,21 @@ def simulate_page():
                 s["dry_cg_override"] = dry_cg_input.value
             try:
                 from bup_rocketpy import run_history
+                import dataclasses as _dc
                 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m, ork_path=s["ork_path"], ork_filename=s["ork_filename"], eng_filename=s["eng_filename"])
+                run_history.save_run(
+                    repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m,
+                    ork_path=s["ork_path"], ork_filename=s["ork_filename"], eng_filename=s["eng_filename"],
+                    # 2026-09-27 review item 2: save EVERY session setting
+                    # that affects the flown rocket, not just the result -
+                    # "Reopen this mission" (History page) needs these to
+                    # reconstitute the exact same state, and it's how
+                    # reefing survives past a re-upload/app restart.
+                    dry_mass_override_kg=s["dry_mass_override"] if override_checkbox.value else None,
+                    dry_cg_override_m=s["dry_cg_override"] if override_checkbox.value else None,
+                    launch_override=_dc.asdict(s["launch_override"]) if s["launch_override"] is not None else None,
+                    competition_profile=s["competition_profile"],
+                )
             except Exception as exc:  # history is a convenience, never block a real result on it failing to save
                 print(f"WARNING: could not save run history: {exc}")
             progress.props("hidden")

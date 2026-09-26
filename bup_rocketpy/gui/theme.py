@@ -64,5 +64,8 @@ def apply(ui):
       body.body--dark .bup-kpi-value {{ color: {GOLD}; }}
       .bup-nav-active {{ border-left: 4px solid {GOLD}; background-color: rgba(183,147,87,0.12); }}
       .bup-provisional-badge {{ background-color: #B3261E; color: white; }}
+      .bup-status-bar {{ background-color: rgba(183,147,87,0.10); border-bottom: 1px solid rgba(183,147,87,0.25); }}
+      .bup-status-chip {{ background-color: {LIGHT_SURFACE}; border: 1px solid rgba(0,0,0,0.08); }}
+      body.body--dark .bup-status-chip {{ background-color: {DARK_SURFACE} !important; border-color: rgba(255,255,255,0.08); }}
     </style>
     """)

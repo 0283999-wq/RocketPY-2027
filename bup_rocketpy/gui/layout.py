@@ -9,7 +9,7 @@ import os
 
 from nicegui import ui
 
-from bup_rocketpy.gui import theme
+from bup_rocketpy.gui import state, theme
 
 PAGES = [
     ("/", "rocket_launch", "Simulate"),
@@ -53,5 +53,43 @@ def layout(title, current_path="/"):
                 ui.icon(icon)
                 ui.label(label)
 
+    _status_bar()
+
     with ui.column().classes("w-full p-4 gap-4") as content:
         yield content
+
+
+def _status_bar():
+    """2026-09-27 review item 2: "a status bar on every page with the
+    loaded rocket, motor, and chips like 'Reefing ON: ...' / 'Weather:
+    ...' / 'Profile: ...'" - ONE place (this is the only file every page
+    already routes through via layout()), so it can never drift out of
+    sync with what a specific page happens to show."""
+    s = state.state
+    if s["load_result"] is None:
+        return
+
+    from bup_rocketpy import competition_profiles
+
+    parsed = s["load_result"].parsed_ork
+    eng_header = getattr(s["load_result"].parsed_eng, "header", None)
+    chips = [f"{parsed.name} / {eng_header.designation if eng_header else s['load_result'].eng_path and os.path.basename(s['load_result'].eng_path)}"]
+
+    reefed = [c for c in parsed.parachutes if c.is_reefed and c.reefed_cd is not None and c.reefed_diameter_m is not None and c.cutter_altitude_m is not None]
+    if reefed:
+        c = reefed[0]
+        import math
+        reefed_cd_s = c.reefed_cd * math.pi * (c.reefed_diameter_m / 2.0) ** 2
+        chips.append(f"Reefing ON: reefed Cd·S {reefed_cd_s:.2f} m², cutter at {c.cutter_altitude_m:.0f} m")
+
+    if s["launch_override"] is not None:
+        profile = s.get("weather_profile")
+        label = f"{profile.source} {profile.date}" if profile is not None else "override active"
+        chips.append(f"Weather: {label}")
+
+    profile = competition_profiles.get_profile(s["competition_profile"])
+    chips.append(f"Profile: {profile.display_name}")
+
+    with ui.row().classes("bup-status-bar items-center gap-2 px-4 py-1 flex-wrap"):
+        for chip in chips:
+            ui.label(chip).classes("bup-status-chip text-xs px-2 py-1 rounded")

@@ -1689,6 +1689,61 @@ New test `test_longitudinal_inertia_column_is_the_larger_transverse_value`
 in `test_openrocket_csv_export.py`. Full suite: 74 passed, 1 deselected;
 Playwright e2e: 2/2.
 
+## Section 2: reefing not applied + settings lost (mission persistence) - done
+
+**Root cause of "I enable reefing, go back to Simulate, have to re-upload,
+reefing is ignored"**: the reefing edit lives ONLY in the in-memory
+`state.state` dict (a single Python-process-lifetime object) - it was
+never persisted anywhere. Every page-to-page navigation within a LIVE
+server already shares that same object correctly (confirmed: the
+existing Playwright e2e test already walks Simulate -> Rocket -> ... ->
+back without re-uploading, and passes) - the actual loss happens across
+anything that restarts the server process (closing/reopening the app,
+a crash, a new day). Once that happens, re-uploading rebuilds
+`load_result` from the RAW `.ork` file again, which has no `is_reefed`
+concept at all (OpenRocket doesn't model it - see `ork_reader.Parachute`'s
+own docstring) - so the edit is gone, exactly as reported.
+
+**Fix**: `run_history.py` (which already auto-saves every Simulate run)
+now captures the FULL session state, not just the result:
+`reefing_settings` (every parachute's full reefing config, not just
+reefed ones), `dry_mass_override_kg`/`dry_cg_override_m`,
+`launch_override` (the Launch Day weather override, if any),
+`competition_profile`. It also now actually COPIES the `.ork` itself
+(previously only the `.eng` was copied - a real, separate gap) plus both
+drag CSVs into the run's own folder. New `run_history.reopen_run(repo_root,
+run_id, outputs_dir)`: re-parses those saved files fresh and re-applies
+every saved setting on top (reefing via `dataclasses.replace` matched by
+parachute name), returning a ready-to-install session bundle. Raises a
+clear `MissionNotReopenableError` for a run saved before this feature
+existed (no saved `.ork`) rather than fabricating one.
+
+Verified end to end (not just "the settings round-trip as data"): after
+save + reopen, `translate.build_rocket()` on the reopened mission
+produces the real 2-parachute (reefed + full) rocket - proving reefing
+actually still applies to Flight/RCSM Cases/Monte Carlo/report/CSV after
+a reopen, since they all build the rocket through this same
+`build_rocket()` call.
+
+**Status bar** (item 2's other ask): added to `layout.py` (the ONE place
+every page already routes through) - loaded rocket/motor, a "Reefing ON:
+reefed Cd·S X m², cutter at Y m" chip when active, a "Weather: ..."
+chip when a Launch Day override is active, and a "Profile: ..." chip
+always shown. Confirmed rendering correctly in the real Playwright
+screenshots (`docs/screenshots/09_history.png`).
+
+The "Reopen this mission" BUTTON itself (the UI Diego actually clicks)
+is item 4's job (History page detail view) - the backend built here is
+what it calls.
+
+New `tests/test_run_history_mission.py` (3 tests): full save/reopen
+round-trip with reefing verified via a real rebuilt Rocket's parachute
+count, `MissionNotReopenableError` for a run with no saved `.ork`, and
+backward compatibility with an old-schema `record.json` missing every
+new field entirely.
+
+Full suite: 77 passed, 1 deselected; Playwright e2e: 2/2.
+
 ## BLOCKED / NEEDS DIEGO
 
 - **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since
