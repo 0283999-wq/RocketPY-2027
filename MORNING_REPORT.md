@@ -14,7 +14,7 @@ in a broken state.
 | C - reproducibility (commit hash, file hashes, History columns, "Clean up corrupt runs") | **Done** |
 | D - reefed parachute with line cutter (RCSM REC 8.1.1) | **Done** |
 | E - small fixes (LASC filenames, MC default N, landing map) | **Done** |
-| F - new formal report (replaces old compliance-style one) | Not started |
+| F - new formal report (replaces old compliance-style one) | **Done** (built earlier this run, before item D) |
 | G - CSV export like OpenRocket (58 columns, events) | Not started |
 | H - launch-day mode + competition profiles + README | Not started |
 | I - real-weather validation (Open-Meteo historical) | Not started |
