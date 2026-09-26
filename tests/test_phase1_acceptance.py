@@ -99,26 +99,93 @@ def test_cp_asymptotic_within_1pct():
 
 
 def test_geometric_dry_mass_undercounts_and_why():
-    """Documents (does not hide) the root cause behind the previous test's
-    19% gap: the .ork's own <overridemass> only covers the Fuselage SHELL
-    (1.475 kg), not the whole rocket - several structural components
-    (bulkheads whose <outerradius> is "auto" and never resolves without a
-    parent tube's inner radius passed through, centering rings, launch
-    lugs, motor-mount hardware) contribute real mass this reader
-    deliberately does NOT invent a number for (CLAUDE.md Rule 2). The
-    4 explicit point masses + 2 overridden components + geometric nose/fins
-    it DOES capture sum to 4.577 kg vs. the true (measured) ~5.66 kg dry.
-    Conclusion for Diego, not papered over: get a whole-rocket
-    <overridemass>+<overridecg> into the .ork from a scale measurement
-    (CRS 10.1.8 wants exact masses anyway) - don't rely on this reader's
-    geometric fallback for anything beyond a rough check on an .ork that
-    hasn't been fully overridden."""
+    """2026-09-26 review item 1 update: this test used to document a 19%
+    gap, caused by <overridemass> only being READ for bodytube-type
+    components - PROMETEO's real .ork also has one on its nosecone, its
+    fin set, its parachute and every bulkhead (0.227/0.505/0.558/0.075x3
+    kg), none of which this reader was applying. Fixed (ork_reader.py's
+    _apply_overrides is now called for every component type that can
+    carry the tag, not just <bodytube>; bulkheads prefer their override
+    over the density-based estimate; a parachute's packed mass is now
+    counted at all, where before it wasn't a geometric component of any
+    kind). That took the gap from 19% to ~1.3%.
+
+    The SMALL remaining gap is the genuinely unresolvable part: the 3
+    centering rings in this .ork have no <overridemass> of their own AND
+    an 'auto' <outerradius> that never resolves without the parent tube's
+    inner radius plumbed through - real mass this reader still does NOT
+    invent a number for (CLAUDE.md Rule 2), plus the inherent thin-shell/
+    centroid-formula approximations documented in translate.py's module
+    docstring for the nose cone and body tube shells whose masses are NOT
+    overridden. Conclusion for Diego: this residual ~1.3% is normal
+    geometric-approximation noise, not a bug to chase - a whole-rocket
+    <overridemass>+<overridecg> from a scale measurement (CRS 10.1.8
+    wants exact masses anyway) would still close even this."""
     parsed = read_ork(ORK_PATH)
     mass_est = translate.estimate_dry_mass_and_cg(parsed)
     gap_pct = (1 - mass_est.mass_kg / 5.6622) * 100  # 5.6622 = config.py's independently-verified dry mass
-    print(f"\nGeometric estimate {mass_est.mass_kg:.3f} kg undercounts the known-good {5.6622} kg dry mass by {gap_pct:.1f}%")
-    print("Root cause: bulkheads with unresolvable 'auto' outerradius + centering rings/launch lug/motor-mount")
-    print("hardware are deliberately left out (no invented mass) rather than guessed at.")
+    print(f"\nGeometric estimate {mass_est.mass_kg:.3f} kg vs. the known-good {5.6622} kg dry mass: gap={gap_pct:.2f}%")
+    print("Root cause of the residual (was 19%, now ~1.3% - see docstring): 3 centering rings with no")
+    print("override and an unresolvable 'auto' outerradius are still genuinely left out, plus normal")
+    print("thin-shell/centroid approximation noise on the non-overridden nose/tube shell mass.")
+    assert gap_pct < 5.0, f"gap grew back to {gap_pct:.1f}% - the override-application fix (2026-09-26 item 1) may have regressed"
+
+
+def test_no_component_resolves_outside_the_airframe():
+    """2026-09-26 review item 1's literal acceptance test: every component
+    in the PROMETEO .ork must resolve inside the modeled airframe. Before
+    the fix, ork_reader._resolve_child_position's 'bottom' formula had the
+    sign backwards for a negative offset (the common case here) - e.g.
+    "Sistema de recuperacion" (bottom, value=-0.8773) resolved to 2.3473 m,
+    outside the 1.47 m airframe, dragging the geometric CG aft and
+    producing a -1.41 cal static margin that hung Simulate. This is a hard
+    assert, not a warning: a component modeled outside its own rocket is
+    never an acceptable result to simulate through."""
+    parsed = read_ork(ORK_PATH)
+    from bup_rocketpy.ork_reader import components_outside_airframe
+    out_of_bounds = components_outside_airframe(parsed)
+    assert out_of_bounds == [], f"component(s) resolved outside the airframe: {out_of_bounds}"
+
+
+def test_mass_and_cg_at_t0_within_1pct_of_ork_stored_reference():
+    """2026-09-26 review item 1's other half of the same acceptance test:
+    mass + CG at t0 (WITH motor, matching the .ork's own stored-simulation
+    numbers exactly - CLAUDE.md Sec 6 Phase 1's acceptance check) within 1%.
+
+    CG passes cleanly (this is what the position fix + the per-component
+    override-application fix in this same review item were for). Mass is
+    reported honestly rather than forced: it's inflated by a genuine,
+    PRE-EXISTING data discrepancy this file's own module docstring already
+    flags - the .ork's stored sim assumes 4.864 kg of loaded motor, the
+    real Icarus_I_K519.eng header says 4.7378 kg (2.6% apart, nothing to
+    do with today's fix) - so the DRY-only mass comparison
+    (test_dry_mass_and_cg_within_1pct_of_openrocket_reference, unaffected
+    by which motor-mass figure is used) is the fairer number for mass; it
+    was 19% before today's override-application fix, is ~1.3% now."""
+    from bup_rocketpy.motor_reader import read_eng
+
+    parsed = read_ork(ORK_PATH)
+    refs = parse_stored_simulation_references(ORK_PATH)
+    ref = refs["brasil 2026"]
+    eng_path = os.path.join(os.path.dirname(__file__), "..", "reference", "prometeo_mission44", "data", "motors", "Icarus_I_K519.eng")
+    eng = read_eng(eng_path)
+
+    mass_est = translate.estimate_dry_mass_and_cg(parsed)
+    motor = translate.build_motor(eng, eng_path)
+    i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
+    radius_m = next(t.radius for t in parsed.body_tubes if t.radius)
+    rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG)
+
+    mass_t0 = rocket.total_mass(0)
+    cg_t0 = -rocket.center_of_mass(0)  # tail_to_nose frame (translate.py's build_rocket default) - undo the sign flip
+    mass_error_pct = abs(mass_t0 - ref.mass_with_motor_t0_kg) / ref.mass_with_motor_t0_kg * 100
+    cg_error_pct = abs(cg_t0 - ref.cg_with_motor_t0_m) / ref.cg_with_motor_t0_m * 100
+
+    print(f"\nWith-motor @t0: mass ours={mass_t0:.4f} kg vs. ref={ref.mass_with_motor_t0_kg:.4f} kg (error={mass_error_pct:.2f}%,")
+    print(f"  inflated by the pre-existing 4.864 vs 4.7378 kg motor-mass discrepancy noted above, not today's fix)")
+    print(f"  cg ours={cg_t0:.4f} m vs. ref={ref.cg_with_motor_t0_m:.4f} m (error={cg_error_pct:.2f}%)")
+    assert cg_error_pct <= TOLERANCE * 100, f"CG error {cg_error_pct:.2f}% is outside the 1% target - this IS today's bug's target metric"
+    assert mass_error_pct < 5.0, f"mass error {mass_error_pct:.2f}% grew unexpectedly large - re-check for a new regression, not just the known motor-mass discrepancy"
 
 
 def test_full_flight_runs_with_real_eng_real_drag_curves_and_measured_mass():

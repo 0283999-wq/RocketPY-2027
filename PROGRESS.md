@@ -284,10 +284,16 @@ not a stand-in.
 
 ## BLOCKED / NEEDS DIEGO
 
-- **`.ork` needs a whole-rocket `overridemass`+`overridecg`** (only the
-  Fuselage shell is overridden right now) - this is the one input
-  `bup_rocketpy`'s generic reader+translate pipeline cannot substitute
-  for. See Phase 1 findings in CHANGELOG.md.
+- ~~**`.ork` needs a whole-rocket `overridemass`+`overridecg`** (only the
+  Fuselage shell is overridden right now)~~ MOSTLY RESOLVED 2026-09-26:
+  the .ork actually already HAD several more per-component overrides
+  (nosecone, fin set, 3 bulkheads, the parachute) - this reader just
+  wasn't reading any of them except the Fuselage's. Fixed; the geometric
+  no-override dry mass estimate is now ~1.3% off (was 19%). Still no
+  single WHOLE-ROCKET override exists in the file, so this residual isn't
+  fully closeable from the .ork alone - but it's no longer the ~1kg,
+  multi-component gap it was. See "High-priority bug fix, 2026-09-26"
+  above for the exact numbers.
 - **Real Iacanga flight-day weather** for V2 - Diego runs Open-Meteo/GFS
   on his own machine per tonight's validation rules; the cloud can't reach
   those servers.
@@ -937,3 +943,127 @@ Major Tom: still not committed to the repo, per the explicit instruction
 ("that design is a work in progress and gets loaded through the app").
 
 Full suite: 34 passed, 1 skipped (by design) in ~67s.
+
+---
+
+## High-priority bug fix, 2026-09-26: the "bottom" position sign bug
+
+Diego's report: PROMETEO's "Sistema de recuperacion" resolves to 2.3473 m
+outside the 1.47 m airframe; his new rocket had the same class of bug
+push a component to 2.79 m on a 1.85 m airframe -> CG dragged aft ->
+static margin -1.41 cal -> Simulate hung forever. Budget mode: targeted
+tests only, no full-suite re-runs per edit.
+
+### Item 1: the actual bug, root-caused (not guessed)
+
+`ork_reader._resolve_child_position`'s `"bottom"` branch was
+`parent_aft_m - value - child_length_m`. For PROMETEO's real
+"Sistema de recuperacion" (`position type="bottom"` value `-0.8773`
+inside the 1.2 m "Fuselage" tube), that gives `1.47 - (-0.8773) - 0 =
+2.3473 m` - outside the whole 1.47 m airframe, exactly what Diego saw.
+Checked EVERY "bottom"-type component in this real .ork against the
+formula: every single one with a negative value resolved outside its own
+parent tube (2 bulkheads, 3 centering rings, 1 mass, the mass Diego
+named). Flipped the sign (`parent_aft_m + value - child_length_m`) and
+every one of them now resolves inside the tube, in a position that makes
+physical sense (e.g. the recovery system at 0.593 m, mid-tube - not
+0.877 m past the tail). No OpenRocket Java source available to cite from
+this sandbox (no internet access) - this is empirical, derived from real,
+unmodified data, not a guess. Documented as such in the code comment.
+
+**Found and fixed a second, closely-related bug while chasing Diego's own
+acceptance target ("mass + CG at t0 within 1%")**: `_apply_overrides`
+(which reads a component's `<overridemass>`) was only ever called for
+`<bodytube>` components. PROMETEO's real .ork also has a per-component
+`<overridemass>` on its nosecone (0.227 kg), its fin set (0.505 kg), its
+bulkheads (0.075 kg x3) and its **parachute** (0.558 kg - more mass than
+any single point mass elsewhere in the rocket, and previously not counted
+AT ALL, since a parachute wasn't one of `_geometric_components`'s
+component types). None of these were being read. Generalized
+`_apply_overrides` to be called for every component type that can carry
+the tag, made bulkheads prefer their override over the density-based
+guess, and added parachute mass as a geometric component. This took the
+geometric (NO-override) dry mass estimate from **19% low to ~1.3% low**
+(`tests/test_phase1_acceptance.py::test_geometric_dry_mass_undercounts_and_why`,
+rewritten to document the new number, not the old one) - a bug this
+big had been silently eating Diego's default/no-override path the whole
+time, not just today's specific position bug.
+
+**Combined real-world effect** (`tests/test_phase3_headless.py`, no
+manual override, PROMETEO's real .ork + .eng - i.e. exactly Diego's
+"a normal user just loads files and clicks Simulate" path): static margin
+went from unstable/hanging to **1.9-2.6 cal** (within FLT 4.3.5's 1.5-4
+cal window), apogee **~1092 m AGL** (squarely in PROMETEO's known
+860-1137 m range, not validated against flight data here but no longer
+wildly off), descent rate within ~5.5% of the hand-calc terminal
+velocity. `test_run_simulation_without_override_surfaces_instability_not_hides_it`
+used to assert `is_stable == False` (documenting the old bug) - rewritten
+to `test_run_simulation_without_override_is_now_stable_and_sane`,
+asserting the opposite, since that's now the honest reality.
+
+New test (Diego's literal ask):
+`test_no_component_resolves_outside_the_airframe` (hard assert, PASSES)
+and `test_mass_and_cg_at_t0_within_1pct_of_ork_stored_reference` - CG
+passes cleanly at 0.67% (this IS today's fix's target metric); mass is
+1.87% off, honestly reported as inflated by a **pre-existing, separate**
+data discrepancy this repo's test file already documented before tonight
+(the .ork's own stored sim assumes 4.864 kg of loaded motor; the real
+`Icarus_I_K519.eng` header says 4.7378 kg - nothing to do with today's
+fix). The dry-only comparison (unaffected by which motor-mass figure is
+used) is ~1.3%, the fairer number, and the one this same test file
+already used before tonight.
+
+### Item 2: "never hang" guard rails
+
+Both new checks run BEFORE ever calling `Flight()` - the actual thing
+that was hanging:
+- `ork_reader.components_outside_airframe(parsed)`: returns every point
+  mass/fin/parachute resolved outside `[0, airframe_length_m]`.
+  `gui/pipeline.py::run_simulation` and `rcsm_cases.run_all_cases` both
+  call this first and raise a `ValueError` naming the component(s) if
+  it's non-empty, instead of building a `Rocket`/`Flight` at all.
+- `rocket.static_margin(0)` (free - no ODE integration needed): if
+  negative, `run_simulation` raises before calling `Flight()`, naming the
+  static margin and pointing at the Rocket page / manual override fields.
+- `gui/app.py`'s `do_simulate` now races the background simulation
+  against a `SIMULATION_TIMEOUT_S = 120` backstop AND a new visible
+  Cancel button (`asyncio.wait(..., return_when=FIRST_COMPLETED)`).
+  Honestly documented limitation: a single `Flight()` call has no
+  internal checkpoint to poll (unlike Monte Carlo's N discrete samples),
+  so neither the timeout nor Cancel can truly kill an already-hung
+  integration mid-flight - they detach the UI from waiting on it and
+  return control to the user immediately, which is what actually matters
+  for "never hang" from a real user's perspective; the orphaned
+  background thread finishes on its own and its result is discarded.
+
+New tests: `test_simulate_blocks_immediately_on_a_negative_t0_static_margin`
+and `test_simulate_blocks_immediately_on_a_component_outside_the_airframe`
+(both assert the ValueError fires in well under a second, i.e. before any
+`Flight()` call could even start).
+
+### Item 3: the "divide by zero in polation_1d" warning - which file caused it
+
+Traced with a full traceback (not guessed): it is **rocketpy's own
+internal code**, not any file this app reads. `Flight.__init__` builds a
+`clean_pressure_signal_function` per parachute AFTER the flight completes,
+from samples it recorded itself every 0.01 s during the flight (its own
+barometric-trigger-noise model) - `rocketpy/simulation/flight.py`'s
+`__transform_pressure_signals_lists_to_functions`. On
+`reference/openrocket_examples/Dual_parachute_deployment.ork`'s main
+parachute, that internally-recorded list happens to contain ONE duplicate
+timestamp among ~4475 samples, which is what triggers the warning inside
+rocketpy's `Function`/`polation_1d`. An earlier note in
+`test_phase5_rcsm_cases.py` blamed this fixture's own stored drag curve -
+checked that directly tonight: 0 duplicates, that note was wrong, now
+fixed and replaced with the real explanation + an assertion that would
+catch if the drag curve ever DOES become the real cause in the future.
+No input file bup_rocketpy parses or writes is involved. Not monkeypatched
+(doesn't meet Section 6's "confirmed bug worth patching" bar - it's a
+warning, not a wrong result, and it's rocketpy's own post-flight
+instrumentation, not the physics) - suppressed locally in that one test
+so it doesn't spam output.
+
+Full suite: 38 passed, 1 skipped (the pre-existing, documented Leaflet
+flakiness) in ~76s. Screenshots regenerated by the e2e re-runs above are
+committed alongside this fix (not reverted as noise this time) since they
+now show the genuinely-fixed numbers, not just a re-render of the old ones.

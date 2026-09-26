@@ -103,19 +103,73 @@ def test_parachute_deploys_at_apogee_not_late_and_max_acceleration_is_boost_only
             assert os.path.exists(path) and os.path.getsize(path) > 0, f"{name} plot file is missing or empty"
 
 
-def test_run_simulation_without_override_surfaces_instability_not_hides_it():
-    """Without a manual override, the pipeline falls back to the .ork's own
-    (Phase-1-documented, 19% low) geometric mass/CG estimate - it still
-    HAS a CG (just an inaccurate one from whatever components resolved),
-    so it does not raise. What matters is that the resulting instability
-    is surfaced (is_stable=False, PROVISIONAL warning shown), not hidden -
-    the UI's 'Stable? NO - UNSTABLE' card is what a real user sees here,
-    not a silently-wrong 'looks fine' result."""
+def test_simulate_blocks_immediately_on_a_negative_t0_static_margin():
+    """2026-09-26 review item 2: 'never hang' - a manual override that
+    puts the CG too far aft (unstable at t=0) used to be exactly the
+    condition that made Simulate hang forever (rocketpy's adaptive
+    integrator has no lower bound on step size for a tumbling rocket).
+    run_simulation now checks rocket.static_margin(0) BEFORE calling
+    Flight() at all and raises immediately with a clear message - this
+    must come back in well under a second, not hang."""
+    import time
+
+    import pytest
+
+    result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    started = time.monotonic()
+    with pytest.raises(ValueError, match="static margin at t=0"):
+        # CG deliberately placed past the tail (1.47 m airframe) - guaranteed unstable.
+        pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=1.45)
+    elapsed = time.monotonic() - started
+    assert elapsed < 5.0, f"took {elapsed:.1f}s - this should fail fast, before ever calling Flight()"
+
+
+def test_simulate_blocks_immediately_on_a_component_outside_the_airframe():
+    """2026-09-26 review item 2's other guard: a component resolved
+    outside the airframe (item 1's actual bug, reproduced here directly
+    rather than depending on a specific .ork having one right now that
+    the position fix has since corrected) must block Simulate with a
+    message naming the component, not silently continue into a possibly-
+    unstable, possibly-hanging Flight() call."""
+    import pytest
+
+    result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    # Reproduce item 1's exact real-world bug shape without depending on
+    # a specific .ork still having it (the fix corrected PROMETEO's own) -
+    # push one real point mass 1 m past the tail.
+    bad_mass = result.parsed_ork.point_masses[0]
+    original_position = bad_mass.position_m
+    bad_mass.position_m = original_position + 1.0 + 1.47
+    try:
+        with pytest.raises(ValueError, match="OUTSIDE the modeled airframe"):
+            pipeline.run_simulation(result, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+    finally:
+        bad_mass.position_m = original_position  # don't leak state into other tests sharing `result`'s parsed_ork
+
+
+def test_run_simulation_without_override_is_now_stable_and_sane():
+    """2026-09-26 review item 1 update: this test used to assert the
+    OPPOSITE (is_stable=False) - the geometric mass/CG estimate was 19%
+    low and its CG was dragged aft by the 'bottom' position sign bug
+    (see ork_reader.py), producing an unstable no-override default path.
+    That bug is fixed (both halves: the position formula, and the
+    per-component override-application gap that closed most of the mass
+    gap) - the DEFAULT path (load PROMETEO's real .ork + .eng with NO
+    overrides, exactly CLAUDE.md Sec 2.5's "presentable" definition) is
+    now stable and physically sane on its own:
+      - static margin ~1.9-2.6 cal (within FLT 4.3.5's 1.5-4 cal window)
+      - apogee ~1090 m AGL (in the right ballpark for PROMETEO's known
+        860-1137 m real flights, CLAUDE.md Sec 3.2 - NOT a validated
+        number, no flight data compared here, but no longer wildly off)
+      - descent rate within ~5.5% of the hand-calc terminal velocity
+    This is what a real user (no manual mass/CG typed in) now sees,
+    instead of the "Stable? NO" a real, un-invented bug used to produce."""
     result = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
     sim = pipeline.run_simulation(result, OUTPUTS_DIR)
-    print(f"\nWithout override: static margin@0-ish range=[{sim.min_static_margin_cal:.3f}, {sim.max_static_margin_cal:.3f}] cal, stable={sim.is_stable}")
-    assert not sim.is_stable, "expected the known-incomplete geometric estimate to produce an unstable result (Phase 1 finding) - if this now passes, the mass estimator changed and Phase 1's docs need updating"
-    assert sim.provisional_warning
+    print(f"\nWithout override: static margin range=[{sim.min_static_margin_cal:.3f}, {sim.max_static_margin_cal:.3f}] cal, stable={sim.is_stable}, apogee={sim.apogee_agl_m:.1f} m")
+    assert sim.is_stable, "expected the fixed geometric estimate to produce a stable result - if this now fails, something regressed the position/override fixes"
+    assert 1.5 <= sim.min_static_margin_cal and sim.max_static_margin_cal <= 4.0
+    assert 500 < sim.apogee_agl_m < 2000, "not remotely in PROMETEO's known ballpark - something is badly wrong"
 
 
 def test_section5_kpis_and_recovery_panel_are_sane():

@@ -88,6 +88,15 @@ def _add_single_parachute(rocket, chute, force_apogee_trigger=False):
 
 def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m):
     from bup_rocketpy import translate
+    from bup_rocketpy.ork_reader import components_outside_airframe
+
+    # 2026-09-26 review item 2: same "never hang" guard as
+    # gui/pipeline.py's run_simulation - these 4 cases build a Flight()
+    # too and can hang on the exact same unstable-rocket condition.
+    out_of_bounds = components_outside_airframe(parsed)
+    if out_of_bounds:
+        names = ", ".join(f"{name} ({pos:.3f} m)" for name, pos in out_of_bounds)
+        raise ValueError(f"cannot run RCSM cases: {len(out_of_bounds)} component(s) resolved OUTSIDE the modeled airframe: {names}. Fix the position in OpenRocket and reload.")
 
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_all_cases")
     motor = translate.build_motor(parsed_eng, eng_path)

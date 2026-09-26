@@ -11,7 +11,12 @@ from dataclasses import dataclass, field
 
 from bup_rocketpy import translate
 from bup_rocketpy.motor_reader import read_eng
-from bup_rocketpy.ork_reader import extract_drag_curves_from_stored_sim, read_ork
+from bup_rocketpy.ork_reader import components_outside_airframe, extract_drag_curves_from_stored_sim, read_ork
+
+# 2026-09-26 review item 2: the wall-clock backstop app.py's do_simulate
+# races Simulate against - see its own comment for why this can only
+# detach from a stuck run, not truly kill it.
+SIMULATION_TIMEOUT_S = 120
 
 
 def fresh_image_path(outputs_dir, basename):
@@ -149,6 +154,23 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     os.makedirs(outputs_dir, exist_ok=True)
     parsed = load_result.parsed_ork
 
+    # 2026-09-26 review item 2: "never hang." Both of these are exactly
+    # what review item 1's real bug produced on a real .ork (a component
+    # resolved 0.877 m outside its own airframe -> CG dragged aft ->
+    # static margin -1.41 cal) and exactly what made Simulate hang
+    # forever - rocketpy's adaptive integrator has no lower bound on step
+    # size for a tumbling/unstable rocket, so it can run indefinitely
+    # without ever raising an exception. Block BEFORE calling Flight(),
+    # naming the actual component, rather than let the user wait on it.
+    out_of_bounds = components_outside_airframe(parsed)
+    if out_of_bounds:
+        names = ", ".join(f"{name} ({pos:.3f} m)" for name, pos in out_of_bounds)
+        raise ValueError(
+            f"cannot simulate: {len(out_of_bounds)} component(s) resolved OUTSIDE the modeled airframe: {names}. "
+            "This is almost always a real position error in the .ork (check that component's position in OpenRocket) "
+            "rather than something safe to simulate through - fix it there and reload."
+        )
+
     power_off = load_result.power_off_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
     power_on = load_result.power_on_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
 
@@ -163,6 +185,21 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
     radius_m = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off, power_on_drag=power_on)
+
+    # 2026-09-26 review item 2: same "never hang" rule, for the case where
+    # every component IS inside the airframe but the resulting mass
+    # distribution is still unstable at t0 (e.g. a bad manual override,
+    # or an .ork with a genuinely aft-heavy design) - rocket.static_margin(0)
+    # is essentially free to check (no ODE integration yet) and catches
+    # this before it can turn into a hung Flight() call.
+    margin_t0 = rocket.static_margin(0)
+    if margin_t0 < 0:
+        raise ValueError(
+            f"cannot simulate: static margin at t=0 is {margin_t0:.2f} cal (NEGATIVE - the rocket is aerodynamically "
+            "unstable before it even leaves the rail). This is exactly the condition that used to make Simulate hang "
+            "forever. Check the dry mass/CG (Rocket page) and every component's position against OpenRocket before "
+            "retrying - a manual override may have the CG wrong, or the .ork itself may need fixing."
+        )
 
     from rocketpy import Flight
     env = translate.build_environment(parsed.launch)

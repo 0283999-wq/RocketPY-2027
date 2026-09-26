@@ -119,14 +119,22 @@ def _geometric_components(parsed):
         components.append(apply_override(tube.name, *_shell_cylinder_mass_cg_inertia(tube.length, tube.radius, tube.thickness, tube.material_density, tube.position_m)))
     for tr in parsed.transitions:
         r = tr.aft_radius or tr.fore_radius or 0.0
-        components.append(_cone_shell_mass_cg(tr.length, r, tr.material_density, tr.position_m))
+        components.append(apply_override(tr.name, *_cone_shell_mass_cg(tr.length, r, tr.material_density, tr.position_m)))
     body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
     for fin in parsed.fins:
         mass, comp_cg, _, _ = _fin_set_mass_cg(fin, body_radius)
         r_eff = body_radius + fin.span / 2.0
-        components.append((mass, comp_cg, mass * r_eff**2, 0.0))
+        components.append(apply_override(fin.name, mass, comp_cg, mass * r_eff**2, 0.0))
     for pm in parsed.point_masses:
         components.append((pm.mass, pm.position_m, 0.0, 0.0))
+    # 2026-09-26 review item 1: a packed parachute has real mass (0.558 kg
+    # for PROMETEO's own, more than any other single component here) and
+    # was not counted at all before ork_reader.py started recording its
+    # <overridemass> - see that file's parachute-branch comment.
+    for chute in parsed.parachutes:
+        override = per_component_override.get(chute.name)
+        if override is not None:
+            components.append((override, chute.position_m, 0.0, 0.0))
     return components
 
 

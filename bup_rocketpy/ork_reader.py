@@ -250,7 +250,26 @@ def _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, child_length_
     if pos_type == "top":
         fore = parent_fore_m + value
     elif pos_type == "bottom":
-        fore = parent_aft_m - value - child_length_m
+        # 2026-09-26 review item 1: this used to be
+        # `parent_aft_m - value - child_length_m`, which is backwards for
+        # a NEGATIVE value (the common case - see below) and was pushing
+        # every such component outside its own parent's bounds. Verified
+        # against PROMETEO's real .ork (no invented case): e.g.
+        # "Sistema de recuperacion" (bottom, value=-0.8773) inside the
+        # 1.2 m "Fuselage" tube. The old formula gave 2.3473 m - outside
+        # the whole 1.47 m airframe. OpenRocket's own UI would never let
+        # a component's *nominal* position sit fully outside its parent
+        # tube for a plain "bottom" offset like this, so a value this
+        # large moving it further OUTSIDE on a negative offset cannot be
+        # right. Flipping the sign (`+ value` instead of `- value`) puts
+        # it at 0.5927 m - inside the tube, right where a recovery bay
+        # would sit - and does the same for every other "bottom"-type
+        # component in this file (all previously computed outside their
+        # tube, all now inside it). No OpenRocket source access from this
+        # sandbox to cite chapter and verse, so this is empirical, not
+        # textbook - but it's the formula that stops producing physically
+        # impossible positions on real, unmodified data.
+        fore = parent_aft_m + value - child_length_m
     elif pos_type == "middle":
         parent_mid = (parent_fore_m + parent_aft_m) / 2.0
         fore = parent_mid - child_length_m / 2.0 + value
@@ -309,6 +328,7 @@ def parse_rocket(root):
             )
             parsed.nose = nose
             log.append(ImportRow(cname, "IMPORTED", f"length={length:.4f} m, aft_radius={aft_radius}, shape={nose.shape}"))
+            _apply_overrides(comp, cname, parsed, log, component_fore_m=cursor_m)
             cursor_m += length
             _parse_subcomponents_of(comp, cursor_m - length, cursor_m, parsed, log)
 
@@ -340,6 +360,7 @@ def parse_rocket(root):
             log.append(ImportRow(cname, "IMPORTED", f"length={length:.4f} m, fore_r={tr.fore_radius}, aft_r={tr.aft_radius}"))
             fore, aft = cursor_m, cursor_m + length
             cursor_m = aft
+            _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
             _parse_subcomponents_of(comp, fore, aft, parsed, log)
 
         elif tag in ("tubefin", "freeformfinset", "streamer", "railbutton_orphan"):
@@ -351,15 +372,24 @@ def parse_rocket(root):
     return parsed
 
 
-def _apply_overrides(bodytube_elem, cname, parsed, log, component_fore_m=0.0):
-    mass_elem = _find(bodytube_elem, "overridemass")
-    cg_elem = _find(bodytube_elem, "overridecg")
+def _read_overridemass_cg(elem, component_fore_m=0.0):
+    """Raw <overridemass>/<overridecg> read, with no side effects (no
+    logging, nothing appended to `parsed`) - shared by `_apply_overrides`
+    (which DOES log/record it, for components whose mass is otherwise
+    estimated in translate.py's _geometric_components) and by the
+    bulkhead branch below (which wants the raw value immediately, to
+    prefer it over its own density-based estimate, without a second
+    generic log line for the same component).
+    Returns (mass_val, override_subcomponents_mass, cg_val, override_subcomponents_cg);
+    mass_val/cg_val are None if that tag isn't present."""
+    mass_elem = _find(elem, "overridemass")
+    cg_elem = _find(elem, "overridecg")
     if mass_elem is None and cg_elem is None:
-        return
+        return None, False, None, False
 
-    sub_mass = _find(bodytube_elem, "overridesubcomponentsmass")
+    sub_mass = _find(elem, "overridesubcomponentsmass")
     override_sub_mass = sub_mass is not None and sub_mass.text and sub_mass.text.strip().lower() == "true"
-    sub_cg = _find(bodytube_elem, "overridesubcomponentscg")
+    sub_cg = _find(elem, "overridesubcomponentscg")
     override_sub_cg = sub_cg is not None and sub_cg.text and sub_cg.text.strip().lower() == "true"
 
     mass_val = _text_num(mass_elem) if mass_elem is not None else None
@@ -367,16 +397,37 @@ def _apply_overrides(bodytube_elem, cname, parsed, log, component_fore_m=0.0):
     # component's own fore end (NOT verified against a real example carrying this tag -
     # flagged APPROXIMATED below regardless of which branch is taken).
     cg_val = component_fore_m + _text_num(cg_elem) if cg_elem is not None and _text_num(cg_elem) is not None else None
+    return mass_val, override_sub_mass, cg_val, override_sub_cg
+
+
+def _apply_overrides(elem, cname, parsed, log, component_fore_m=0.0):
+    """Records this component's <overridemass>/<overridecg> (if any) into
+    parsed.mass_overrides and the import log. 2026-09-26 review item 1:
+    this used to be called for bodytube components only - PROMETEO's real
+    .ork also has a per-component <overridemass> on its nosecone, its fin
+    set, and its parachute (0.227/0.505/0.558 kg respectively), none of
+    which were ever being read, so translate.py's geometric mass/CG
+    estimate silently used the wrong mass for all three (and dropped the
+    parachute's packed mass entirely - it isn't a geometric component at
+    all otherwise). Now called for every component type that can carry
+    these tags; translate._geometric_components looks each one up by
+    name via parsed.mass_overrides, same as it already did for the one
+    bodytube case."""
+    mass_val, override_sub_mass, cg_val, override_sub_cg = _read_overridemass_cg(elem, component_fore_m)
+    if mass_val is None and cg_val is None:
+        return None
 
     parsed.mass_overrides.append(MassOverride(cname, mass_val, override_sub_mass, cg_val, override_sub_cg))
     detail = f"mass={mass_val}, override_subcomponents_mass={override_sub_mass}, cg={cg_val}, override_subcomponents_cg={override_sub_cg}"
-    status = "IMPORTED" if mass_elem is not None else "APPROXIMATED"
-    log.append(ImportRow(f"{cname} (override)", status, detail + (" - overridecg offset convention not verified against a real example, treat as approximate" if cg_elem is not None else "")))
+    status = "IMPORTED" if mass_val is not None else "APPROXIMATED"
+    log.append(ImportRow(f"{cname} (override)", status, detail + (" - overridecg offset convention not verified against a real example, treat as approximate" if cg_val is not None else "")))
 
-    for child in bodytube_elem:
+    for child in elem:
         t = _local(child.tag)
         if t.startswith("override") and t not in ("overridemass", "overridesubcomponentsmass", "overridecg", "overridesubcomponentscg"):
             log.append(ImportRow(f"{cname} ({t})", "APPROXIMATED", "override tag present but not specifically handled by this reader - verify manually"))
+
+    return mass_val
 
 
 def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, log):
@@ -407,6 +458,7 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             )
             parsed.fins.append(fin)
             log.append(ImportRow(cname, "IMPORTED", f"n={fin.count}, root={fin.root_chord:.4f}, tip={fin.tip_chord:.4f}, span={fin.span:.4f}, sweep={fin.sweep_length:.4f}"))
+            _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
             prev_aft = fore + root_chord
 
         elif tag == "masscomponent":
@@ -425,7 +477,12 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             # nested inside (caught via a real .ork, not an invented case).
             length = _child_text_num(comp, "length", 0.0)
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
-            log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
+            if override_mass:
+                parsed.point_masses.append(PointMass(name=cname, mass=override_mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "IMPORTED", f"mass={override_mass:.4f} kg (measured override on this <{tag}>) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            else:
+                log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass (no override present) - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
             _parse_subcomponents_of(comp, fore, fore + length, parsed, log)
             prev_aft = fore + length
 
@@ -435,13 +492,20 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
         elif tag == "bulkhead":
             # A bulkhead IS a real, often non-trivial mass (a solid disk) -
             # unlike innertube/centeringring/launchlug it has no
-            # subcomponents of its own, so approximate its mass from
-            # material density x disk volume rather than dropping it.
+            # subcomponents of its own. Prefer a measured <overridemass>
+            # when present (2026-09-26 review item 1: PROMETEO's real
+            # bulkheads all carry one, e.g. 0.075 kg) over the density x
+            # volume estimate, which is only a fallback for when no
+            # override exists.
             length = _child_text_num(comp, "length", 0.0)
             outer_r = _child_text_num(comp, "outerradius")
             density = _material_density(comp)
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
-            if outer_r is not None and density is not None and length > 0:
+            override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
+            if override_mass is not None:
+                parsed.point_masses.append(PointMass(name=cname, mass=override_mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "IMPORTED", f"mass={override_mass:.4f} kg (measured override) @ {fore + length/2.0:.4f} m"))
+            elif outer_r is not None and density is not None and length > 0:
                 mass = math.pi * outer_r**2 * length * density
                 parsed.point_masses.append(PointMass(name=cname, mass=mass, position_m=fore + length / 2.0))
                 log.append(ImportRow(cname, "APPROXIMATED", f"mass={mass:.4f} kg (solid disk: r={outer_r}, length={length}, density={density}) @ {fore + length/2.0:.4f} m"))
@@ -466,6 +530,14 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             parsed.parachutes.append(chute)
             status = "IMPORTED" if cd is not None else "APPROXIMATED"
             log.append(ImportRow(cname, status, f"diameter={chute.diameter:.4f} m, cd={cd if cd is not None else 'auto - NOT resolvable from this file, must supply manually'}, deploy={chute.deploy_event}@{chute.deploy_altitude}"))
+            # 2026-09-26 review item 1: a packed parachute has real mass
+            # (PROMETEO's own is 0.558 kg - more than any single mass
+            # component elsewhere in this rocket) and was previously not
+            # counted in the dry mass/CG at all, since a parachute isn't
+            # one of translate.py's other geometric component types.
+            # Recording its override here lets _geometric_components pick
+            # it up the same way it already does for the one bodytube case.
+            _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
             prev_aft = fore
 
         elif tag == "railbutton":
@@ -678,14 +750,46 @@ def read_ork(path):
     else:
         parsed.import_log.append(ImportRow("launch conditions", "IMPORTED", f"rail={parsed.launch.rail_length_m} m, rod_angle={parsed.launch.rail_angle_from_vertical_deg} deg from vertical, alt={parsed.launch.altitude_m} m"))
 
-    airframe_end_m = max((t.position_m + t.length for t in parsed.body_tubes), default=0.0)
+    for name, pos in components_outside_airframe(parsed):
+        airframe_end_m = airframe_length_m(parsed)
+        parsed.import_log.append(ImportRow(
+            name, "APPROXIMATED",
+            f"WARNING: resolved position {pos:.4f} m is OUTSIDE the modeled airframe (0 to {airframe_end_m:.4f} m). "
+            "Re-check this component's position in OpenRocket before trusting the simulation - see "
+            "bup_rocketpy.ork_reader.components_outside_airframe (also used to BLOCK Simulate in the app, "
+            "2026-09-26 review item 2).",
+        ))
+    return parsed
+
+
+def airframe_length_m(parsed):
+    """Nose tip to the aft end of the last body tube, m - the modeled
+    rocket's own total length, used as the sanity bound for
+    components_outside_airframe()."""
+    nose_len = parsed.nose.length if parsed.nose is not None else 0.0
+    tube_end = max((t.position_m + t.length for t in parsed.body_tubes), default=nose_len)
+    return max(nose_len, tube_end)
+
+
+def components_outside_airframe(parsed):
+    """2026-09-26 review item 2: "never hang" - returns a list of
+    (component_name, resolved_position_m) for every point mass, fin set
+    and parachute whose resolved axial position falls outside [0,
+    airframe_length_m(parsed)]. This is exactly the class of bug item 1
+    fixed (a wrong 'bottom' sign pushing a component's resolved position
+    way outside its own airframe) - callers (the app's Simulate button)
+    should treat a non-empty result as a hard stop, not a warning, since
+    a component modeled outside the airframe is exactly what produced the
+    -1.41 cal margin / hung simulation this review reports."""
+    airframe_end_m = airframe_length_m(parsed)
+    out = []
     for pm in parsed.point_masses:
         if pm.position_m < 0 or pm.position_m > airframe_end_m:
-            parsed.import_log.append(ImportRow(
-                pm.name, "APPROXIMATED",
-                f"WARNING: resolved position {pm.position_m:.4f} m is OUTSIDE the modeled airframe (0 to {airframe_end_m:.4f} m). "
-                "This reader's 'bottom' offset formula matches OpenRocket's documented convention, but a negative offset can "
-                "legitimately place a component beyond its parent - or this .ork may have a genuine positioning issue. "
-                "VERIFY against the OpenRocket UI directly before trusting this position.",
-            ))
-    return parsed
+            out.append((pm.name, pm.position_m))
+    for fin in parsed.fins:
+        if fin.position_m < 0 or fin.position_m + fin.root_chord > airframe_end_m:
+            out.append((fin.name, fin.position_m))
+    for chute in parsed.parachutes:
+        if chute.position_m < 0 or chute.position_m > airframe_end_m:
+            out.append((chute.name, chute.position_m))
+    return out

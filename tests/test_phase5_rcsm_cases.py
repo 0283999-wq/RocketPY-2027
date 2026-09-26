@@ -63,6 +63,7 @@ def test_drogue_only_and_main_at_apogee_work_on_a_real_dual_deploy_vehicle():
     for Simulate purposes only (see that folder's README: an honest test
     fixture, not a claim about what motor this rocket actually flies)."""
     import tempfile
+    import warnings
 
     from bup_rocketpy.ork_reader import extract_drag_curves_from_stored_sim
 
@@ -74,12 +75,30 @@ def test_drogue_only_and_main_at_apogee_work_on_a_real_dual_deploy_vehicle():
     from bup_rocketpy.curve_utils import dedupe_sort_curve
 
     boost, coast = extract_drag_curves_from_stored_sim(ORK_2)
-    # this fixture's own stored-sim curve has a duplicate Mach value
-    # (unlike PROMETEO's) - same dedupe fix as crash (f), applied here
-    # since this test builds the CSVs by hand rather than going through
-    # pipeline.load_files (which already does this for the app's own path).
+    # 2026-09-26 review item 3 correction: dedupe_sort_curve is still
+    # called here for the same reason crash (f) needed it elsewhere (this
+    # test builds the CSVs by hand rather than through pipeline.load_files,
+    # which already does this on the app's own path) - but on THIS
+    # fixture it's actually a no-op (0 duplicates both times). An earlier
+    # note here claimed this fixture's stored-sim curve had a duplicate
+    # Mach value; that was wrong. Traced the REAL source of the
+    # "divide by zero in polation_1d" warning this test produces: it is
+    # rocketpy's OWN internal clean_pressure_signal_function, built AFTER
+    # Flight() completes from each parachute's own recorded barometric-
+    # pressure-vs-time samples (sampled every 0.01 s during the flight for
+    # its trigger-noise model) - NOT from any file this app reads. This
+    # fixture's main chute ("Elliptical 12-Gore 42\" Parachute") happens to
+    # record one duplicate timestamp among its ~4475 samples. Confirmed by
+    # reproducing the warning with a traceback: it bottoms out inside
+    # rocketpy/simulation/flight.py's
+    # __transform_pressure_signals_lists_to_functions, not in anything
+    # bup_rocketpy parses or writes. Not worth a monkeypatch for a warning
+    # that doesn't affect the result (Section 6's bar for a "confirmed
+    # bug" worth patching) - suppressed locally below so it doesn't spam
+    # test output, and left otherwise unfixed per budget-mode guidance.
     boost, n_dupes_boost = dedupe_sort_curve(boost)
     coast, n_dupes_coast = dedupe_sort_curve(coast)
+    assert n_dupes_boost == 0 and n_dupes_coast == 0, "if this ever fires, the fixture's own drag curve (not rocketpy internals) is now the real source - update the comment above"
     out_dir = tempfile.mkdtemp()
     power_on_path = os.path.join(out_dir, "power_on_drag.csv")
     power_off_path = os.path.join(out_dir, "power_off_drag.csv")
@@ -88,7 +107,12 @@ def test_drogue_only_and_main_at_apogee_work_on_a_real_dual_deploy_vehicle():
     with open(power_off_path, "w") as f:
         f.write("\n".join(f"{m},{c}" for m, c in coast))
 
-    results = rcsm_cases.run_all_cases(parsed, eng, ENG_PATH, power_off_path, power_on_path, DRY_MASS_KG, DRY_CG_M)
+    with warnings.catch_warnings():
+        # see the long comment above dedupe_sort_curve above - this is
+        # rocketpy's own internal pressure-signal Function construction,
+        # not anything this app controls.
+        warnings.filterwarnings("ignore", message="invalid value encountered in divide", category=RuntimeWarning)
+        results = rcsm_cases.run_all_cases(parsed, eng, ENG_PATH, power_off_path, power_on_path, DRY_MASS_KG, DRY_CG_M)
     for name, r in results.items():
         print(f"\n{name}: flight={'OK' if r.flight else 'NONE'}, warning={r.warning[:80]!r}")
     assert results["Ballistic"].flight is not None and results["Ballistic"].warning == ""

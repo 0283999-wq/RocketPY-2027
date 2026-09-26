@@ -10,6 +10,7 @@ registers its own @ui.page route on import).
 Run: python -m bup_rocketpy.gui.app (or double-click start.bat on
 Windows, which sets up the venv first).
 """
+import asyncio
 import os
 import tempfile
 
@@ -79,6 +80,16 @@ def simulate_page():
         ui.label("3. Simulate").classes("text-lg font-bold")
         progress = ui.spinner(size="lg").props("hidden")
         progress_label = ui.label("").classes("text-sm text-gray-500")
+        # 2026-09-26 review item 2: "never hang" - a single Flight() call has
+        # no internal checkpoint we can poll (unlike Monte Carlo's N
+        # separate samples), so this can't be a cooperative cancel like
+        # montecarlo_page.py's. What it CAN do: stop the UI from waiting on
+        # it forever. Clicking Cancel (or the SIMULATION_TIMEOUT_S backstop
+        # firing) detaches from the background thread and returns control to
+        # the user immediately; the orphaned thread itself keeps running to
+        # completion and its result is simply discarded - killing a Python
+        # thread mid-ODE-integration isn't something this can do cheaply.
+        sim_cancel_button = ui.button("Cancel", color="negative").props("hidden")
 
         ui.separator()
         ui.label("4. Results").classes("text-lg font-bold")
@@ -139,7 +150,10 @@ def simulate_page():
                 dry_cg_override_m=dry_cg_input.value if override_checkbox.value else None,
             )
             progress.props(remove="hidden")
-            progress_label.set_text("Simulating (this runs in the background - the page stays responsive)...")
+            sim_cancel_button.props(remove="hidden")
+            progress_label.set_text(f"Simulating (this runs in the background - the page stays responsive; auto-stops after {pipeline.SIMULATION_TIMEOUT_S}s if it doesn't finish)...")
+            cancel_event = asyncio.Event()
+            sim_cancel_button.on_click(cancel_event.set)
             try:
                 # 2026-09-26 review crash (b): running the flight simulation
                 # synchronously on NiceGUI's single asyncio event loop
@@ -147,14 +161,41 @@ def simulate_page():
                 # which the browser eventually reports as "Connection
                 # lost". run.io_bound runs it in a thread pool instead so
                 # the event loop (and the UI) stays alive throughout.
-                sim = await run.io_bound(
+                #
+                # 2026-09-26 review item 2: "never hang" - a rocket with an
+                # out-of-bounds component or a negative t0 static margin
+                # (this review's items 1/2) used to make Flight() spin
+                # forever in tiny adaptive steps through chaotic tumbling
+                # dynamics, with no feedback and no way out short of
+                # restarting the app. pipeline.run_simulation now raises a
+                # clear ValueError BEFORE calling Flight() for either of
+                # those cases (see its own docstring) - this timeout/cancel
+                # race is the backstop for every other way a simulation
+                # could still take too long.
+                sim_task = asyncio.ensure_future(run.io_bound(
                     pipeline.run_simulation, s["load_result"], OUTPUTS_DIR, **mass_kw,
+                ))
+                cancel_task = asyncio.ensure_future(cancel_event.wait())
+                done, pending = await asyncio.wait(
+                    [sim_task, cancel_task], timeout=pipeline.SIMULATION_TIMEOUT_S, return_when=asyncio.FIRST_COMPLETED,
                 )
+                for p in pending:
+                    p.cancel()
+                if sim_task not in done:
+                    reason = "Cancelled by user." if cancel_event.is_set() else f"Simulation timed out after {pipeline.SIMULATION_TIMEOUT_S}s (likely an unstable rocket - check the static margin and component positions on the Rocket page)."
+                    ui.notify(reason, type="negative", multi_line=True, timeout=0)
+                    progress.props("hidden")
+                    sim_cancel_button.props("hidden")
+                    progress_label.set_text("")
+                    return
+                sim = sim_task.result()
             except ValueError as exc:
                 ui.notify(str(exc), type="negative", multi_line=True, timeout=0)
                 progress.props("hidden")
+                sim_cancel_button.props("hidden")
                 progress_label.set_text("")
                 return
+            sim_cancel_button.props("hidden")
             s["sim_result"] = sim
             s["dry_mass_kg"] = sim.dry_mass_kg
             s["dry_cg_m"] = sim.dry_cg_m
