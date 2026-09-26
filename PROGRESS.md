@@ -1247,3 +1247,43 @@ moves (not deletes) any run whose record.json fails to parse into
 `runs/_corrupt/<run_id>/`.
 
 Full suite: 43 passed, 1 deselected in ~64s.
+
+### Item D (old lettering) / F (new lettering): new simulation report - DONE
+
+Replaced the old compliance-style report entirely with a formal
+simulation report: cover page (mission/vehicle/date/app version/author),
+real table of contents (reportlab TOC + page numbers via a NumberedCanvas,
+both auto-generated, not hand-maintained), and 10 numbered sections -
+Executive summary (KPI table), Vehicle (side drawing with CG/CP,
+dimensions, mass, stability, parachute table), Propulsion (thrust plot +
+motor table), Aerodynamics (Cd-vs-Mach plot + source + Mach coverage,
+reusing item B's fields), Environment (site/wind/rail), Nominal flight
+(every plot from Simulate), Recovery (table + descent plot), Flight
+cases (Ballistic/Nominal/DrogueOnly/MainAtApogee comparison table + a
+NEW overlaid-altitude-vs-time plot built fresh from each case's Flight
+object), Monte Carlo (N + "not statistically meaningful" warning if
+N<100 + histogram/ellipse rebuilt from raw samples, not a stale page
+screenshot), Assumptions. RCSM compliance section REMOVED (stays on the
+RCSM page only, per instruction) - no internal jargon anywhere.
+
+**Appendix (optional, off by default, checkbox on the Exports page)**:
+model validation vs. PROMETEO flights, now pulled from
+`bup_rocketpy/validation.py` - a NEW module extracted from
+tests/test_phase2_validation.py's own audited V1/V2 logic (same
+translate.ork_to_flight calls, no hand-built rocket). This fixes a
+DEEPER bug than the report alone: the Validation PAGE ITSELF was also
+hardcoded and had ALREADY drifted out of sync with the report's own
+different hardcoded numbers (1136.5/1071.1 on the page vs. 1124.1/1196.9
+in the report, neither matching the real current -1.79%/... code-to-code
+number). Both the page and the report's appendix now call the SAME live
+function - can never silently diverge again. New test
+`tests/test_validation_live.py`.
+
+`build_report_data()` gathers everything from already-computed app state
+into one plain dict; `generate_pdf`/`generate_docx` render from that
+SAME dict so the two formats can't disagree. Rewrote
+`tests/test_phase5_report_and_zip.py` for the new API (4 tests, all
+passing) - also locks in the compliance section is gone and the old
+"credit the officials, not us" wording rule now applies to the appendix.
+
+Full suite: 46 passed, 1 deselected in ~76s.

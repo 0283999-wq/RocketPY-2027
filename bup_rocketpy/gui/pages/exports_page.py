@@ -6,7 +6,9 @@ import os
 from nicegui import ui
 
 from bup_rocketpy.gui import layout, state
-from bup_rocketpy import lasc_package, rcsm, rcsm_cases, report, translate
+from bup_rocketpy import lasc_package, rcsm_cases, report, run_history, translate
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -29,34 +31,33 @@ def exports_page():
 
         ui.separator().classes("my-4")
         ui.label("Report (PDF / DOCX)").classes("text-lg font-bold")
+        ui.label("A formal simulation report - vehicle, propulsion, aerodynamics, environment, every plot, recovery, flight cases, Monte Carlo, assumptions. Not a compliance report (see the RCSM Cases page for that table).").classes("text-sm text-gray-500")
         mission_id_input = ui.input(label="Mission ID", value=s["mission_id"])
+        author_input = ui.input(label="Author (optional)")
+        appendix_checkbox = ui.checkbox("Include validation appendix (model's track record vs. real PROMETEO flights - computed live, takes a couple extra seconds)", value=False)
         report_status = ui.label("")
 
         def build_report(fmt):
             mission_id = mission_id_input.value
             s["mission_id"] = mission_id
-            parsed = s["load_result"].parsed_ork
             if s["case_results"] is None:
                 s["case_results"] = rcsm_cases.run_all_cases(
-                    parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                    s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
                     s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                     s["dry_mass_kg"], s["dry_cg_m"],
                 )
-            if s["compliance_rows"] is None:
-                category = rcsm.CATEGORIES["1km_solid"]
-                nominal = s["case_results"]["Nominal"]
-                s["compliance_rows"] = rcsm.check_compliance(category, nominal.flight, nominal.flight.rocket, payload_mass_kg=1.0) if nominal.flight else []
 
-            assumptions = [
-                f"Dry mass: {s['dry_mass_kg']:.4f} kg ({s['mass_source']})",
-                f"Dry CG: {s['dry_cg_m']:.4f} m from nose ({s['mass_source']})",
-                f"Drag curve: {s['load_result'].drag_curve_source}",
-            ]
+            data = report.build_report_data(
+                mission_id, author_input.value, s["load_result"], s["sim_result"], s["case_results"],
+                s["mc_result"], s["mc_uncertainties"], OUTPUTS_DIR,
+                app_commit_hash=run_history.current_app_commit_hash(REPO_ROOT),
+                include_appendix=appendix_checkbox.value,
+            )
             path = os.path.join(OUTPUTS_DIR, f"report.{fmt}")
             if fmt == "docx":
-                report.generate_docx(path, mission_id, parsed.name, s["case_results"], s["compliance_rows"], s["mc_result"], assumptions)
+                report.generate_docx(path, data)
             else:
-                report.generate_pdf(path, mission_id, parsed.name, s["case_results"], s["compliance_rows"], s["mc_result"], assumptions)
+                report.generate_pdf(path, data)
             report_status.set_text(f"Report written: {os.path.basename(path)}")
             report_link_container.clear()
             with report_link_container:
