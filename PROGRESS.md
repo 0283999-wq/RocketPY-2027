@@ -1100,3 +1100,47 @@ synthetic zero-point was gone.
 New test: `tests/test_motor_thrust_curve.py`, a synthetic .eng with an
 explicit t=0 row, asserting no RuntimeWarning and a real (non-NaN)
 mid-burn thrust value. Full suite: 39 passed, 1 skipped, 0 warnings.
+
+---
+
+## Feature, 2026-09-26 (later still): Monte Carlo now runs in parallel across CPU cores
+
+Diego's ask: MC only used one CPU core (background THREAD, not real
+parallelism) despite his machine (Ryzen 7, multiple cores) - "make it as
+fast as possible."
+
+`monte_carlo.run_monte_carlo` now dispatches its N stochastic flights to
+a `concurrent.futures.ProcessPoolExecutor` (real OS processes, not
+threads - Python's GIL means threads don't parallelize CPU-bound work
+like a Flight() simulation) sized to `os.cpu_count()` by default. Each
+worker independently rebuilds the nominal rocket/motor/env/flight and
+its own Stochastic* wrappers from scratch (rocketpy's stochastic objects
+hold live RNG/Function state that can't be pickled across a process
+boundary) - a small, one-time-per-sample cost next to the ~0.3-0.6s a
+Flight() itself takes.
+
+Measured on this sandbox (4 cores): N=20 PROMETEO samples in ~2.8s vs.
+~8-10s serial (roughly 3x, in line with the core count). Real speedup on
+Diego's own machine depends on how many logical cores it exposes.
+
+**Found and fixed a real regression while testing**: results used to be
+stored in whichever order workers happened to FINISH
+(`as_completed()` gives no ordering guarantee), which broke
+`analysis.drag_comparison`'s "common random numbers" feature (pairs
+`result_a.apogee_samples[i]` against `result_b.apogee_samples[i]`
+index-by-index across two separate seeded runs) -
+`test_drag_comparison_with_identical_curves_gives_zero_difference` caught
+it immediately (diff went from exactly 0 to +-48.9 m). Fixed by storing
+each sample's result at its own submission INDEX (not append-on-
+completion), so sample i means the same thing in both runs regardless of
+which process finished it first.
+
+Cancel still works: `executor.shutdown(wait=False, cancel_futures=True)`
+drops every not-yet-started sample and returns immediately rather than
+draining the whole pool - already-running worker processes finish on
+their own (same "detach, don't kill" limit as this review's Simulate-
+button timeout). `montecarlo_page.py` needed NO changes - `run_monte_carlo`'s
+external signature/behavior is unchanged, just faster.
+
+Full suite: 39 passed, 1 deselected (the pre-existing, documented opt-in
+Leaflet browser test) in ~58s.

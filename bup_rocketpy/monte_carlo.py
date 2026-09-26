@@ -7,6 +7,7 @@ default uncertainties, each carrying its source (CLAUDE.md Sec 6 Phase 4:
 "every uncertainty is editable and shows its source; if none, label it
 'no source, low confidence'").
 """
+import concurrent.futures
 import math
 import os
 from dataclasses import dataclass, field
@@ -105,34 +106,45 @@ def _seeded_rng(seed):
         np.random.default_rng = real_default_rng
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None):
-    """Runs N stochastic flights, returns a MonteCarloResult plus landing-
-    ellipse params (drogue/main - PROMETEO only has one recovery event, so
-    "drogue" and "main" here are the same single event unless the loaded
-    .ork has two; the caller decides which to label which).
-    progress_callback(i, n) is called after each simulation if given -
-    that's the hook the UI's progress bar uses (CLAUDE.md: "runs in the
-    background, with progress, cancellable"). cancel_check(), if given, is
-    also polled after each sample; when it returns True the loop stops
-    early and whatever samples completed so far are still returned (a
-    cancelled run must save its partial results, not throw them away)."""
-    from bup_rocketpy import translate
+def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed):
+    """Builds ONE stochastic sample and flies it. Module-level (not a
+    closure) and takes only plain/picklable arguments (dataclasses,
+    dicts, floats, strings) so it can be sent to a separate OS process -
+    see run_monte_carlo's docstring for why this runs in a
+    ProcessPoolExecutor instead of a loop. Rebuilds the nominal motor/
+    rocket/env/flight fresh per call rather than sharing one across
+    samples (like the old single-process loop did): rocketpy's
+    Stochastic* wrappers hold live, stateful RNGs and Function objects
+    that don't survive being pickled to another process, so each worker
+    needs its own. That setup is cheap (object construction, not
+    simulation) next to the ~0.3-0.6s a Flight() itself takes, so
+    duplicating it per sample costs little against the parallelism gained.
 
-    os.makedirs(output_dir, exist_ok=True)
-    u = {x.name: x for x in uncertainties if x.enabled}
+    Returns (apogee_agl_m, x_impact_or_None, y_impact_or_None); raises on
+    a degenerate/unstable sample - the caller excludes it, same as the
+    old per-sample try/except did.
+    """
+    from bup_rocketpy import translate
 
     motor = translate.build_motor(parsed_eng, eng_path)
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_monte_carlo")
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag, include_recovery=include_recovery)
     env = translate.build_environment(parsed.launch)
-    from rocketpy import Flight
     flight = Flight(rocket=rocket, environment=env, rail_length=parsed.launch.rail_length_m,
                      inclination=parsed.launch.inclination_deg, heading=parsed.launch.rail_direction_deg, terminate_on_apogee=not include_recovery)
 
     # Seeding: see _seeded_rng's docstring for why this whole construction
     # block runs inside it (needed for Phase 6's "same random seeds"
-    # common-random-numbers drag comparison).
-    with _seeded_rng(seed):
+    # common-random-numbers drag comparison). sample_seed is None unless
+    # the caller passed a base `seed` - in that case it's one of N
+    # independent sub-seeds (np.random.SeedSequence.spawn), not the same
+    # seed repeated, or every parallel worker would draw identical
+    # samples. With sample_seed=None, _seeded_rng is a no-op and each
+    # process's own OS-entropy-seeded default_rng() (rocketpy's own
+    # per-instance default) already gives independent randomness for
+    # free - processes never share random state the way threads/a single
+    # loop would.
+    with _seeded_rng(sample_seed):
         stochastic_env = StochasticEnvironment(environment=env, wind_velocity_x_factor=(1, u["wind_speed_ms"].std_dev / max(u["wind_speed_ms"].nominal, 0.1)) if "wind_speed_ms" in u else (1, 0))
         stochastic_motor = StochasticSolidMotor(solid_motor=motor, total_impulse=(motor.total_impulse, u["total_impulse_Ns"].std_dev) if "total_impulse_Ns" in u else None)
         stochastic_rocket = StochasticRocket(
@@ -185,50 +197,125 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
             inclination=(parsed.launch.inclination_deg, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,
             heading=(parsed.launch.rail_direction_deg, u["heading_deg"].std_dev) if "heading_deg" in u else None,
         )
+        sample_rocket = stochastic_rocket.create_object()
+        sample_env = stochastic_env.create_object()
+        sample_flight = Flight(
+            rocket=sample_rocket, environment=sample_env,
+            rail_length=stochastic_flight._randomize_rail_length(),
+            inclination=stochastic_flight._randomize_inclination(),
+            heading=stochastic_flight._randomize_heading(),
+            terminate_on_apogee=not include_recovery,
+        )
 
-    # NOTE: deliberately NOT using rocketpy's own top-level MonteCarlo
-    # orchestrator here. rocketpy==1.13.0 ships it with an explicit
-    # "still under testing" warning, and in practice it crashes outright
-    # (AttributeError on Flight.apogee_y) whenever a sampled configuration
-    # comes out badly unstable - which a wide-enough Monte Carlo WILL
-    # occasionally draw, by design. That's not a corner case to work
-    # around, it's the normal job of a Monte Carlo: some tail samples are
-    # unphysical and should be excluded, not allowed to kill the whole
-    # batch. So this replicates MonteCarlo's own per-sample construction
-    # (StochasticRocket.create_object() + StochasticEnvironment.create_object()
-    # + StochasticFlight's own randomized rail/inclination/heading - see
-    # rocketpy.simulation.monte_carlo.MonteCarlo.__run_single_simulation,
-    # which this mirrors exactly) inside a try/except per sample.
-    mc_filename = os.path.join(output_dir, "monte_carlo_run")
-    apogees, impact_xs, impact_ys = [], [], []
-    n_excluded = 0
-    exclusion_reasons = []
-    for i in range(n_simulations):
-        try:
-            sample_rocket = stochastic_rocket.create_object()
-            sample_env = stochastic_env.create_object()
-            sample_flight = Flight(
-                rocket=sample_rocket, environment=sample_env,
-                rail_length=stochastic_flight._randomize_rail_length(),
-                inclination=stochastic_flight._randomize_inclination(),
-                heading=stochastic_flight._randomize_heading(),
-                terminate_on_apogee=not include_recovery,
-            )
-            apogees.append(sample_flight.apogee - sample_env.elevation)
-            if include_recovery:  # ballistic (terminate_on_apogee=True) never reaches a real impact
-                impact_xs.append(sample_flight.x_impact)
-                impact_ys.append(sample_flight.y_impact)
-        except Exception as exc:  # a degenerate/unstable tail sample - exclude it, don't kill the batch
-            n_excluded += 1
-            if len(exclusion_reasons) < 10:
-                exclusion_reasons.append(f"sample {i}: {type(exc).__name__}: {exc}")
-        if progress_callback:
-            progress_callback(i + 1, n_simulations)
-        cancelled = cancel_check is not None and cancel_check()
-        if cancelled:
-            break
+    apogee_agl = sample_flight.apogee - sample_env.elevation
+    if include_recovery:  # ballistic (terminate_on_apogee=True) never reaches a real impact
+        return apogee_agl, sample_flight.x_impact, sample_flight.y_impact
+    return apogee_agl, None, None
+
+
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None):
+    """Runs N stochastic flights IN PARALLEL across OS processes (one
+    Flight() simulation doesn't parallelize internally, but N of them are
+    embarrassingly parallel - CLAUDE.md never asked for this, added
+    2026-09-26 at Diego's request for real wall-clock speed on his own
+    multi-core machine, not just a background thread that keeps the page
+    responsive while still running samples one at a time). Returns a
+    MonteCarloResult plus landing-ellipse params (drogue/main - PROMETEO
+    only has one recovery event, so "drogue" and "main" here are the same
+    single event unless the loaded .ork has two; the caller decides which
+    to label which).
+
+    max_workers defaults to os.cpu_count() (every logical core) - each
+    worker process is otherwise idle waiting on this one call, and a
+    Flight() simulation is CPU-bound with a small memory footprint, so
+    there's little reason to leave cores unused. Override it if a
+    machine needs to keep some cores free for other work.
+
+    progress_callback(i, n) is called as EACH sample finishes (i =
+    however many have completed so far, not sample i's own index -
+    samples finish out of submission order under parallel execution)-
+    that's the hook the UI's progress bar uses (CLAUDE.md: "runs in the
+    background, with progress, cancellable"). cancel_check(), if given,
+    is polled after each completion; when it returns True, all NOT-YET-
+    STARTED samples are cancelled and whatever completed so far is still
+    returned (a cancelled run must save its partial results, not throw
+    them away) - already-running worker processes finish on their own
+    rather than being killed mid-flight, the same "detach, don't kill"
+    limitation as this review's Simulate-button timeout/cancel."""
+    os.makedirs(output_dir, exist_ok=True)
+    u = {x.name: x for x in uncertainties if x.enabled}
+
+    if seed is not None:
+        sample_seeds = [int(s.generate_state(1)[0]) for s in np.random.SeedSequence(seed).spawn(n_simulations)]
     else:
-        cancelled = False
+        sample_seeds = [None] * n_simulations
+
+    mc_filename = os.path.join(output_dir, "monte_carlo_run")
+    # 2026-09-26: results are stored BY SAMPLE INDEX, not in whatever
+    # order workers happen to finish in (concurrent.futures.as_completed
+    # makes no ordering guarantee) - analysis.drag_comparison's "common
+    # random numbers" feature (CLAUDE.md Sec 6 point 2) pairs
+    # result_a.apogee_samples[i] against result_b.apogee_samples[i]
+    # index-by-index across two SEPARATE run_monte_carlo calls that share
+    # the same seed, expecting sample i to mean the same thing in both -
+    # true with the old single-process loop (deterministic submission AND
+    # completion order), broken by parallelizing until this was caught by
+    # test_drag_comparison_with_identical_curves_gives_zero_difference
+    # (identical drag curves + a shared seed no longer gave an exactly
+    # zero difference, since two runs could complete their otherwise-
+    # identical samples in two different relative orders).
+    apogees_by_index = [None] * n_simulations
+    impact_x_by_index = [None] * n_simulations
+    impact_y_by_index = [None] * n_simulations
+    excluded_indices = set()
+    exclusion_reasons = []
+    n_workers = max_workers or os.cpu_count() or 1
+    completed = 0
+    cancelled = False
+
+    executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_workers)
+    try:
+        futures = {
+            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i]): i
+            for i in range(n_simulations)
+        }
+        for future in concurrent.futures.as_completed(futures):
+            i = futures[future]
+            try:
+                apogee, x_impact, y_impact = future.result()
+                apogees_by_index[i] = apogee
+                if include_recovery:
+                    impact_x_by_index[i] = x_impact
+                    impact_y_by_index[i] = y_impact
+            except Exception as exc:  # a degenerate/unstable tail sample - exclude it, don't kill the batch
+                excluded_indices.add(i)
+                if len(exclusion_reasons) < 10:
+                    exclusion_reasons.append(f"sample {i}: {type(exc).__name__}: {exc}")
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, n_simulations)
+            if cancel_check is not None and cancel_check():
+                cancelled = True
+                break
+    finally:
+        # cancel_futures=True drops every NOT-YET-STARTED sample instead
+        # of waiting for the full pool to drain - the point of Cancel is
+        # to return control promptly, not to wait out however many
+        # samples happened to already be running.
+        executor.shutdown(wait=not cancelled, cancel_futures=cancelled)
+
+    # Indices left as None are either excluded (recorded separately in
+    # excluded_indices) or never attempted at all (cancelled before that
+    # sample's future was submitted/completed) - both are simply dropped
+    # here, same as the old sequential loop dropped whatever a `break`
+    # left untried. What's kept preserves ascending sample-index order.
+    apogees = [v for v in apogees_by_index if v is not None]
+    if include_recovery:
+        impact_xs = [v for v in impact_x_by_index if v is not None]
+        impact_ys = [v for v in impact_y_by_index if v is not None]
+    else:
+        impact_xs, impact_ys = [], []
+    n_excluded = len(excluded_indices)
 
     if apogees:
         arr = np.array(apogees)
