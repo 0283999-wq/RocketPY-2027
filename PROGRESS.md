@@ -1217,3 +1217,33 @@ blind next time if you'd rather have an untested first draft to fix
 together.
 
 Full suite: 42 passed, 1 deselected in ~63s.
+
+### Item C: reproducibility - DONE
+
+`RunRecord` now stores: app git commit hash, `.ork`/`.eng`/drag-CSV
+content hashes (sha256, 12 hex chars), launch site lat/lon/altitude,
+motor designation, max Mach + drag curve Mach coverage + extrapolated
+flag (reusing item B's fields), and drag curve source. Also fixed a
+pre-existing display bug found while wiring this up: `ork_filename` was
+using `parsed_ork.name` (the ROCKET's declared name from inside the
+.ork's own XML) instead of the actual uploaded file's name - History was
+never showing the real filename at all.
+
+History page: new columns (App version, Site, Motor, Max Mach, Cd
+source); a run made with an older commit than the one currently running
+is labelled "(older)" with an orange banner explaining it may not be
+comparable to today's numbers - directly answers Diego's own "same
+inputs, different Mach on different runs" report (most likely explained
+by the app changing between those runs, now provable instead of guessed).
+
+New test `test_same_inputs_give_identical_results`: two independent
+`run_simulation` calls from the same inputs must match EXACTLY (a plain
+Simulate has no randomness at all) - a regression canary for any future
+hidden-global-state bug (the same class as the curve-mutating-input-file
+bug fixed earlier this project).
+
+"Clean up corrupt runs" button added to History: `run_history.cleanup_corrupt_runs`
+moves (not deletes) any run whose record.json fails to parse into
+`runs/_corrupt/<run_id>/`.
+
+Full suite: 43 passed, 1 deselected in ~64s.

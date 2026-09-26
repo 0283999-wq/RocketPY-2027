@@ -206,7 +206,7 @@ def simulate_page():
             try:
                 from bup_rocketpy import run_history
                 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m)
+                run_history.save_run(repo_root, sim, s["load_result"], sim.dry_mass_kg, sim.dry_cg_m, ork_path=s["ork_path"])
             except Exception as exc:  # history is a convenience, never block a real result on it failing to save
                 print(f"WARNING: could not save run history: {exc}")
             progress.props("hidden")

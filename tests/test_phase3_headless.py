@@ -172,6 +172,22 @@ def test_run_simulation_without_override_is_now_stable_and_sane():
     assert 500 < sim.apogee_agl_m < 2000, "not remotely in PROMETEO's known ballpark - something is badly wrong"
 
 
+def test_same_inputs_give_identical_results():
+    """2026-09-26 review item C: Diego saw the SAME Major Tom inputs give
+    Mach 0.9 on one run and Mach 1.0 on another (apogee 3,788 -> 3,827 m),
+    most likely because the code changed between runs, not the inputs. A
+    plain Simulate (no Monte Carlo, no randomness at all) MUST be fully
+    deterministic - two runs from the same .ork/.eng/mass/CG, on the same
+    app version, must agree exactly, not just approximately."""
+    result1 = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    sim1 = pipeline.run_simulation(result1, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+    result2 = pipeline.load_files(ORK_PATH, ENG_PATH, outputs_dir=OUTPUTS_DIR)
+    sim2 = pipeline.run_simulation(result2, OUTPUTS_DIR, dry_mass_override_kg=5.6622, dry_cg_override_m=0.6279)
+    assert sim1.apogee_agl_m == sim2.apogee_agl_m, f"same inputs gave different apogees: {sim1.apogee_agl_m} vs {sim2.apogee_agl_m}"
+    assert sim1.max_mach == sim2.max_mach
+    assert sim1.min_static_margin_cal == sim2.min_static_margin_cal
+
+
 def test_section5_kpis_and_recovery_panel_are_sane():
     """2026-09-25 review Section 5: the new KPIs and the LASC-requested
     recovery panel, sanity-checked against known-real numbers for
