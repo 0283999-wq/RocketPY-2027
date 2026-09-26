@@ -58,6 +58,9 @@ def exports_page():
             else:
                 report.generate_pdf(path, mission_id, parsed.name, s["case_results"], s["compliance_rows"], s["mc_result"], assumptions)
             report_status.set_text(f"Report written: {os.path.basename(path)}")
+            report_link_container.clear()
+            with report_link_container:
+                ui.link(f"Download {os.path.basename(path)}", f"/outputs/{os.path.basename(path)}")
 
         with ui.row():
             ui.button("Generate PDF report", on_click=lambda: build_report("pdf"))
