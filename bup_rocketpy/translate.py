@@ -267,8 +267,21 @@ def build_motor(parsed_eng, eng_path, dry_mass_override_kg=None):
     h = parsed_eng.header
     grain_outer_r, grain_inner_r, grain_height, grain_density = motor_grain_params(h)
 
+    # 2026-09-26 review: passing the raw eng_path let rocketpy re-parse the
+    # .eng ITSELF (Motor.import_eng), which unconditionally prepends its own
+    # (0, 0) point - its own docstring says "the .eng file must not contain
+    # the 0 0 point". A real user-supplied .eng CAN legitimately start with
+    # an explicit t=0 row (confirmed with a real file, "Kaboom" M1889,
+    # whose second line is "0 0.01") - that collides with rocketpy's own
+    # prepended (0, 0), two points at the same x, producing a divide-by-
+    # zero in the thrust Function's slope calculation and a degenerate
+    # (near-zero) thrust curve - which is exactly why every Monte Carlo
+    # sample of a rocket using that motor apogee'd barely above the pad.
+    # Passing our OWN already-parsed thrust_curve (a plain list, not a
+    # file path) bypasses Motor.import_eng entirely, so this can't happen
+    # regardless of what a given .eng file's own first line looks like.
     return SolidMotor(
-        thrust_source=eng_path,
+        thrust_source=parsed_eng.thrust_curve,
         dry_mass=dry_mass_override_kg if dry_mass_override_kg is not None else h.total_mass_kg - h.propellant_mass_kg,
         dry_inertia=(0.01, 0.01, 0.001),  # not recoverable from RASP - placeholder, same as PROMETEO's own motor.py
         nozzle_radius=(h.diameter_mm / 1000.0) * 0.15,  # rough estimate, not in RASP header
@@ -281,7 +294,15 @@ def build_motor(parsed_eng, eng_path, dry_mass_override_kg=None):
         grains_center_of_mass_position=(h.length_mm / 1000.0) / 2.0,
         center_of_dry_mass_position=(h.length_mm / 1000.0) / 2.0,
         nozzle_position=0,
-        burn_time=parsed_eng.burn_time_s,
+        # (first, last) timestamp of OUR OWN curve, not (0, burn_time_s) -
+        # now that rocketpy no longer re-parses the file itself (see the
+        # thrust_source comment above), its synthetic (0, 0) point that
+        # used to make burn_time=(0, ...) always valid is gone; some real
+        # .eng files' own first row isn't at t=0 (this one's isn't), so a
+        # bare 0 here would be out of range and rocketpy would just clip it
+        # with a warning - passing the curve's real bounds is both more
+        # correct and warning-free.
+        burn_time=(parsed_eng.thrust_curve[0][0], parsed_eng.burn_time_s),
         throat_radius=(h.diameter_mm / 1000.0) * 0.1,
         coordinate_system_orientation="nozzle_to_combustion_chamber",
     )
