@@ -12,7 +12,8 @@ from nicegui import ui
 from bup_rocketpy.gui import state, theme
 
 PAGES = [
-    ("/", "rocket_launch", "Simulate"),
+    ("/", "space_dashboard", "Home"),
+    ("/simulate", "rocket_launch", "Simulate"),
     ("/rocket", "architecture", "Rocket"),
     ("/montecarlo", "scatter_plot", "Monte Carlo"),
     ("/rcsm", "checklist", "RCSM Cases"),

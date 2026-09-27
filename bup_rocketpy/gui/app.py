@@ -52,22 +52,16 @@ async def _save_upload(e, suffix):
     return path, e.file.name
 
 
-@ui.page("/")
+@ui.page("/simulate")
 def simulate_page():
     # 2026-09-27 review item 7 (Mission Control redesign): three.js,
     # vendored offline (gui/static/three.min.js, MIT license) + the
     # flight-playback viewer built on it (gui/static/playback.js) - both
     # loaded once per page visit, same pattern theme.apply() already uses
-    # for CSS. Only THIS page and Monte Carlo need it, so it's not loaded
-    # globally in layout.py for every page.
+    # for CSS. Only THIS page, Home and Monte Carlo need it, so it's not
+    # loaded globally in layout.py for every page.
     ui.add_head_html('<script src="/static/vendor/three.min.js"></script><script src="/static/playback.js"></script>')
-    with layout.layout("Simulate", current_path="/"):
-        if s["sim_result"] is not None:
-            with ui.row().classes("items-center gap-2 mb-2"):
-                ui.label(f"Mission control - {s.get('vehicle_name') or 'Vehicle'}").classes("text-lg font-bold")
-                ui.label("Quick actions:").classes("text-xs text-gray-500 ml-4")
-                for label, path in [("Monte Carlo", "/montecarlo"), ("RCSM Cases", "/rcsm"), ("Exports", "/exports"), ("History", "/history")]:
-                    ui.link(label, path).classes("text-xs")
+    with layout.layout("Simulate", current_path="/simulate"):
         ui.label("1. Load files").classes("text-lg font-bold")
         with ui.row():
             async def on_ork_upload(e):
@@ -386,7 +380,7 @@ def main():
     # rebind that name, so every `await run.io_bound(...)` call in this
     # module would fail with "'function' object has no attribute
     # 'io_bound'" - found exactly this way, 2026-09-26 review.
-    from bup_rocketpy.gui.pages import analysis_page, design_system_page, exports_page, history_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
+    from bup_rocketpy.gui.pages import analysis_page, design_system_page, exports_page, history_page, home_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
     show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"

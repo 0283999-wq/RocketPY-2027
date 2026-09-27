@@ -36,7 +36,7 @@ SECOND_ORK_PATH = os.path.join(REPO_ROOT, "reference", "openrocket_examples", "A
 SCREENSHOTS_DIR = os.path.join(REPO_ROOT, "docs", "screenshots")
 CHROMIUM = "/opt/pw-browsers/chromium"
 
-PAGES = [("/rocket", "05_rocket.png"), ("/montecarlo", "06_montecarlo.png"),
+PAGES = [("/", "04_home.png"), ("/rocket", "05_rocket.png"), ("/montecarlo", "06_montecarlo.png"),
          ("/rcsm", "07_rcsm.png"), ("/analysis", "08_analysis.png"), ("/history", "09_history.png"),
          ("/exports", "10_exports.png"), ("/validation", "11_validation.png"), ("/launchday", "12_launchday.png")]
 
@@ -44,6 +44,7 @@ PAGES = [("/rocket", "05_rocket.png"), ("/montecarlo", "06_montecarlo.png"),
 # alone isn't enough (2026-09-25 review's whole complaint was pages that
 # render without a traceback but show nothing useful, or 0/None KPIs).
 REAL_CONTENT_MARKERS = {
+    "/": "Apogee AGL",  # 2026-09-27 redesign: Home is now the mission-control dashboard, "/simulate" is the load/simulate flow
     "/rocket": "Loaded rocket:",
     "/montecarlo": "Uncertainties",
     "/rcsm": "RCSM category",
@@ -117,7 +118,7 @@ def test_default_path_every_page_and_second_ork(tmp_path):
             page = browser.new_page(viewport={"width": 1440, "height": 900})
 
             # --- Load PROMETEO with NO manual override - the actual default path ---
-            page.goto(base_url, wait_until="networkidle")
+            page.goto(base_url + "/simulate", wait_until="networkidle")
             file_inputs = page.locator('input[type="file"]')
             file_inputs.nth(0).set_input_files(ORK_PATH)
             page.wait_for_timeout(500)
@@ -171,7 +172,7 @@ def test_default_path_every_page_and_second_ork(tmp_path):
             assert not missing_content, f"pages missing real content: {missing_content}"
 
             # --- Load a second, genuinely different .ork - Rocket page must update, not stay stale (crash e) ---
-            page.goto(base_url, wait_until="networkidle")
+            page.goto(base_url + "/simulate", wait_until="networkidle")
             file_inputs = page.locator('input[type="file"]')
             file_inputs.nth(0).set_input_files(SECOND_ORK_PATH)
             page.wait_for_timeout(500)

@@ -58,7 +58,7 @@ def test_flight_playback_and_live_monte_carlo_render_and_animate(tmp_path):
             page = browser.new_page(viewport={"width": 1400, "height": 1000})
             page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
 
-            page.goto(base_url, wait_until="networkidle")
+            page.goto(base_url + "/simulate", wait_until="networkidle")
             file_inputs = page.locator('input[type="file"]')
             file_inputs.nth(0).set_input_files(ORK_PATH)
             page.wait_for_timeout(300)

@@ -48,7 +48,7 @@ def _reopen_mission(run_id):
     s["compliance_rows"] = None
     s["mc_result"] = None
     ui.notify(f"Reopened mission '{run_id}' - click Simulate to fly it.", type="positive")
-    ui.navigate.to("/")
+    ui.navigate.to("/simulate")
 
 
 @ui.page("/history")
