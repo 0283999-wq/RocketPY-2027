@@ -104,6 +104,19 @@ def kpi_card(label, value, unit="", caption=None, status="neutral", countup_targ
     return c
 
 
+def hero_stat(label, value, unit="", status="neutral", caption=None):
+    """A single big, high-contrast number - for field-friendly displays
+    (Launch Day's wind reading, Validation's predicted-vs-flight) meant
+    to be read at a glance, not studied like a KPI grid."""
+    color = STATUS_COLORS.get(status, "var(--bup-wine)") if status != "neutral" else "var(--bup-wine)"
+    with card(classes="items-center text-center") as c:
+        ui.label(label).classes("text-sm").style("color: var(--bup-muted)")
+        ui.label(f"{value} {unit}".strip()).style(f"font-size: 2.75rem; font-weight: 700; line-height: 1.1; color: {color};")
+        if caption:
+            ui.label(caption).classes("text-sm mt-1").style("color: var(--bup-muted)")
+    return c
+
+
 def status_chip(text, kind="neutral"):
     return ui.label(text).classes("text-xs px-2 py-1 rounded-full border").style(CHIP_KIND_STYLE.get(kind, CHIP_KIND_STYLE["neutral"]))
 

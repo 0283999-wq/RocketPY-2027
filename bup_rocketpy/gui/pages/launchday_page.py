@@ -14,7 +14,7 @@ import os
 from nicegui import ui
 
 from bup_rocketpy import competition_profiles, weather
-from bup_rocketpy.gui import layout, state
+from bup_rocketpy.gui import components, layout, state
 
 s = state.state
 CACHE_DIR = os.path.join(os.getcwd(), "outputs", "weather_cache")
@@ -23,23 +23,25 @@ CACHE_DIR = os.path.join(os.getcwd(), "outputs", "weather_cache")
 @ui.page("/launchday")
 def launchday_page():
     with layout.layout("Launch Day", current_path="/launchday"):
-        ui.label("Launch-day weather (offline-capable)").classes("text-lg font-bold")
+        components.page_header("Launch-day weather", "Download once while you have internet - works fully offline at the pad after that.")
+        components.status_chip("Offline after first download", "info")
         ui.label(
             "Download the forecast for your launch site/date once, while you still have internet - "
             "it's cached to disk after that, so this page (and Simulate, if you apply it below) keeps "
             "working with NO network at the launch site. Times are LOCAL to the launch site."
-        ).classes("text-sm text-gray-500")
+        ).classes("text-sm mt-1").style("color: var(--bup-muted)")
 
         profile = competition_profiles.get_profile(s["competition_profile"])
         launch = s["load_result"].parsed_ork.launch if s["load_result"] is not None else None
         default_lat = launch.latitude if launch else (profile.default_site_lat or 0.0)
         default_lon = launch.longitude if launch else (profile.default_site_lon or 0.0)
 
-        with ui.grid(columns=4).classes("gap-4"):
-            lat_input = ui.number(label="Site latitude", value=default_lat, format="%.4f")
-            lon_input = ui.number(label="Site longitude", value=default_lon, format="%.4f")
-            date_input = ui.input(label="Launch date (YYYY-MM-DD)", value=datetime.date.today().isoformat())
-            hour_input = ui.number(label="Launch hour (local, 0-23)", value=12, min=0, max=23)
+        with components.card(classes="w-full mt-3"):
+            with ui.grid(columns=4).classes("gap-4 w-full"):
+                lat_input = ui.number(label="Site latitude", value=default_lat, format="%.4f").classes("text-lg")
+                lon_input = ui.number(label="Site longitude", value=default_lon, format="%.4f").classes("text-lg")
+                date_input = ui.input(label="Launch date (YYYY-MM-DD)", value=datetime.date.today().isoformat()).classes("text-lg")
+                hour_input = ui.number(label="Launch hour (local, 0-23)", value=12, min=0, max=23).classes("text-lg")
 
         status_label = ui.label("")
         result_container = ui.column().classes("w-full mt-2")
@@ -68,49 +70,44 @@ def launchday_page():
                 except ValueError as exc:
                     ui.label(f"Could not read wind from this profile: {exc}").classes("text-red-700")
                     return
-                with ui.grid(columns=3).classes("gap-4"):
-                    for label, value in [
-                        ("Wind speed (10 m)", f"{speed:.1f} m/s"),
-                        ("Wind direction (from)", f"{direction:.0f}°"),
-                        ("Source", profile_obj.source),
-                    ]:
-                        with ui.card():
-                            ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(value).classes("text-lg font-bold")
+                # Field-friendly: the number that matters most (current
+                # surface wind speed) shown huge and high-contrast, not
+                # buried in a KPI grid - readable at a glance in bright
+                # sunlight at the launch site.
+                with ui.row().classes("gap-3 w-full items-stretch"):
+                    components.hero_stat("Wind speed (10 m)", f"{speed:.1f}", "m/s")
+                    components.hero_stat("Wind direction (from)", f"{direction:.0f}", "°")
+                components.status_chip(f"Source: {profile_obj.source}", "info")
 
                 # 2026-09-27 review item 3a: "show the full wind profile
                 # vs altitude, not just one number."
-                ui.label("Wind profile vs altitude").classes("text-md font-bold mt-2")
-                ui.label("Altitude is the ICAO standard-atmosphere approximate height for each pressure level (labeled, not the site's own measured elevation) - for a sense of shear with height, not a precise AGL reading.").classes("text-xs text-gray-500")
-                ui.table(
-                    columns=[
-                        {"name": "altitude", "label": "~Altitude (m ASL)", "field": "altitude"},
-                        {"name": "pressure", "label": "Pressure level", "field": "pressure"},
-                        {"name": "speed", "label": "Wind speed (m/s)", "field": "speed"},
-                        {"name": "direction", "label": "Direction (from, °)", "field": "direction"},
-                    ],
-                    rows=[{
-                        "altitude": f"{alt:.0f}", "pressure": f"{p} hPa" if p else "surface (10 m)",
-                        "speed": f"{spd:.1f}", "direction": f"{d:.0f}",
-                    } for alt, p, spd, d in rows],
-                ).classes("w-full")
+                with components.card(classes="w-full mt-3"):
+                    ui.label("Wind profile vs altitude").classes("font-bold")
+                    ui.label("Altitude is the ICAO standard-atmosphere approximate height for each pressure level (labeled, not the site's own measured elevation) - for a sense of shear with height, not a precise AGL reading.").classes("text-xs").style("color: var(--bup-muted)")
+                    components.data_table(
+                        columns=[
+                            {"name": "altitude", "label": "~Altitude (m ASL)", "field": "altitude"},
+                            {"name": "pressure", "label": "Pressure level", "field": "pressure"},
+                            {"name": "speed", "label": "Wind speed (m/s)", "field": "speed"},
+                            {"name": "direction", "label": "Direction (from, °)", "field": "direction"},
+                        ],
+                        rows=[{
+                            "altitude": f"{alt:.0f}", "pressure": f"{p} hPa" if p else "surface (10 m)",
+                            "speed": f"{spd:.1f}", "direction": f"{d:.0f}",
+                        } for alt, p, spd, d in rows],
+                    )
 
-                ui.button("Use this weather for Simulate", on_click=lambda: _apply_wind(speed, direction, profile_obj.source)).classes("mt-2")
+                components.button("Use this weather for Simulate", kind="primary", icon="check", on_click=lambda: _apply_wind(speed, direction, profile_obj.source)).classes("mt-2")
 
         def render_climatology(clim):
             climatology_container.clear()
             with climatology_container:
-                ui.label(f"Climatology for {clim.month:02d}-{clim.day:02d} {clim.hour:02d}:00 local, averaged over {len(clim.years)} years ({min(clim.years)}-{max(clim.years)})").classes("text-md font-bold")
-                with ui.grid(columns=3).classes("gap-4"):
-                    for label, value in [
-                        ("Wind speed (mean ± std)", f"{clim.wind_speed_mean_ms:.1f} ± {clim.wind_speed_std_ms:.1f} m/s"),
-                        ("Wind direction (mean, from)", f"{clim.wind_direction_mean_deg:.0f}°"),
-                        ("Source", clim.source),
-                    ]:
-                        with ui.card():
-                            ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(value).classes("text-lg font-bold")
-                ui.label("This is a planning estimate (historical spread for that date/hour), not a specific forecast for this exact year.").classes("text-xs text-gray-500")
+                ui.label(f"Climatology for {clim.month:02d}-{clim.day:02d} {clim.hour:02d}:00 local, averaged over {len(clim.years)} years ({min(clim.years)}-{max(clim.years)})").classes("font-bold")
+                with ui.row().classes("gap-3 w-full items-stretch mt-2"):
+                    components.hero_stat("Wind speed (mean ± std)", f"{clim.wind_speed_mean_ms:.1f} ± {clim.wind_speed_std_ms:.1f}", "m/s")
+                    components.hero_stat("Wind direction (mean, from)", f"{clim.wind_direction_mean_deg:.0f}", "°")
+                components.status_chip(f"Source: {clim.source}", "info")
+                ui.label("This is a planning estimate (historical spread for that date/hour), not a specific forecast for this exact year.").classes("text-xs mt-1").style("color: var(--bup-muted)")
 
                 def apply_climatology_mean():
                     _apply_wind(clim.wind_speed_mean_ms, clim.wind_direction_mean_deg, "climatology mean")
@@ -129,18 +126,18 @@ def launchday_page():
                     ui.notify("Monte Carlo's wind uncertainty now uses this climatology - re-run Monte Carlo to see the effect.", type="positive")
 
                 with ui.row().classes("gap-2 mt-2"):
-                    ui.button("Use climatology mean for Simulate", on_click=apply_climatology_mean)
-                    ui.button("Use climatology for Monte Carlo's wind distribution", on_click=apply_climatology_to_mc)
+                    components.button("Use climatology mean for Simulate", kind="primary", icon="check", on_click=apply_climatology_mean)
+                    components.button("Use climatology for Monte Carlo's wind distribution", kind="secondary", icon="scatter_plot", on_click=apply_climatology_to_mc)
 
         if s["launch_override"] is not None:
-            ui.label("A cached weather override is currently ACTIVE for Simulate.").classes("bup-provisional-badge px-3 py-1 rounded font-bold inline-block")
+            components.status_chip("A cached weather override is currently ACTIVE for Simulate.", "warning")
 
             def clear_override():
                 s["launch_override"] = None
                 ui.notify("Cleared - Simulate will use the .ork's own recorded conditions again.", type="info")
                 ui.navigate.reload()
 
-            ui.button("Clear override (use .ork's own recorded weather)", on_click=clear_override, color="negative")
+            components.button("Clear override (use .ork's own recorded weather)", kind="danger", icon="clear", on_click=clear_override)
 
         def download_climatology():
             try:
@@ -178,9 +175,9 @@ def launchday_page():
             status_label.classes(replace="text-green-700")
             render_profile(profile_obj)
 
-        with ui.row().classes("gap-2"):
-            ui.button("Download weather for launch day", on_click=download).classes("mt-2")
-            ui.button("Download climatology (for dates too far out)", on_click=download_climatology, color="secondary").classes("mt-2")
+        with ui.row().classes("gap-2 mt-2"):
+            components.button("Download weather for launch day", kind="primary", icon="cloud_download", on_click=download)
+            components.button("Download climatology (for dates too far out)", kind="secondary", icon="history", on_click=download_climatology)
 
         if s["weather_profile"] is not None:
             render_profile(s["weather_profile"])
