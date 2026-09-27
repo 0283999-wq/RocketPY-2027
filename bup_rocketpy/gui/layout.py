@@ -36,26 +36,33 @@ def layout(title, current_path="/"):
     theme.apply(ui)
     ui.add_head_html(f'<title>Beyond UP RocketPy - {title}</title>')
     with ui.header().classes("bup-header items-center justify-between"):
-        with ui.row().classes("items-center gap-3"):
+        with ui.row().classes("items-center gap-1"):
+            drawer_ref = {}
+            ui.button(icon="menu", on_click=lambda: drawer_ref["drawer"].toggle()).props("flat round color=white").classes("mr-1")
             if os.path.exists(theme.LOGO_WINE):
                 ui.image(theme.LOGO_WINE).classes("h-8 w-auto")
             else:
-                ui.label("Beyond UP RocketPy").classes("text-lg font-bold")
-                ui.label("Flight simulation powered by RocketPy").classes("text-sm opacity-80")
+                with ui.column().classes("gap-0"):
+                    ui.label("Beyond UP RocketPy").classes("text-lg font-bold")
+                    ui.label("Flight simulation powered by RocketPy").classes("text-sm opacity-80")
         ui.label(title).classes("text-base font-medium")
         dark = ui.dark_mode()
         ui.button(icon="dark_mode", on_click=dark.toggle).props("flat round color=white")
 
     with ui.left_drawer().classes("bup-sidebar") as drawer:
+        drawer_ref["drawer"] = drawer
         for path, icon, label in PAGES:
-            classes = "bup-nav-active" if path == current_path else ""
+            active = path == current_path
+            classes = "bup-nav-active" if active else "bup-nav-item"
             with ui.row().classes(f"items-center gap-2 p-2 w-full cursor-pointer {classes}").on("click", lambda p=path: ui.navigate.to(p)):
-                ui.icon(icon)
-                ui.label(label)
+                icon_el = ui.icon(icon)
+                if active:
+                    icon_el.style(f"color: {theme.GOLD}")
+                ui.label(label).classes("font-medium" if active else "")
 
     _status_bar()
 
-    with ui.column().classes("w-full p-4 gap-4") as content:
+    with ui.column().classes("w-full p-4 gap-4 bup-page-enter") as content:
         yield content
 
 
