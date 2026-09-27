@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from nicegui import run, ui
 
-from bup_rocketpy.gui import layout, pipeline, state
+from bup_rocketpy.gui import components, layout, pipeline, state
 from bup_rocketpy import monte_carlo
 
 matplotlib.use("Agg")
@@ -24,51 +24,58 @@ def montecarlo_page():
     # offline - see gui/app.py's simulate_page for the same pattern.
     ui.add_head_html('<script src="/static/vendor/three.min.js"></script><script src="/static/playback.js"></script>')
     with layout.layout("Monte Carlo", current_path="/montecarlo"):
+        components.page_header("Monte Carlo", "Dispersion analysis: uncertainties in, apogee distribution and landing footprint out.")
         if s["load_result"] is None or s["sim_result"] is None:
-            ui.label("Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).").classes("text-gray-500")
+            components.empty_state("scatter_plot", "Load files and click Simulate on the Simulate page first (no manual override needed - the default path works from the .ork alone).", action_label="Go to Simulate", on_action=lambda: ui.navigate.to("/simulate"))
             return
 
         if s["mc_uncertainties"] is None:
             parsed = s["load_result"].parsed_ork
             s["mc_uncertainties"] = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
 
-        ui.label("Uncertainties (editable; every one shows its source)").classes("text-lg font-bold")
-        rows_container = ui.column().classes("w-full")
-        with rows_container:
-            for u in s["mc_uncertainties"]:
-                with ui.row().classes("items-center gap-2"):
-                    u_enabled = ui.checkbox(value=u.enabled)
-                    u_enabled.on_value_change(lambda e, u=u: setattr(u, "enabled", e.value))
-                    ui.label(u.name).classes("w-48")
-                    std_input = ui.number(label="std dev", value=u.std_dev).classes("w-32")
-                    std_input.on_value_change(lambda e, u=u: setattr(u, "std_dev", e.value))
-                    ui.label(u.source).classes("text-xs text-gray-500 flex-1")
+        with ui.row().classes("gap-4 w-full items-start flex-wrap"):
+            with components.card(classes="flex-1 min-w-[380px]"):
+                ui.label("Settings").classes("font-bold")
+                ui.label("Uncertainties (editable; every one shows its source)").classes("text-sm font-medium mt-2")
+                rows_container = ui.column().classes("w-full")
+                with rows_container:
+                    for u in s["mc_uncertainties"]:
+                        with ui.row().classes("items-center gap-2"):
+                            u_enabled = ui.checkbox(value=u.enabled)
+                            u_enabled.on_value_change(lambda e, u=u: setattr(u, "enabled", e.value))
+                            ui.label(u.name).classes("w-48")
+                            std_input = ui.number(label="std dev", value=u.std_dev).classes("w-32")
+                            std_input.on_value_change(lambda e, u=u: setattr(u, "std_dev", e.value))
+                            ui.label(u.source).classes("text-xs flex-1").style("color: var(--bup-muted)")
 
-        n_input = ui.number(label="N simulations", value=200)
-        n_warning_label = ui.label("").classes("text-xs text-orange-700")
+                n_input = ui.number(label="N simulations", value=200).classes("mt-2")
+                n_warning_label = ui.label("").classes("text-xs").style("color: var(--bup-warning)")
 
-        def _check_n_warning():
-            if n_input.value and n_input.value < 100:
-                n_warning_label.set_text("N < 100: the apogee mean/90% interval and landing ellipse won't be statistically meaningful. Default is 200.")
-            else:
-                n_warning_label.set_text("")
+                def _check_n_warning():
+                    if n_input.value and n_input.value < 100:
+                        n_warning_label.set_text("N < 100: the apogee mean/90% interval and landing ellipse won't be statistically meaningful. Default is 200.")
+                    else:
+                        n_warning_label.set_text("")
 
-        n_input.on_value_change(lambda _: _check_n_warning())
-        _check_n_warning()
+                n_input.on_value_change(lambda _: _check_n_warning())
+                _check_n_warning()
 
-        parsed_for_rail = s["load_result"].parsed_ork
-        with ui.row().classes("items-center gap-2"):
-            rail_inclination_input = ui.number(label="Rail inclination (deg from horizontal)", value=parsed_for_rail.launch.inclination_deg if parsed_for_rail.launch else None).classes("w-56")
-            rail_heading_input = ui.number(label="Rail heading (deg)", value=parsed_for_rail.launch.rail_direction_deg if parsed_for_rail.launch else None).classes("w-40")
-        ui.label("Defaults to the .ork's saved simulation; edit to match the rail setup you actually plan to use on launch day (e.g. pointed into the wind) before running.").classes("text-xs text-gray-500")
+                parsed_for_rail = s["load_result"].parsed_ork
+                with ui.row().classes("items-center gap-2 mt-2"):
+                    rail_inclination_input = ui.number(label="Rail inclination (deg from horizontal)", value=parsed_for_rail.launch.inclination_deg if parsed_for_rail.launch else None).classes("w-56")
+                    rail_heading_input = ui.number(label="Rail heading (deg)", value=parsed_for_rail.launch.rail_direction_deg if parsed_for_rail.launch else None).classes("w-40")
+                ui.label("Defaults to the .ork's saved simulation; edit to match the rail setup you actually plan to use on launch day (e.g. pointed into the wind) before running.").classes("text-xs").style("color: var(--bup-muted)")
 
-        progress_bar = ui.linear_progress(value=0).props("hidden")
-        progress_label = ui.label("")
-        run_button = ui.button("Run Monte Carlo")
-        cancel_button = ui.button("Cancel", color="negative").props("hidden")
+                progress_bar = ui.linear_progress(value=0).props("hidden").classes("mt-2")
+                progress_label = ui.label("").classes("text-sm").style("color: var(--bup-muted)")
+                with ui.row().classes("gap-2 mt-1"):
+                    run_button = components.button("Run Monte Carlo", kind="primary", icon="play_arrow")
+                    cancel_button = components.button("Cancel", kind="danger", icon="stop").props("hidden")
 
-        ui.label("Live 3D view (fills in as each trajectory completes)").classes("text-md font-bold mt-4")
-        live_mc_container = ui.column().classes("w-full")
+            with components.card(classes="flex-1 min-w-[380px]"):
+                ui.label("Live 3D view (fills in as each trajectory completes)").classes("font-bold")
+                live_mc_container = ui.column().classes("w-full")
+
         results_container = ui.column().classes("w-full mt-4")
 
         def render_results(result):
@@ -83,15 +90,10 @@ def montecarlo_page():
             # the whole time.
             results_container.clear()
             with results_container:
-                with ui.grid(columns=3).classes("gap-4"):
-                    for label, value in [
-                        ("Apogee mean", f"{result.apogee_mean:.1f} m"),
-                        ("90% interval low", f"{result.apogee_p05:.1f} m"),
-                        ("90% interval high", f"{result.apogee_p95:.1f} m"),
-                    ]:
-                        with ui.card():
-                            ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(value).classes("bup-kpi-value text-xl font-bold")
+                with ui.grid(columns=3).classes("gap-3 w-full"):
+                    components.kpi_card("Apogee mean", None, "m", status="neutral", countup_target=result.apogee_mean, decimals=1, stagger_index=0)
+                    components.kpi_card("90% interval low", None, "m", status="neutral", countup_target=result.apogee_p05, decimals=1, stagger_index=1)
+                    components.kpi_card("90% interval high", None, "m", status="neutral", countup_target=result.apogee_p95, decimals=1, stagger_index=2)
 
                 fig, ax = plt.subplots(figsize=(6, 3.5))
                 ax.hist(result.apogee_samples, bins=min(20, max(5, result.n_completed // 3)), color="#8A1538", alpha=0.75)
@@ -103,7 +105,8 @@ def montecarlo_page():
                 fig.tight_layout()
                 fig.savefig(hist_path)
                 plt.close(fig)
-                ui.image(hist_path).classes("w-full max-w-xl")
+                with components.card(classes="w-full max-w-xl mt-2"):
+                    ui.image(hist_path).classes("w-full")
 
                 ellipses = monte_carlo.landing_ellipses(result)
                 if ellipses:
@@ -122,7 +125,8 @@ def montecarlo_page():
                     fig2.tight_layout()
                     fig2.savefig(ellipse_path)
                     plt.close(fig2)
-                    ui.image(ellipse_path).classes("w-full max-w-xl")
+                    with components.card(classes="w-full max-w-xl mt-2"):
+                        ui.image(ellipse_path).classes("w-full")
 
                     # 2026-09-25 review Section 7: interactive Leaflet map
                     # overlaying the same ellipses/samples on real site
@@ -144,8 +148,8 @@ def montecarlo_page():
                     if launch is not None:
                         from bup_rocketpy.geo import ellipse_to_latlon_polygon, local_xy_to_latlon
                         origin_lat, origin_lon = launch.latitude, launch.longitude
-                        ui.label("Landing map").classes("text-md font-bold mt-2")
-                        leaflet = ui.leaflet(center=(origin_lat, origin_lon), zoom=15).classes("w-full").style("height: 400px")
+                        ui.label("Landing map").classes("text-lg font-bold mt-2")
+                        leaflet = ui.leaflet(center=(origin_lat, origin_lon), zoom=15).classes("w-full rounded-lg overflow-hidden").style("height: 400px")
                         leaflet.marker(latlng=(origin_lat, origin_lon))
                         # 2026-09-26 review item E: distance rings give a
                         # quick-glance sense of scale (how far is the
@@ -171,6 +175,7 @@ def montecarlo_page():
                         ui.label("No launch site lat/lon in the .ork - can't place the landing map.").classes("text-gray-500 text-sm")
                 else:
                     ui.label("No landing ellipse: this case terminates at apogee (Ballistic) or too few samples completed.").classes("text-gray-500")
+            components.finish_motion()
 
         if s["mc_result"] is not None:
             progress_label.set_text(f"Done: {s['mc_result'].n_completed} completed, {s['mc_result'].n_excluded} excluded.")
