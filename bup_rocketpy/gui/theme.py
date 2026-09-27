@@ -146,7 +146,20 @@ def apply(ui):
         --bup-shadow-lg: 0 12px 24px rgba(0,0,0,0.45);
       }}
 
+      /* NiceGUI/Quasar ship their own base CSS inside an `@layer base`
+         (`@import url(...) layer(base)`) - per the CSS cascade-layers
+         spec, ANY unlayered rule beats ANY layered rule regardless of
+         specificity. This plain `*` rule is unlayered, so it would
+         otherwise silently clobber `.material-icons`'s own (layered,
+         more specific) font-family rule and every sidebar/button icon
+         would render as literal text ("rocket_launch") instead of a
+         glyph - caught by screenshotting this exact page. The second
+         rule below restores the icon font, and wins because a class
+         selector beats a universal one once both are unlayered. */
       * {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+      .material-icons, .material-icons-outlined, .material-icons-round, .material-icons-sharp, .q-icon {{
+        font-family: "Material Icons" !important;
+      }}
       body {{ background-color: var(--bup-bg); color: var(--bup-text); }}
       body.body--dark {{ background-color: var(--bup-bg) !important; color: var(--bup-text) !important; }}
 

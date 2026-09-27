@@ -386,7 +386,7 @@ def main():
     # rebind that name, so every `await run.io_bound(...)` call in this
     # module would fail with "'function' object has no attribute
     # 'io_bound'" - found exactly this way, 2026-09-26 review.
-    from bup_rocketpy.gui.pages import analysis_page, exports_page, history_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
+    from bup_rocketpy.gui.pages import analysis_page, design_system_page, exports_page, history_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
     show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"
