@@ -21,23 +21,32 @@ anywhere Python needs the raw hex.
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bup-wine` | `#8A1538` | same | Primary brand color - header, primary buttons, active KPI values |
-| `--bup-gold` | `#B79357` | same | Accent - active nav indicator, secondary buttons, dark-mode KPI values |
-| `--bup-success` | `#2E7D32` | same | Passing/OK status |
-| `--bup-warning` | `#C77700` | same | PROVISIONAL/needs-attention status |
-| `--bup-error` | `#B3261E` | same | Failing/destructive status, danger buttons |
-| `--bup-info` | `#3A6EA5` | same | Informational chips (weather source, etc.) |
+| `--bup-wine` | `#8A1538` | same | Primary brand color - header, primary buttons, light-mode KPI values/active nav icon |
+| `--bup-gold` | `#B79357` | same | Accent - non-text only (border stripes, dropzone hover, shaded plot bands); dark-mode KPI values/active nav icon |
+| `--bup-success` | `#2C7730` | `#82B184` | Passing/OK status |
+| `--bup-warning` | `#955900` | `#D29233` | PROVISIONAL/needs-attention status |
+| `--bup-error` | `#B3261E` | `#D9928E` | Failing/destructive status, danger buttons |
+| `--bup-info` | `#3A6EA5` | `#89A8C9` | Informational chips (weather source, etc.) |
 | `--bup-bg` | `#FAF9F7` | `#1A1512` | Page background |
 | `--bup-surface` | `#FFFFFF` | `#2A211C` | Card/sidebar/dialog background |
 | `--bup-text` | `#211A16` | `#F2EEE9` | Body text |
 | `--bup-muted` | `#6B6259` | `#B8AEA3` | Secondary/caption text (labels, captions) |
 | `--bup-border` | `rgba(33,26,22,0.10)` | `rgba(242,238,233,0.12)` | Card/divider borders |
 
-Contrast (WCAG AA, checked against the pairings actually used - see
+Contrast (WCAG AA, checked against the pairings actually used, and
+proven with a real WCAG-formula test - `tests/test_redesign_quality.py`,
 `theme.py`'s own `CONTRAST_NOTES`): wine/white text pairs pass at ~8.6:1;
-gold is reserved for large text (>=24px) and non-text UI accents, where
-the 3:1 threshold applies instead of 4.5:1; muted text passes at
-4.6:1 (light) / 7.4:1 (dark).
+gold is reserved for non-text accents and for large text/icons
+(>=24px, where the 3:1 threshold applies) - it fails AA even at 3:1 on
+a light surface, so the active nav icon uses WINE in light mode and
+GOLD only in dark mode (`.bup-nav-active-icon`), same split as the KPI
+value color; muted text passes at 4.6:1 (light) / 7.4:1 (dark). The
+4 status colors have separate light/dark values (not "same" like the
+brand colors) because `status_chip()` renders them as text on their
+OWN ~12%-tinted background, at normal (non-bold, 12px) text size - a
+2026-09-27 quality-pass test caught the original single-value success/
+warning/error/info hues failing 4.5:1 there (as low as ~2.2:1 in dark
+mode), which no amount of screenshot-eyeballing had surfaced.
 
 **Type scale**: one font, Inter (vendored locally via `@fontsource/inter`,
 4 weights - 400/500/600/700 - no CDN, `static/fonts/`). Size scale is

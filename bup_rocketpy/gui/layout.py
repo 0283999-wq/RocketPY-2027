@@ -58,7 +58,7 @@ def layout(title, current_path="/"):
             with ui.row().classes(f"items-center gap-2 p-2 w-full cursor-pointer {classes}").on("click", lambda p=path: ui.navigate.to(p)):
                 icon_el = ui.icon(icon)
                 if active:
-                    icon_el.style(f"color: {theme.GOLD}")
+                    icon_el.classes("bup-nav-active-icon")
                 ui.label(label).classes("font-medium" if active else "")
 
     _status_bar()

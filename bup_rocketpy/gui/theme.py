@@ -17,10 +17,27 @@ WINE = "#8A1538"
 # Status colors (success/warning/error/info) - used by status_chip()/
 # kpi_card() in components.py and mirrored into NICEGUI_COLORS below so
 # ui.notify(type="positive"/...)/ui.button(color="negative"/...) match.
-SUCCESS = "#2E7D32"
-WARNING = "#C77700"
+# These are the LIGHT-mode values (also what Quasar's global ui.colors()
+# palette uses, in both themes, same as WINE/GOLD never re-pairing there
+# either). 2026-09-27 quality pass: SUCCESS/WARNING nudged darker from
+# their original values after the WCAG test below caught status_chip()'s
+# real rendering (colored text on its own ~12%-tinted surface, not on
+# pure white) failing AA - see CONTRAST_NOTES.
+SUCCESS = "#2C7730"
+WARNING = "#955900"
 ERROR = "#B3261E"
 INFO = "#3A6EA5"
+
+# DARK-mode-only variants for the same 4 tokens - status_chip()/kpi_card()
+# read these through the --bup-success/-warning/-error/-info CSS custom
+# properties, which body.body--dark redefines to these lighter tints (see
+# apply() below). The light-mode hex above, reused unchanged on a dark
+# tinted surface, fails AA badly (as low as ~2.2:1) - these are lightened
+# just enough to clear 4.5:1 there while keeping each hue recognizable.
+SUCCESS_DARK = "#82B184"
+WARNING_DARK = "#D29233"
+ERROR_DARK = "#D9928E"
+INFO_DARK = "#89A8C9"
 
 # Neutrals - a light and dark background pair, not sampled from the logo
 # (the logo only gives brand accents), chosen for AA contrast against both
@@ -39,14 +56,36 @@ DARK_BORDER = "rgba(242,238,233,0.12)"
 # CONTRAST_NOTES (WCAG AA = 4.5:1 for normal text, 3:1 for large text/UI):
 # - WINE (#8A1538) on white (#FFFFFF): ~8.6:1 -> AA pass, safe for body text.
 # - white on WINE: same ratio, safe for header/sidebar text on the wine background.
-# - GOLD (#B79357) on white: ~2.6:1 -> FAILS AA for body text. Only used here
-#   for large text (key numbers, >=24px) and non-text UI accents (active nav
-#   indicator bar, borders), where the AA threshold is 3:1 and it just passes.
+# - GOLD (#B79357) on white: ~2.7:1 -> FAILS AA for body text AND fails the
+#   3:1 large-text/UI threshold too (2026-09-27 quality pass: an earlier
+#   version of this note claimed it "just passes" 3:1 - a real WCAG-formula
+#   test proved that wrong). GOLD is therefore never used as light-mode
+#   text/icon color; anywhere it would be (e.g. the active nav icon), the
+#   light theme uses WINE instead and only the dark theme uses GOLD, same
+#   split as .bup-kpi-value - GOLD on the dark surfaces is ~5.5-6.3:1 (AA
+#   pass) while WINE on those same dark surfaces is only ~1.7-1.9:1 (would
+#   fail), so neither color can be hardcoded for both themes here. GOLD
+#   stays fine as a bare accent/border (non-text decorative stripe,
+#   dropzone hover border, shaded plot bands) where no contrast minimum
+#   applies.
 # - LIGHT_TEXT on LIGHT_BG and DARK_TEXT on DARK_BG: both >12:1, safe.
 # - LIGHT_MUTED (#6B6259) on LIGHT_BG/LIGHT_SURFACE: ~4.6:1 -> AA pass for
 #   secondary/caption text. DARK_MUTED on DARK_BG/DARK_SURFACE: ~7.4:1.
-# - SUCCESS/ERROR/INFO on white: all >=4.5:1. WARNING (#C77700) on white:
-#   ~3.0:1 - large text/icons only, same rule as GOLD.
+# - status_chip()'s real rendering is colored text on ITS OWN ~12%-tinted
+#   surface (CHIP_KIND_STYLE in components.py), not on pure white/pure
+#   dark - checked against that actual blended background, at the small
+#   (text-xs, non-bold) size the chip renders at, so the 4.5:1 normal-text
+#   threshold applies, not the 3:1 large-text one:
+#   light mode: SUCCESS #2C7730 ~4.7:1, WARNING #955900 ~4.8:1,
+#   ERROR #B3261E ~5.4:1, INFO #3A6EA5 ~4.5:1 - all AA pass.
+#   dark mode (the SUCCESS_DARK/WARNING_DARK/ERROR_DARK/INFO_DARK
+#   variants, via body.body--dark's CSS overrides below): SUCCESS_DARK
+#   ~5.2:1, WARNING_DARK ~4.8:1, ERROR_DARK ~5.1:1, INFO_DARK ~5.2:1 -
+#   all AA pass. The un-adjusted light-mode hues, reused as-is on a dark
+#   tinted surface, measured as low as ~2.2:1 - real WCAG-formula testing
+#   (2026-09-27 quality pass) is what caught this; it wasn't visible from
+#   a quick screenshot glance since the hues still LOOK like a status
+#   color, just not a legible enough one.
 
 # Motion tokens (Step 2): short, consistent, and gated behind
 # prefers-reduced-motion everywhere they're used below - "nothing may
@@ -141,6 +180,10 @@ def apply(ui):
         --bup-text: {DARK_TEXT};
         --bup-muted: {DARK_MUTED};
         --bup-border: {DARK_BORDER};
+        --bup-success: {SUCCESS_DARK};
+        --bup-warning: {WARNING_DARK};
+        --bup-error: {ERROR_DARK};
+        --bup-info: {INFO_DARK};
         --bup-shadow-sm: 0 1px 2px rgba(0,0,0,0.30);
         --bup-shadow-md: 0 4px 10px rgba(0,0,0,0.35);
         --bup-shadow-lg: 0 12px 24px rgba(0,0,0,0.45);
@@ -167,6 +210,14 @@ def apply(ui):
       .bup-sidebar {{ background-color: var(--bup-surface) !important; transition: transform var(--bup-duration-base) var(--bup-ease); }}
       .bup-kpi-value {{ color: {WINE}; }}
       body.body--dark .bup-kpi-value {{ color: {GOLD}; }}
+      /* Same WINE(light)/GOLD(dark) split as .bup-kpi-value, and for the
+         same contrast reason (2026-09-27 quality pass, WCAG AA test
+         caught it): GOLD on a white/light surface is only ~2.7:1 (fails
+         even the 3:1 large-text/UI threshold), while WINE on a dark
+         surface is only ~1.7-1.9:1 - so the active nav icon can't use
+         one hardcoded color in both themes and stay AA-compliant. */
+      .bup-nav-active-icon {{ color: {WINE}; }}
+      body.body--dark .bup-nav-active-icon {{ color: {GOLD}; }}
       .bup-nav-active {{ border-left: 4px solid {GOLD}; background-color: rgba(183,147,87,0.12); }}
       .bup-nav-item {{ border-left: 4px solid transparent; transition: background-color var(--bup-duration-fast) var(--bup-ease); border-radius: 0 var(--bup-radius-sm) var(--bup-radius-sm) 0; }}
       .bup-nav-item:hover {{ background-color: rgba(183,147,87,0.08); }}
