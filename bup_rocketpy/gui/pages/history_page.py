@@ -7,7 +7,7 @@ import os
 
 from nicegui import ui
 
-from bup_rocketpy.gui import layout, state
+from bup_rocketpy.gui import components, layout, state
 from bup_rocketpy import run_history
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -54,12 +54,13 @@ def _reopen_mission(run_id):
 @ui.page("/history")
 def history_page():
     with layout.layout("History", current_path="/history"):
+        components.page_header("History", "Every Simulate run, saved automatically. Click a run for full detail.")
         records, warnings = run_history.list_runs(REPO_ROOT)
         for w in warnings:
-            ui.label(f"⚠ {w}").classes("text-orange-600 text-sm")
+            components.status_chip(w, "warning")
 
         if not records:
-            ui.label("No runs saved yet - every Simulate on the Simulate page is saved here automatically.").classes("text-gray-500")
+            components.empty_state("history", "No runs saved yet - every Simulate on the Simulate page is saved here automatically.", action_label="Go to Simulate", on_action=lambda: ui.navigate.to("/simulate"))
             return
 
         current_hash = run_history.current_app_commit_hash(REPO_ROOT)
@@ -78,14 +79,16 @@ def history_page():
                 if ra is None or rb is None:
                     ui.label("Could not load one of the selected runs.").classes("text-red-600")
                     return
-                with ui.grid(columns=3).classes("gap-4"):
-                    ui.label("Field").classes("font-bold")
-                    ui.label(ra.run_id).classes("font-bold")
-                    ui.label(rb.run_id).classes("font-bold")
-                    for field, fmt in [("apogee_agl_m", "{:.1f} m"), ("max_speed_ms", "{:.1f} m/s"), ("min_static_margin_cal", "{:.2f} cal"), ("dry_mass_kg", "{:.4f} kg")]:
-                        ui.label(field)
-                        ui.label(fmt.format(getattr(ra, field)))
-                        ui.label(fmt.format(getattr(rb, field)))
+                with components.card(classes="w-full"):
+                    ui.label("Compare").classes("font-bold")
+                    with ui.grid(columns=3).classes("gap-4 w-full mt-1"):
+                        ui.label("Field").classes("font-bold")
+                        ui.label(ra.run_id).classes("font-bold")
+                        ui.label(rb.run_id).classes("font-bold")
+                        for field, fmt in [("apogee_agl_m", "{:.1f} m"), ("max_speed_ms", "{:.1f} m/s"), ("min_static_margin_cal", "{:.2f} cal"), ("dry_mass_kg", "{:.4f} kg")]:
+                            ui.label(field).style("color: var(--bup-muted)")
+                            ui.label(fmt.format(getattr(ra, field)))
+                            ui.label(fmt.format(getattr(rb, field)))
 
         def render_table():
             table_container.clear()
@@ -94,40 +97,41 @@ def history_page():
                 if not shown:
                     ui.label("No runs match this filter.").classes("text-gray-500")
                     return
-                for r in shown:
-                    with ui.row().classes("items-center gap-3 w-full p-2 border-b"):
-                        ui.checkbox(value=r.run_id in compare_selection).classes("mr-1").on_value_change(
-                            lambda e, run_id=r.run_id: _toggle_compare(run_id, e.value)
-                        )
-                        with ui.column().classes("cursor-pointer flex-grow").on("click", lambda run_id=r.run_id: ui.navigate.to(f"/history/{run_id}")):
-                            ui.label(f"{r.run_id} - {r.vehicle_name}").classes("font-bold")
-                            older = " (OLDER APP VERSION)" if r.app_commit_hash not in (current_hash, "unknown") else ""
-                            ui.label(f"Apogee {r.apogee_agl_m:.1f} m, margin {r.min_static_margin_cal:.2f} cal, {'stable' if r.is_stable else 'NOT stable'}{older}").classes("text-sm text-gray-500")
-                        ui.button(icon="open_in_new", on_click=lambda run_id=r.run_id: ui.navigate.to(f"/history/{run_id}")).props("flat round").tooltip("View detail")
+                for i, r in enumerate(shown):
+                    with components.card(classes="w-full", stagger_index=i):
+                        with ui.row().classes("items-center gap-3 w-full"):
+                            ui.checkbox(value=r.run_id in compare_selection).classes("mr-1").on_value_change(
+                                lambda e, run_id=r.run_id: _toggle_compare(run_id, e.value)
+                            )
+                            with ui.column().classes("cursor-pointer flex-grow gap-0").on("click", lambda run_id=r.run_id: ui.navigate.to(f"/history/{run_id}")):
+                                ui.label(f"{r.run_id} - {r.vehicle_name}").classes("font-bold")
+                                ui.label(f"Apogee {r.apogee_agl_m:.1f} m, margin {r.min_static_margin_cal:.2f} cal").classes("text-sm").style("color: var(--bup-muted)")
+                            components.status_chip("Stable" if r.is_stable else "Not stable", "success" if r.is_stable else "bad")
+                            if r.app_commit_hash not in (current_hash, "unknown"):
+                                components.status_chip("Older app version", "warning")
+                            ui.button(icon="open_in_new", on_click=lambda run_id=r.run_id: ui.navigate.to(f"/history/{run_id}")).props("flat round").tooltip("View detail")
 
-                        def make_delete(run_id):
-                            def confirm_delete():
-                                run_history.delete_run(REPO_ROOT, run_id)
-                                ui.notify(f"Deleted {run_id}")
-                                nonlocal records
-                                records[:] = [rec for rec in records if rec.run_id != run_id]
-                                if run_id in compare_selection:
-                                    compare_selection.remove(run_id)
-                                dialog.close()
-                                render_table()
-                                render_compare()
+                            def make_delete(run_id):
+                                dialog, confirm_btn = components.confirm_dialog(f"Delete run '{run_id}'? This cannot be undone.")
 
-                            with ui.dialog() as dialog, ui.card():
-                                ui.label(f"Delete run '{run_id}'? This cannot be undone.")
-                                with ui.row():
-                                    ui.button("Cancel", on_click=dialog.close)
-                                    ui.button("Delete", color="negative", on_click=confirm_delete)
-                            dialog.open()
+                                def confirm_delete():
+                                    run_history.delete_run(REPO_ROOT, run_id)
+                                    ui.notify(f"Deleted {run_id}")
+                                    nonlocal records
+                                    records[:] = [rec for rec in records if rec.run_id != run_id]
+                                    if run_id in compare_selection:
+                                        compare_selection.remove(run_id)
+                                    dialog.close()
+                                    render_table()
+                                    render_compare()
 
-                        ui.button(icon="delete", on_click=lambda run_id=r.run_id: make_delete(run_id)).props("flat round color=negative").tooltip("Delete")
+                                confirm_btn.on_click(confirm_delete)
+                                dialog.open()
+
+                            ui.button(icon="delete", on_click=lambda run_id=r.run_id: make_delete(run_id)).props("flat round color=negative").tooltip("Delete")
 
                 if any(r.app_commit_hash not in (current_hash, "unknown") for r in shown):
-                    ui.label(f"Some runs above were made with an OLDER app version than the one running now ({current_hash}) - re-run them if you need numbers comparable to today's.").classes("text-orange-600 text-sm mt-1")
+                    components.status_chip(f"Some runs above were made with an OLDER app version than the one running now ({current_hash}) - re-run them if you need numbers comparable to today's.", "warning")
 
         def _toggle_compare(run_id, checked):
             if checked:
@@ -149,7 +153,7 @@ def history_page():
                 nonlocal records
                 records, _ = run_history.list_runs(REPO_ROOT)
                 render_table()
-            ui.button("Clean up corrupt runs", on_click=do_cleanup, color="warning")
+            components.button("Clean up corrupt runs", kind="secondary", icon="cleaning_services", on_click=do_cleanup)
 
         render_table()
 
@@ -159,67 +163,62 @@ def history_detail_page(run_id: str):
     with layout.layout(f"History - {run_id}", current_path="/history"):
         record = run_history.get_run(REPO_ROOT, run_id)
         if record is None:
-            ui.label(f"Run '{run_id}' not found (it may have been deleted).").classes("text-red-600")
+            components.page_header("Run not found", f"'{run_id}' may have been deleted.")
             ui.link("Back to History", "/history")
             return
 
         current_hash = run_history.current_app_commit_hash(REPO_ROOT)
         ui.link("< Back to History", "/history").classes("text-sm")
-        ui.label(f"{record.vehicle_name} - {run_id}").classes("text-xl font-bold mt-2")
-        ui.label(record.timestamp).classes("text-sm text-gray-500")
+        components.page_header(f"{record.vehicle_name} - {run_id}", record.timestamp, action_label="Reopen this mission", action_icon="restart_alt", on_action=lambda: _reopen_mission(run_id))
         if record.app_commit_hash not in (current_hash, "unknown"):
-            ui.label(f"Made with an OLDER app version ({record.app_commit_hash}) than the one running now ({current_hash}) - reopen and re-run for numbers comparable to today's.").classes("bup-provisional-badge px-3 py-1 rounded font-bold inline-block")
-
-        ui.button("Reopen this mission", on_click=lambda: _reopen_mission(run_id), color="primary").classes("mt-2")
+            components.status_chip(f"Made with an OLDER app version ({record.app_commit_hash}) than the one running now ({current_hash}) - reopen and re-run for numbers comparable to today's.", "warning")
         if not record.ork_saved:
-            ui.label("This run predates mission persistence - no saved .ork, so it can't be reopened (view only).").classes("text-xs text-orange-600")
+            components.status_chip("This run predates mission persistence - no saved .ork, so it can't be reopened (view only).", "warning")
 
         ui.label("Results").classes("text-lg font-bold mt-4")
-        with ui.grid(columns=4).classes("gap-4"):
-            for label, value in [
-                ("Apogee AGL", f"{record.apogee_agl_m:.1f} m"),
-                ("Max speed", f"{record.max_speed_ms:.1f} m/s"),
-                ("Max Mach", f"{record.max_mach:.2f}" + (" EXTRAPOLATED" if record.mach_extrapolated else "") if record.max_mach is not None else "-"),
-                ("Min static margin", f"{record.min_static_margin_cal:.2f} cal"),
-                ("Stable?", "YES" if record.is_stable else "NO"),
-                ("Dry mass / CG", f"{record.dry_mass_kg:.4f} kg / {record.dry_cg_m:.4f} m"),
-            ]:
-                with ui.card():
-                    ui.label(label).classes("text-xs text-gray-500")
-                    ui.label(value).classes("text-lg font-bold")
+        with ui.grid(columns=4).classes("gap-3 w-full"):
+            components.kpi_card("Apogee AGL", f"{record.apogee_agl_m:.1f}", "m", status="neutral", stagger_index=0)
+            components.kpi_card("Max speed", f"{record.max_speed_ms:.1f}", "m/s", status="neutral", stagger_index=1)
+            components.kpi_card("Max Mach", (f"{record.max_mach:.2f}" + (" EXTRAPOLATED" if record.mach_extrapolated else "")) if record.max_mach is not None else "-", "", status="warn" if record.mach_extrapolated else "neutral", stagger_index=2)
+            components.kpi_card("Min static margin", f"{record.min_static_margin_cal:.2f}", "cal", status="good" if record.is_stable else "bad", stagger_index=3)
+            components.kpi_card("Stable?", "YES" if record.is_stable else "NO", "", status="good" if record.is_stable else "bad", stagger_index=4)
+            components.kpi_card("Dry mass / CG", f"{record.dry_mass_kg:.4f} kg / {record.dry_cg_m:.4f} m", "", status="neutral", stagger_index=5)
 
-        ui.label("Settings used").classes("text-lg font-bold mt-4")
-        with ui.grid(columns=3).classes("gap-4"):
-            for label, value in [
-                ("Mass/CG override", f"{record.dry_mass_override_kg:.4f} kg / {record.dry_cg_override_m:.4f} m" if record.dry_mass_override_kg is not None else "none (used the best-available estimate)"),
-                ("Weather override", "active" if record.launch_override else "none (.ork's own recorded conditions)"),
-                ("Competition profile", record.competition_profile or "lasc"),
-                ("Site (lat, lon)", f"{record.site_lat:.3f}, {record.site_lon:.3f}" if record.site_lat is not None else "-"),
-                ("Motor", record.motor_designation or "-"),
-                ("Drag curve source", record.drag_curve_source or "-"),
-            ]:
-                with ui.card():
-                    ui.label(label).classes("text-xs text-gray-500")
-                    ui.label(value).classes("text-md font-bold")
+        with components.card(classes="w-full mt-4"):
+            ui.label("Settings used").classes("font-bold")
+            with ui.grid(columns=3).classes("gap-4 w-full mt-1"):
+                for label, value in [
+                    ("Mass/CG override", f"{record.dry_mass_override_kg:.4f} kg / {record.dry_cg_override_m:.4f} m" if record.dry_mass_override_kg is not None else "none (used the best-available estimate)"),
+                    ("Weather override", "active" if record.launch_override else "none (.ork's own recorded conditions)"),
+                    ("Competition profile", record.competition_profile or "lasc"),
+                    ("Site (lat, lon)", f"{record.site_lat:.3f}, {record.site_lon:.3f}" if record.site_lat is not None else "-"),
+                    ("Motor", record.motor_designation or "-"),
+                    ("Drag curve source", record.drag_curve_source or "-"),
+                ]:
+                    with ui.column().classes("gap-0"):
+                        ui.label(label).classes("text-xs").style("color: var(--bup-muted)")
+                        ui.label(value).classes("text-sm font-bold")
 
         if record.reefing_settings:
             reefed = [c for c in record.reefing_settings if c.get("is_reefed")]
             if reefed:
-                ui.label("Reefed parachutes").classes("text-md font-bold mt-2")
-                for c in reefed:
-                    ui.label(f"{c['name']}: reefed {c['reefed_diameter_m']:.2f} m / Cd {c['reefed_cd']:.2f}, cutter at {c['cutter_altitude_m']:.0f} m AGL").classes("text-sm")
+                with components.card(classes="w-full mt-4"):
+                    ui.label("Reefed parachutes").classes("font-bold")
+                    for c in reefed:
+                        ui.label(f"{c['name']}: reefed {c['reefed_diameter_m']:.2f} m / Cd {c['reefed_cd']:.2f}, cutter at {c['cutter_altitude_m']:.0f} m AGL").classes("text-sm")
 
-        ui.label("Files used").classes("text-lg font-bold mt-4")
-        with ui.grid(columns=2).classes("gap-4"):
-            for label, value in [
-                (".ork", f"{record.ork_filename} ({'saved' if record.ork_saved else 'not saved with this run'})"),
-                (".eng", record.eng_filename),
-                ("App version", record.app_commit_hash),
-                ("File hashes (.ork/.eng)", f"{record.ork_file_hash or '-'} / {record.eng_file_hash or '-'}"),
-            ]:
-                with ui.card():
-                    ui.label(label).classes("text-xs text-gray-500")
-                    ui.label(str(value)).classes("text-sm font-bold")
+        with components.card(classes="w-full mt-4"):
+            ui.label("Files used").classes("font-bold")
+            with ui.grid(columns=2).classes("gap-4 w-full mt-1"):
+                for label, value in [
+                    (".ork", f"{record.ork_filename} ({'saved' if record.ork_saved else 'not saved with this run'})"),
+                    (".eng", record.eng_filename),
+                    ("App version", record.app_commit_hash),
+                    ("File hashes (.ork/.eng)", f"{record.ork_file_hash or '-'} / {record.eng_file_hash or '-'}"),
+                ]:
+                    with ui.column().classes("gap-0"):
+                        ui.label(label).classes("text-xs").style("color: var(--bup-muted)")
+                        ui.label(str(value)).classes("text-sm font-bold")
 
         run_dir = run_history.run_dir_path(REPO_ROOT, run_id)
         csv_path = os.path.join(run_dir, "flight_data.csv")
@@ -228,11 +227,13 @@ def history_detail_page(run_id: str):
 
         plot_files = sorted(glob.glob(os.path.join(run_dir, "*.png")))
         if plot_files:
-            ui.label("Plots").classes("text-lg font-bold mt-4")
-            with ui.grid(columns=2).classes("gap-4"):
-                for path in plot_files:
-                    ui.image(path).classes("w-full")
+            with components.card(classes="w-full mt-4"):
+                ui.label("Plots").classes("font-bold")
+                with ui.grid(columns=2).classes("gap-4 w-full mt-1"):
+                    for path in plot_files:
+                        ui.image(path).classes("w-full")
 
         if record.notes:
-            ui.label("Notes").classes("text-lg font-bold mt-4")
-            ui.label(record.notes)
+            with components.card(classes="w-full mt-4"):
+                ui.label("Notes").classes("font-bold")
+                ui.label(record.notes)
