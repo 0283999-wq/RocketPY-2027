@@ -5,7 +5,7 @@ import os
 
 from nicegui import ui
 
-from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
+from bup_rocketpy.gui import components, layout, pipeline, rocket_drawing, state
 from bup_rocketpy.ork_reader import airframe_length_m
 
 s = state.state
@@ -16,11 +16,12 @@ OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 def rocket_page():
     with layout.layout("Rocket", current_path="/rocket"):
         if s["load_result"] is None:
-            ui.label("Load a .ork on the Simulate page first.").classes("text-gray-500")
+            components.page_header("Rocket", "The loaded vehicle's geometry, mass properties and recovery configuration.")
+            components.empty_state("architecture", "Load a .ork on the Simulate page first.", action_label="Go to Simulate", on_action=lambda: ui.navigate.to("/simulate"))
             return
 
         parsed = s["load_result"].parsed_ork
-        ui.label(f"Loaded rocket: {parsed.name}").classes("text-base font-bold")
+        components.page_header(parsed.name, "Side profile, dimensions and recovery configuration for the loaded vehicle.")
 
         # Same loaded object as every other page (crash e fix, 2026-09-26
         # review) - dry CG comes from the last Simulate's actually-used
@@ -42,50 +43,43 @@ def rocket_page():
             if best.mass_est.cg_m is not None:
                 cg = best.mass_est.cg_m
 
-        fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=cg, cp_m=None, static_margin_cal=margin)
-        path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
-        fig.savefig(path)
-        ui.image(path).classes("w-full max-w-4xl")
+        with components.card(classes="w-full"):
+            fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=cg, cp_m=None, static_margin_cal=margin)
+            path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
+            fig.savefig(path)
+            ui.image(path).classes("w-full max-w-4xl")
 
         body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
         total_length = airframe_length_m(parsed)
-        with ui.grid(columns=4).classes("gap-4 mt-4"):
-            for label, value in [
-                ("Length", f"{total_length*100:.1f} cm"),
-                ("Diameter", f"{body_radius*2*100:.1f} cm"),
-                ("Dry CG", f"{cg*100:.1f} cm from nose" if cg is not None else "not set"),
-                ("Static margin", f"{margin:.2f} cal" if margin is not None else "run Simulate first"),
-            ]:
-                with ui.card():
-                    ui.label(label).classes("text-xs text-gray-500")
-                    ui.label(value).classes("text-lg font-bold")
+        import math
+        with ui.grid(columns=4).classes("gap-3 w-full"):
+            components.kpi_card("Length", f"{total_length*100:.1f}", "cm", status="neutral", stagger_index=0)
+            components.kpi_card("Diameter", f"{body_radius*2*100:.1f}", "cm", status="neutral", stagger_index=1)
+            components.kpi_card("Dry CG", f"{cg*100:.1f} cm from nose" if cg is not None else "not set", "", status="neutral", stagger_index=2)
+            components.kpi_card("Static margin", f"{margin:.2f} cal" if margin is not None else "run Simulate first", "", status=("good" if margin and 1.5 <= margin <= 4.0 else "neutral"), stagger_index=3)
+            components.kpi_card("Reference area", f"{math.pi * body_radius**2:.5f}", "m2", status="neutral", stagger_index=4)
 
         # 2026-09-25 review Section 5b: reference area + per-parachute
         # diameter/area/Cd*S - geometry-only, so this works right after
         # Load, no Simulate needed.
-        import math
-        ui.label("Rocket info").classes("text-lg font-bold mt-4")
-        with ui.grid(columns=4).classes("gap-4"):
-            with ui.card():
-                ui.label("Reference area").classes("text-xs text-gray-500")
-                ui.label(f"{math.pi * body_radius**2:.5f} m2").classes("text-lg font-bold")
         if parsed.parachutes:
-            ui.label("Parachutes").classes("text-md font-bold mt-2")
-            ui.table(
-                columns=[
-                    {"name": "name", "label": "Name", "field": "name"},
-                    {"name": "diameter", "label": "Diameter (m)", "field": "diameter"},
-                    {"name": "area", "label": "Area (m2)", "field": "area"},
-                    {"name": "cd", "label": "Cd", "field": "cd"},
-                    {"name": "cd_s", "label": "Cd*S (m2)", "field": "cd_s"},
-                ],
-                rows=[{
-                    "name": c.name, "diameter": f"{c.diameter:.2f}",
-                    "area": f"{math.pi * (c.diameter / 2.0) ** 2:.3f}",
-                    "cd": f"{c.cd:.2f}" if c.cd is not None else "auto (not resolvable)",
-                    "cd_s": f"{c.cd * math.pi * (c.diameter / 2.0) ** 2:.3f}" if c.cd is not None else "n/a",
-                } for c in parsed.parachutes],
-            ).classes("w-full")
+            with components.card(classes="w-full mt-2"):
+                ui.label("Parachutes").classes("font-bold")
+                components.data_table(
+                    columns=[
+                        {"name": "name", "label": "Name", "field": "name"},
+                        {"name": "diameter", "label": "Diameter (m)", "field": "diameter"},
+                        {"name": "area", "label": "Area (m2)", "field": "area"},
+                        {"name": "cd", "label": "Cd", "field": "cd"},
+                        {"name": "cd_s", "label": "Cd*S (m2)", "field": "cd_s"},
+                    ],
+                    rows=[{
+                        "name": c.name, "diameter": f"{c.diameter:.2f}",
+                        "area": f"{math.pi * (c.diameter / 2.0) ** 2:.3f}",
+                        "cd": f"{c.cd:.2f}" if c.cd is not None else "auto (not resolvable)",
+                        "cd_s": f"{c.cd * math.pi * (c.diameter / 2.0) ** 2:.3f}" if c.cd is not None else "n/a",
+                    } for c in parsed.parachutes],
+                )
 
             # 2026-09-26 review item D (new lettering): OpenRocket has NO
             # concept of "reefed with a line cutter" at all - this is
@@ -94,10 +88,10 @@ def rocket_page():
             # object Simulate/Monte Carlo/RCSM Cases all already read from
             # s["load_result"] - no separate "apply" plumbing needed,
             # just re-run Simulate after changing this.
-            ui.label("Reefed parachute (line cutter)").classes("text-md font-bold mt-4")
-            ui.label("For a main canopy that deploys reefed (small) and is later released to full size by a line cutter - RCSM REC 8.1.1 accepts this as real dual-event recovery. Leave off for a normal single-stage parachute.").classes("text-xs text-gray-500")
+            ui.label("Reefed parachute (line cutter)").classes("text-lg font-bold mt-4")
+            ui.label("For a main canopy that deploys reefed (small) and is later released to full size by a line cutter - RCSM REC 8.1.1 accepts this as real dual-event recovery. Leave off for a normal single-stage parachute.").classes("text-xs").style("color: var(--bup-muted)")
             for i, c in enumerate(parsed.parachutes):
-                with ui.card().classes("w-full mt-2"):
+                with components.card(classes="w-full mt-2", stagger_index=i):
                     ui.label(c.name).classes("font-bold")
                     reefed_checkbox = ui.checkbox("Reefed with line cutter", value=c.is_reefed)
                     with ui.grid(columns=4).classes("gap-2 mt-1").bind_visibility_from(reefed_checkbox, "value"):
@@ -120,7 +114,7 @@ def rocket_page():
                             reefed_diam_input.value = 2.0 * math.sqrt(required_cd_s / (cd * math.pi))
                             ui.notify(f"Reefed diameter set to {reefed_diam_input.value:.2f} m for ~{target_rate_input.value:.0f} m/s (ESTIMATE - verify with a real drop test).", type="info")
 
-                        ui.button("Compute reefed diameter", on_click=compute_target)
+                        components.button("Compute reefed diameter", kind="secondary", icon="calculate", on_click=compute_target)
 
                     def apply_reefing(i=i, reefed_checkbox=reefed_checkbox, reefed_diam_input=reefed_diam_input, reefed_cd_input=reefed_cd_input, cutter_alt_input=cutter_alt_input, cutter_delay_input=cutter_delay_input):
                         import dataclasses
@@ -132,4 +126,4 @@ def rocket_page():
                         )
                         ui.notify("Saved - re-run Simulate to see the effect.", type="positive")
 
-                    ui.button("Save", on_click=apply_reefing).classes("mt-1")
+                    components.button("Save", kind="primary", icon="save", on_click=apply_reefing)

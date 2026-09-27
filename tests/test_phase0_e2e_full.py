@@ -45,7 +45,7 @@ PAGES = [("/", "04_home.png"), ("/rocket", "05_rocket.png"), ("/montecarlo", "06
 # render without a traceback but show nothing useful, or 0/None KPIs).
 REAL_CONTENT_MARKERS = {
     "/": "Apogee AGL",  # 2026-09-27 redesign: Home is now the mission-control dashboard, "/simulate" is the load/simulate flow
-    "/rocket": "Loaded rocket:",
+    "/rocket": "Static margin",  # 2026-09-27 redesign: the page header is now the vehicle's own name (not knowable generically here), "Static margin" is a stable KPI card label instead
     "/montecarlo": "Uncertainties",
     "/rcsm": "RCSM category",
     "/analysis": "Weathercocking",
