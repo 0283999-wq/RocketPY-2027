@@ -14,7 +14,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-from bup_rocketpy.gui import theme
+from bup_rocketpy.gui import plot_theme, theme
 from bup_rocketpy.ork_reader import airframe_length_m
 
 matplotlib.use("Agg")
@@ -38,12 +38,20 @@ def _nose_profile_points(nose, n=40):
 
 
 def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, static_margin_cal=None, title=None, dark=False):
-    """Returns a matplotlib Figure. All positions in m from nose tip."""
-    bg = theme.DARK_SURFACE if dark else theme.LIGHT_SURFACE
-    fg = theme.DARK_TEXT if dark else theme.LIGHT_TEXT
+    """Returns a matplotlib Figure. All positions in m from nose tip.
+
+    `dark` is accepted for backward compatibility but no longer changes
+    anything: this is a static PNG that can't repaint itself after a
+    live client-side dark-mode toggle, so (2026-09-27 redesign, same
+    reasoning as plot_theme.py) it renders with a TRANSPARENT background
+    and a neutral foreground that reads on both theme.py surfaces,
+    instead of picking one hardcoded light/dark pair up front - which
+    is what actually happened here before (nothing ever passed
+    dark=True, so every drawing silently rendered light-only)."""
+    fg = plot_theme.AXIS
     fig, ax = plt.subplots(figsize=(10, 3.2), dpi=130)
-    fig.patch.set_facecolor(bg)
-    ax.set_facecolor(bg)
+    fig.patch.set_alpha(0)
+    ax.patch.set_alpha(0)
 
     body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
 

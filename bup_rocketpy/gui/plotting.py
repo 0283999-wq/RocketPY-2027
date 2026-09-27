@@ -11,6 +11,8 @@ import os
 import matplotlib
 import matplotlib.pyplot as plt
 
+from bup_rocketpy.gui import plot_theme
+
 matplotlib.use("Agg")
 
 GOLD, WINE = "#B79357", "#8A1538"
@@ -22,9 +24,9 @@ def _line_plot(path, x, y, xlabel, ylabel, title, color=WINE):
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontsize=10)
-    ax.grid(alpha=0.3)
+    plot_theme.apply(ax, fig)
     fig.tight_layout()
-    fig.savefig(path)
+    plot_theme.savefig(fig, path)
     plt.close(fig)
 
 
@@ -35,19 +37,19 @@ def _plot_static_margin_with_limits(path, t, margins):
     unmarked curve, per the report's "annotated figures" requirement."""
     fig, ax = plt.subplots(figsize=(6, 3.5))
     ax.axhspan(1.5, 4.0, color=GOLD, alpha=0.12, label="RCSM allowed band (1.5-4.0 cal)")
-    ax.axhline(1.5, color=WINE, linestyle="--", linewidth=1.0)
-    ax.axhline(4.0, color=WINE, linestyle="--", linewidth=1.0)
+    ax.axhline(1.5, color=plot_theme.AXIS, linestyle="--", linewidth=1.0)
+    ax.axhline(4.0, color=plot_theme.AXIS, linestyle="--", linewidth=1.0)
     t_max = t[-1] * 0.98 if len(t) else 1.0
-    ax.text(t_max, 1.5, "FLT 4.3.5 min", color=WINE, fontsize=7, ha="right", va="bottom")
-    ax.text(t_max, 4.0, "FLT 4.3.6 max", color=WINE, fontsize=7, ha="right", va="top")
-    ax.plot(t, margins, color="#211A16", linewidth=1.4, label="static margin", zorder=5)
+    ax.text(t_max, 1.5, "FLT 4.3.5 min", color=plot_theme.AXIS, fontsize=7, ha="right", va="bottom")
+    ax.text(t_max, 4.0, "FLT 4.3.6 max", color=plot_theme.AXIS, fontsize=7, ha="right", va="top")
+    ax.plot(t, margins, color=WINE, linewidth=1.6, label="static margin", zorder=5)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Margin (cal)")
     ax.set_title("Static margin vs. time", fontsize=10)
     ax.legend(fontsize=7, loc="upper right")
-    ax.grid(alpha=0.3)
+    plot_theme.apply(ax, fig)
     fig.tight_layout()
-    fig.savefig(path)
+    plot_theme.savefig(fig, path)
     plt.close(fig)
 
 
@@ -93,10 +95,10 @@ def generate_all_plots(flight, rocket, motor, env, outputs_dir):
     ax.set_ylabel("Position (m, rocket's own coordinate frame)")
     ax.set_title("CG and CP vs. time", fontsize=10)
     ax.legend()
-    ax.grid(alpha=0.3)
+    plot_theme.apply(ax, fig)
     fig.tight_layout()
     cg_cp_path = fresh_image_path(outputs_dir, "plot_cg_cp")
-    fig.savefig(cg_cp_path)
+    plot_theme.savefig(fig, cg_cp_path)
     plt.close(fig)
     plots["cg_cp"] = ("CG and CP vs. time", cg_cp_path)
 
@@ -120,10 +122,10 @@ def generate_all_plots(flight, rocket, motor, env, outputs_dir):
     ax.set_xlabel("Mach")
     ax.set_ylabel("Cd")
     ax.set_title("Drag coefficient vs. Mach (curve actually used)", fontsize=10)
-    ax.grid(alpha=0.3)
+    plot_theme.apply(ax, fig)
     fig.tight_layout()
     cd_path = fresh_image_path(outputs_dir, "plot_cd_mach")
-    fig.savefig(cd_path)
+    plot_theme.savefig(fig, cd_path)
     plt.close(fig)
     plots["cd_mach"] = ("Drag coefficient vs. Mach", cd_path)
 
@@ -137,17 +139,17 @@ def generate_all_plots(flight, rocket, motor, env, outputs_dir):
     xs = [flight.x(ti) for ti in t]
     ys = [flight.y(ti) for ti in t]
     ax.plot(xs, ys, color=WINE)
-    ax.scatter([0], [0], color="black", marker="^", s=60, zorder=5, label="Pad")
+    ax.scatter([0], [0], color=plot_theme.AXIS, marker="^", s=60, zorder=5, label="Pad")
     ax.scatter([xs[-1]], [ys[-1]], color=GOLD, marker="x", s=60, zorder=5, label="Landing")
     ax.set_xlabel("X - East (m)")
     ax.set_ylabel("Y - North (m)")
     ax.set_title("Ground track (top view)", fontsize=10)
     ax.set_aspect("equal")
     ax.legend()
-    ax.grid(alpha=0.3)
+    plot_theme.apply(ax, fig)
     fig.tight_layout()
     track_path = fresh_image_path(outputs_dir, "plot_ground_track")
-    fig.savefig(track_path)
+    plot_theme.savefig(fig, track_path)
     plt.close(fig)
     plots["ground_track"] = ("Ground track", track_path)
 

@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from nicegui import ui
 
-from bup_rocketpy.gui import components, layout, state
+from bup_rocketpy.gui import components, layout, plot_theme, state
 from bup_rocketpy import analysis, monte_carlo, translate
 
 matplotlib.use("Agg")
@@ -50,16 +50,17 @@ def analysis_page():
                         fig, ax = plt.subplots(figsize=(6, 3.5))
                         margins = [p.static_margin_cal for p in result.points]
                         apogees = [p.apogee_agl_m for p in result.points]
-                        colors = ["#8A1538" if p.in_valid_range else "#999999" for p in result.points]
+                        colors = ["#8A1538" if p.in_valid_range else plot_theme.AXIS for p in result.points]
                         ax.scatter(margins, apogees, c=colors)
                         ax.axvline(1.5, color="#B79357", linestyle=":", label="1.5-4 cal window")
                         ax.axvline(4.0, color="#B79357", linestyle=":")
                         ax.set_xlabel("Static margin (cal)")
                         ax.set_ylabel("Apogee AGL (m)")
                         ax.legend()
+                        plot_theme.apply(ax, fig)
                         path = os.path.join(OUTPUTS_DIR, "weathercocking.png")
                         fig.tight_layout()
-                        fig.savefig(path)
+                        plot_theme.savefig(fig, path)
                         plt.close(fig)
                         ui.image(path).classes("w-full")
                         if result.best_point:

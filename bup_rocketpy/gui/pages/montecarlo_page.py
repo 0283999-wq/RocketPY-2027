@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from nicegui import run, ui
 
-from bup_rocketpy.gui import components, layout, pipeline, state
+from bup_rocketpy.gui import components, layout, pipeline, plot_theme, state
 from bup_rocketpy import monte_carlo
 
 matplotlib.use("Agg")
@@ -101,9 +101,10 @@ def montecarlo_page():
                 ax.set_xlabel("Apogee AGL (m)")
                 ax.set_ylabel("count")
                 ax.legend()
+                plot_theme.apply(ax, fig)
                 hist_path = pipeline.fresh_image_path(OUTPUTS_DIR, "mc_histogram")
                 fig.tight_layout()
-                fig.savefig(hist_path)
+                plot_theme.savefig(fig, hist_path)
                 plt.close(fig)
                 with components.card(classes="w-full max-w-xl mt-2"):
                     ui.image(hist_path).classes("w-full")
@@ -115,15 +116,16 @@ def montecarlo_page():
                         e = ellipses[n_std]
                         from matplotlib.patches import Ellipse
                         ax2.add_patch(Ellipse((e["center_x"], e["center_y"]), e["width"], e["height"], angle=e["angle_deg"], facecolor=color, alpha=0.4, edgecolor=color, label=f"{n_std}-sigma"))
-                    ax2.scatter(result.impact_x_samples, result.impact_y_samples, s=8, color="#211A16", zorder=5)
+                    ax2.scatter(result.impact_x_samples, result.impact_y_samples, s=8, color=plot_theme.AXIS, zorder=5)
                     ax2.set_xlabel("X (m, downrange)")
                     ax2.set_ylabel("Y (m, crossrange)")
                     ax2.set_aspect("equal")
                     ax2.legend()
                     ax2.set_title("Landing ellipse (single recovery event)")
+                    plot_theme.apply(ax2, fig2)
                     ellipse_path = pipeline.fresh_image_path(OUTPUTS_DIR, "mc_ellipse")
                     fig2.tight_layout()
-                    fig2.savefig(ellipse_path)
+                    plot_theme.savefig(fig2, ellipse_path)
                     plt.close(fig2)
                     with components.card(classes="w-full max-w-xl mt-2"):
                         ui.image(ellipse_path).classes("w-full")

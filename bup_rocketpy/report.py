@@ -66,8 +66,10 @@ def _plot_case_altitude_overlay(case_results, outputs_dir):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    from bup_rocketpy.gui import plot_theme
+
     fig, ax = plt.subplots(figsize=(7, 4))
-    colors = {"Ballistic": "#9c9c9c", "Nominal": WINE, "DrogueOnly": GOLD, "MainAtApogee": "#4a7c59"}
+    colors = {"Ballistic": plot_theme.AXIS, "Nominal": WINE, "DrogueOnly": GOLD, "MainAtApogee": "#4a7c59"}
     plotted = False
     for name, r in case_results.items():
         if r.flight is None:
@@ -85,9 +87,10 @@ def _plot_case_altitude_overlay(case_results, outputs_dir):
     ax.set_ylabel("Altitude AGL (m)")
     ax.legend()
     ax.set_title("Flight cases: altitude comparison")
+    plot_theme.apply(ax, fig)
     path = _fresh_path(outputs_dir, "case_altitude_overlay")
     fig.tight_layout()
-    fig.savefig(path)
+    plot_theme.savefig(fig, path)
     plt.close(fig)
     return path
 
@@ -100,6 +103,7 @@ def _plot_mc_histogram_and_ellipse(mc_result, outputs_dir):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from bup_rocketpy import monte_carlo
+    from bup_rocketpy.gui import plot_theme
 
     hist_path = ellipse_path = None
     if mc_result.apogee_samples:
@@ -109,9 +113,10 @@ def _plot_mc_histogram_and_ellipse(mc_result, outputs_dir):
         ax.set_xlabel("Apogee AGL (m)")
         ax.set_ylabel("count")
         ax.legend()
+        plot_theme.apply(ax, fig)
         hist_path = _fresh_path(outputs_dir, "report_mc_histogram")
         fig.tight_layout()
-        fig.savefig(hist_path)
+        plot_theme.savefig(fig, hist_path)
         plt.close(fig)
 
     ellipses = monte_carlo.landing_ellipses(mc_result)
@@ -121,15 +126,16 @@ def _plot_mc_histogram_and_ellipse(mc_result, outputs_dir):
         for n_std, color in [(3, "#e0c9a6"), (2, "#c9a876"), (1, WINE)]:
             e = ellipses[n_std]
             ax2.add_patch(Ellipse((e["center_x"], e["center_y"]), e["width"], e["height"], angle=e["angle_deg"], facecolor=color, alpha=0.4, edgecolor=color, label=f"{n_std}-sigma"))
-        ax2.scatter(mc_result.impact_x_samples, mc_result.impact_y_samples, s=8, color=INK, zorder=5)
+        ax2.scatter(mc_result.impact_x_samples, mc_result.impact_y_samples, s=8, color=plot_theme.AXIS, zorder=5)
         ax2.set_xlabel("X (m, downrange)")
         ax2.set_ylabel("Y (m, crossrange)")
         ax2.set_aspect("equal")
         ax2.legend()
         ax2.set_title("Landing dispersion")
+        plot_theme.apply(ax2, fig2)
         ellipse_path = _fresh_path(outputs_dir, "report_mc_ellipse")
         fig2.tight_layout()
-        fig2.savefig(ellipse_path)
+        plot_theme.savefig(fig2, ellipse_path)
         plt.close(fig2)
     return hist_path, ellipse_path
 
