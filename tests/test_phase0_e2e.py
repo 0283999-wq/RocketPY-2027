@@ -66,7 +66,7 @@ def test_upload_ork_and_eng_and_simulate_shows_apogee(app_server):
         # what's actually on disk here, so point at it directly.
         browser = p.chromium.launch(executable_path="/opt/pw-browsers/chromium")
         page = browser.new_page()
-        page.goto(BASE_URL, wait_until="networkidle")
+        page.goto(BASE_URL + "/simulate", wait_until="networkidle")
 
         file_inputs = page.locator('input[type="file"]')
         assert file_inputs.count() >= 2, "expected at least the .ork and .eng upload inputs to be present"

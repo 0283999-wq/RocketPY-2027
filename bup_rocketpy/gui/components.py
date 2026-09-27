@@ -152,3 +152,24 @@ def confirm_dialog(message, confirm_label="Delete", cancel_label="Cancel", dange
 
 def data_table(columns, rows, classes=""):
     return ui.table(columns=columns, rows=rows).classes(f"w-full bup-card {classes}").props("flat")
+
+
+def stepper_header(labels, current_index):
+    """A visual step rail (Load -> Review -> Simulate -> Results, etc.) -
+    NOT Quasar's paginated QStepper: every step's content stays visible
+    and reachable on the page below (matches how this app already
+    works - free to jump back and re-review before re-simulating), this
+    only draws the "where am I" indicator bar above it."""
+    with ui.row().classes("items-center w-full gap-0 bup-page-enter"):
+        for i, label in enumerate(labels):
+            done = i < current_index
+            active = i == current_index
+            color = "var(--bup-success)" if done else ("var(--bup-wine)" if active else "var(--bup-border)")
+            text_color = "var(--bup-text)" if (done or active) else "var(--bup-muted)"
+            with ui.row().classes("items-center gap-2"):
+                ui.label("✓" if done else str(i + 1)).classes("rounded-full flex items-center justify-center text-xs font-bold").style(
+                    f"width:24px; height:24px; background-color:{color}; color:white; text-align:center; line-height:24px; padding:0;"
+                )
+                ui.label(label).classes("text-sm font-medium").style(f"color:{text_color}")
+            if i < len(labels) - 1:
+                ui.element("div").classes("flex-1").style(f"height:2px; background-color:{'var(--bup-success)' if done else 'var(--bup-border)'}; margin: 0 8px;")

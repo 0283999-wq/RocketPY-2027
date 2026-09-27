@@ -136,6 +136,7 @@ def test_default_path_every_page_and_second_ork(tmp_path):
             apogee_match = re.search(r"Apogee AGL.*?(-?\d+\.\d+)\s*m", page_text.replace("\n", " "))
             assert apogee_match, "no apogee number found on the results page"
             print(f"\nDefault-path (no override) apogee: {float(apogee_match.group(1)):.1f} m")
+            page.wait_for_timeout(600)  # let the KPI card stagger/count-up entrance finish before the screenshot (2026-09-27 redesign) - otherwise later cards are caught mid fade-in
             page.screenshot(path=os.path.join(SCREENSHOTS_DIR, "01_simulate_results.png"), full_page=True)
 
             # --- Every sidebar page: no error, real content ---

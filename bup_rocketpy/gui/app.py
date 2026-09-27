@@ -16,7 +16,7 @@ import tempfile
 
 from nicegui import app, run, ui
 
-from bup_rocketpy.gui import layout, pipeline, rocket_drawing, state
+from bup_rocketpy.gui import components, layout, pipeline, rocket_drawing, state
 
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -62,64 +62,82 @@ def simulate_page():
     # loaded globally in layout.py for every page.
     ui.add_head_html('<script src="/static/vendor/three.min.js"></script><script src="/static/playback.js"></script>')
     with layout.layout("Simulate", current_path="/simulate"):
-        ui.label("1. Load files").classes("text-lg font-bold")
-        with ui.row():
-            async def on_ork_upload(e):
-                s["ork_path"], name = await _save_upload(e, ".ork")
-                s["ork_filename"] = name  # 2026-09-26 review item E: the REAL uploaded name - ork_path is this app's own tempfile path, previously the only thing kept
-                ui.notify(f"Loaded {name}")
-            ui.upload(label=".ork file", on_upload=on_ork_upload, auto_upload=True).props("accept=.ork")
+        components.page_header("Simulate", "Load a rocket, review what was imported, then fly it.")
 
-            async def on_eng_upload(e):
-                s["eng_path"], name = await _save_upload(e, ".eng")
-                s["eng_filename"] = name
-                ui.notify(f"Loaded {name}")
-            ui.upload(label=".eng file", on_upload=on_eng_upload, auto_upload=True).props("accept=.eng")
+        STEPS = ["Load", "Review", "Simulate", "Results"]
+        stepper_container = ui.row().classes("w-full")
 
-        with ui.expansion("Advanced: manual Cd CSVs and mass/CG override").classes("w-full"):
-            with ui.row():
-                async def on_drag_off_upload(e):
-                    s["drag_off_path"], name = await _save_upload(e, ".csv")
-                    ui.notify(f"Loaded {name} (power-off drag)")
-                ui.upload(label="power_off_drag.csv (optional)", on_upload=on_drag_off_upload, auto_upload=True).props("accept=.csv")
+        def _render_stepper():
+            index = 0
+            if s["load_result"] is not None:
+                index = 1
+            if s["sim_result"] is not None:
+                index = 3
+            stepper_container.clear()
+            with stepper_container:
+                components.stepper_header(STEPS, index)
 
-                async def on_drag_on_upload(e):
-                    s["drag_on_path"], name = await _save_upload(e, ".csv")
-                    ui.notify(f"Loaded {name} (power-on drag)")
-                ui.upload(label="power_on_drag.csv (optional)", on_upload=on_drag_on_upload, auto_upload=True).props("accept=.csv")
-            override_checkbox = ui.checkbox(
-                "Use manual mass/CG override (unchecked: use the .ork's own overrides + component masses - the normal path)",
-                value=False,
-            )
-            with ui.row():
-                dry_mass_input = ui.number(label="Manual dry mass override (kg)", value=s["dry_mass_override"])
-                dry_cg_input = ui.number(label="Manual dry CG override (m from nose)", value=s["dry_cg_override"])
-                dry_mass_input.bind_enabled_from(override_checkbox, "value")
-                dry_cg_input.bind_enabled_from(override_checkbox, "value")
+        _render_stepper()
 
-        ui.separator()
-        ui.label("2. Review import").classes("text-lg font-bold")
-        drag_source_label = ui.label("")
-        import_table_container = ui.column().classes("w-full")
+        with components.card(classes="w-full"):
+            ui.label("1. Load files").classes("font-bold")
+            with ui.row().classes("w-full gap-4"):
+                async def on_ork_upload(e):
+                    s["ork_path"], name = await _save_upload(e, ".ork")
+                    s["ork_filename"] = name  # 2026-09-26 review item E: the REAL uploaded name - ork_path is this app's own tempfile path, previously the only thing kept
+                    ui.notify(f"Loaded {name}")
+                components.dropzone(".ork file", on_ork_upload, accept=".ork")
 
-        ui.separator()
-        ui.label("3. Simulate").classes("text-lg font-bold")
-        progress = ui.spinner(size="lg").props("hidden")
-        progress_label = ui.label("").classes("text-sm text-gray-500")
-        # 2026-09-26 review item 2: "never hang" - a single Flight() call has
-        # no internal checkpoint we can poll (unlike Monte Carlo's N
-        # separate samples), so this can't be a cooperative cancel like
-        # montecarlo_page.py's. What it CAN do: stop the UI from waiting on
-        # it forever. Clicking Cancel (or the SIMULATION_TIMEOUT_S backstop
-        # firing) detaches from the background thread and returns control to
-        # the user immediately; the orphaned thread itself keeps running to
-        # completion and its result is simply discarded - killing a Python
-        # thread mid-ODE-integration isn't something this can do cheaply.
-        sim_cancel_button = ui.button("Cancel", color="negative").props("hidden")
+                async def on_eng_upload(e):
+                    s["eng_path"], name = await _save_upload(e, ".eng")
+                    s["eng_filename"] = name
+                    ui.notify(f"Loaded {name}")
+                components.dropzone(".eng file", on_eng_upload, accept=".eng")
 
-        ui.separator()
-        ui.label("4. Results").classes("text-lg font-bold")
-        results_container = ui.column().classes("w-full")
+            with ui.expansion("Advanced: manual Cd CSVs and mass/CG override").classes("w-full"):
+                with ui.row():
+                    async def on_drag_off_upload(e):
+                        s["drag_off_path"], name = await _save_upload(e, ".csv")
+                        ui.notify(f"Loaded {name} (power-off drag)")
+                    ui.upload(label="power_off_drag.csv (optional)", on_upload=on_drag_off_upload, auto_upload=True).props("accept=.csv")
+
+                    async def on_drag_on_upload(e):
+                        s["drag_on_path"], name = await _save_upload(e, ".csv")
+                        ui.notify(f"Loaded {name} (power-on drag)")
+                    ui.upload(label="power_on_drag.csv (optional)", on_upload=on_drag_on_upload, auto_upload=True).props("accept=.csv")
+                override_checkbox = ui.checkbox(
+                    "Use manual mass/CG override (unchecked: use the .ork's own overrides + component masses - the normal path)",
+                    value=False,
+                )
+                with ui.row():
+                    dry_mass_input = ui.number(label="Manual dry mass override (kg)", value=s["dry_mass_override"])
+                    dry_cg_input = ui.number(label="Manual dry CG override (m from nose)", value=s["dry_cg_override"])
+                    dry_mass_input.bind_enabled_from(override_checkbox, "value")
+                    dry_cg_input.bind_enabled_from(override_checkbox, "value")
+
+        with components.card(classes="w-full"):
+            ui.label("2. Review import").classes("font-bold")
+            drag_source_label = ui.label("")
+            import_table_container = ui.column().classes("w-full")
+
+        with components.card(classes="w-full"):
+            ui.label("3. Simulate").classes("font-bold")
+            progress = ui.spinner(size="lg").props("hidden")
+            progress_label = ui.label("").classes("text-sm").style("color: var(--bup-muted)")
+            # 2026-09-26 review item 2: "never hang" - a single Flight() call has
+            # no internal checkpoint we can poll (unlike Monte Carlo's N
+            # separate samples), so this can't be a cooperative cancel like
+            # montecarlo_page.py's. What it CAN do: stop the UI from waiting on
+            # it forever. Clicking Cancel (or the SIMULATION_TIMEOUT_S backstop
+            # firing) detaches from the background thread and returns control to
+            # the user immediately; the orphaned thread itself keeps running to
+            # completion and its result is simply discarded - killing a Python
+            # thread mid-ODE-integration isn't something this can do cheaply.
+            sim_cancel_button = ui.button("Cancel", color="negative").props("hidden")
+
+        with components.card(classes="w-full"):
+            ui.label("4. Results").classes("font-bold")
+            results_container = ui.column().classes("w-full")
 
         def do_load():
             if not s["ork_path"] or not s["eng_path"]:
@@ -146,13 +164,25 @@ def simulate_page():
             import_table_container.clear()
             with import_table_container:
                 ui.label("Imported / approximated / ignored components (nothing is half-imported silently):").classes("font-bold mt-2")
-                ui.table(
-                    columns=[{"name": "component", "label": "Component", "field": "component"},
-                             {"name": "status", "label": "Status", "field": "status"},
-                             {"name": "detail", "label": "Detail", "field": "detail"}],
-                    rows=[{"component": c, "status": st, "detail": d} for c, st, d in result.import_table],
-                ).classes("w-full")
+                # Grouped by status (2026-09-27 redesign: "collapsible import
+                # table grouped by status") - IMPORTED first and expanded by
+                # default (the common case, nothing to double check);
+                # APPROXIMATED/IGNORED start collapsed since they're the ones
+                # worth a closer look, but collapsed != hidden.
+                by_status = {"IMPORTED": [], "APPROXIMATED": [], "IGNORED": []}
+                for c, st, d in result.import_table:
+                    by_status.setdefault(st, []).append((c, st, d))
+                for st, rows in by_status.items():
+                    if not rows:
+                        continue
+                    with ui.expansion(f"{st} ({len(rows)})", value=(st == "IMPORTED")).classes("w-full"):
+                        ui.table(
+                            columns=[{"name": "component", "label": "Component", "field": "component"},
+                                     {"name": "detail", "label": "Detail", "field": "detail"}],
+                            rows=[{"component": c, "detail": d} for c, _st, d in rows],
+                        ).classes("w-full")
             progress_label.set_text("Loaded. Review the table, set a mass override if needed, then click Simulate.")
+            _render_stepper()
 
         async def do_simulate():
             if s["load_result"] is None:
@@ -256,37 +286,41 @@ def simulate_page():
                 print(f"WARNING: could not save run history: {exc}")
             progress.props("hidden")
             progress_label.set_text("Done.")
+            _render_stepper()
 
             results_container.clear()
             with results_container:
-                ui.label(sim.provisional_warning).classes("bup-provisional-badge px-3 py-1 rounded font-bold inline-block")
-                with ui.grid(columns=4).classes("gap-4 mt-2"):
-                    for label, value, unit, good in [
-                        ("Apogee AGL", f"{sim.apogee_agl_m:.1f}", "m", True),
-                        ("Max speed", f"{sim.max_speed_ms:.1f}", "m/s", True),
-                        ("Max Mach", f"{sim.max_mach:.3f}", "", True),
-                        ("Max acceleration (boost)", f"{sim.max_acceleration_ms2:.1f}", "m/s2", True),
-                        ("Rail exit velocity", f"{sim.rail_exit_velocity_ms:.1f}", "m/s", sim.rail_exit_velocity_ms >= 30),
-                        ("Flight time", f"{sim.flight_time_s:.1f}", "s", True),
-                        ("Min static margin (rail exit-apogee)", f"{sim.min_static_margin_cal:.2f}", "cal", sim.is_stable),
-                        ("Stable? (FLT 4.3.5: 1.5-4 cal)", "YES" if sim.is_stable else "NO", "", sim.is_stable),
+                components.status_chip(sim.provisional_warning, "warning" if "PROVISIONAL" in sim.provisional_warning else "success")
+                with ui.grid(columns=4).classes("gap-3 mt-2 w-full"):
+                    kpi_i = 0
+                    for label, target, unit, decimals, good in [
+                        ("Apogee AGL", sim.apogee_agl_m, "m", 1, True),
+                        ("Max speed", sim.max_speed_ms, "m/s", 1, True),
+                        ("Max Mach", sim.max_mach, "", 3, True),
+                        ("Max acceleration (boost)", sim.max_acceleration_ms2, "m/s2", 1, True),
+                        ("Rail exit velocity", sim.rail_exit_velocity_ms, "m/s", 1, sim.rail_exit_velocity_ms >= 30),
+                        ("Flight time", sim.flight_time_s, "s", 1, True),
+                        ("Min static margin (rail exit-apogee)", sim.min_static_margin_cal, "cal", 2, sim.is_stable),
                     ]:
-                        with ui.card():
-                            ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold" if good else "text-xl font-bold text-red-600")
+                        components.kpi_card(label, None, unit, status="good" if good else "bad", countup_target=target, decimals=decimals, stagger_index=kpi_i)
+                        kpi_i += 1
+                    components.kpi_card("Stable? (FLT 4.3.5: 1.5-4 cal)", "YES" if sim.is_stable else "NO", "", status="good" if sim.is_stable else "bad", stagger_index=kpi_i)
+                    kpi_i += 1
                     if sim.parachute_opening_accel_ms2 is not None:
-                        with ui.card():
-                            ui.label("Parachute opening accel (instantaneous inflation model, upper bound)").classes("text-xs text-gray-500")
-                            ui.label(f"{sim.parachute_opening_accel_ms2:.1f} m/s2 ({sim.parachute_opening_accel_ms2 / 9.80665:.1f} g)").classes("text-xl font-bold")
-                    for label, value, unit in [
-                        ("Time to apogee", f"{sim.time_to_apogee_s:.1f}", "s"),
-                        ("Max dynamic pressure (Max-Q)", f"{sim.max_dynamic_pressure_pa / 1000.0:.2f}", f"kPa @ t={sim.max_dynamic_pressure_time_s:.1f}s"),
-                        ("Ground-hit velocity", f"{sim.ground_hit_velocity_ms:.1f}", "m/s"),
-                        ("Landing distance from pad", f"{sim.landing_distance_m:.1f}", "m"),
+                        components.kpi_card(
+                            "Parachute opening accel (instantaneous inflation, upper bound)", None, "m/s2",
+                            caption=f"{sim.parachute_opening_accel_ms2 / 9.80665:.1f} g", status="neutral",
+                            countup_target=sim.parachute_opening_accel_ms2, decimals=1, stagger_index=kpi_i,
+                        )
+                        kpi_i += 1
+                    for label, target, unit, decimals, caption in [
+                        ("Time to apogee", sim.time_to_apogee_s, "s", 1, None),
+                        ("Max dynamic pressure (Max-Q)", sim.max_dynamic_pressure_pa / 1000.0, "kPa", 2, f"@ t={sim.max_dynamic_pressure_time_s:.1f}s"),
+                        ("Ground-hit velocity", sim.ground_hit_velocity_ms, "m/s", 1, None),
+                        ("Landing distance from pad", sim.landing_distance_m, "m", 1, None),
                     ]:
-                        with ui.card():
-                            ui.label(label).classes("text-xs text-gray-500")
-                            ui.label(f"{value} {unit}").classes("bup-kpi-value text-xl font-bold")
+                        components.kpi_card(label, None, unit, caption=caption, status="neutral", countup_target=target, decimals=decimals, stagger_index=kpi_i)
+                        kpi_i += 1
 
                 if sim.recovery_rows:
                     ui.label("Recovery panel").classes("text-lg font-bold mt-4")
@@ -363,10 +397,11 @@ def simulate_page():
                                 ui.link("Download PNG", f"/outputs/{os.path.basename(path)}")
                 if sim.csv_path:
                     ui.link("Download flight data CSV", f"/outputs/{os.path.basename(sim.csv_path)}")
+            components.finish_motion()
 
         with ui.row():
-            ui.button("Load files", on_click=do_load)
-            ui.button("Simulate", on_click=do_simulate)
+            components.button("Load files", kind="secondary", icon="folder_open", on_click=do_load)
+            components.button("Simulate", kind="primary", icon="rocket_launch", on_click=do_simulate)
 
 
 def main():

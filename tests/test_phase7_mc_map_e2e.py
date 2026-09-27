@@ -84,7 +84,7 @@ def test_monte_carlo_run_and_leaflet_map_render(app_server):
         console_errors = []
         page.on("pageerror", lambda exc: console_errors.append(str(exc)))
 
-        page.goto(BASE_URL, wait_until="networkidle")
+        page.goto(BASE_URL + "/simulate", wait_until="networkidle")
         file_inputs = page.locator('input[type="file"]')
         file_inputs.nth(0).set_input_files(ORK_PATH)
         page.wait_for_timeout(500)
