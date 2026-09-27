@@ -2102,3 +2102,78 @@ including both new e2e files above).
   (only the drag CSVs are there) - V1 still uses the Brasil-config CG
   approximation, not a July-4-specific measurement, per your own
   fallback instruction.
+
+## Third overnight run (2026-09-27): full UI redesign - every page
+
+You sent `Major_tom.ork`/`kaboom.eng` with this run's instructions and
+said explicitly these are for your own local testing only and are NOT
+to be committed to the repo, and that their prior absence should stop
+being logged as a blocker - done: neither file was added to the repo,
+and Major Tom's `.ork`/`.eng` no longer appears in this file's BLOCKED
+list. (The July 4 `.ork` above is a separate, still-open item - unrelated
+to Major Tom - not touched by tonight's instructions.)
+
+Full checklist, in order (14 commits, each with the full test suite
+green before pushing):
+
+1. **Design system foundation** (`bup_rocketpy/gui/theme.py`,
+   `bup_rocketpy/gui/components.py`, `bup_rocketpy/gui/static/`): color/
+   spacing/radius/shadow/motion tokens as CSS custom properties; Inter
+   vendored locally (4 weights, `@fontsource/inter` via `npm pack`, no
+   CDN); `motion.js` for count-up/stagger; every shared component used
+   on every page from here on - `page_header`, `card`, `kpi_card`,
+   `status_chip`, buttons, `empty_state`, `skeleton`, `dropzone`,
+   `confirm_dialog`, `data_table`, `hero_stat`, `error_bar`,
+   `stepper_header`.
+2. **Component gallery** at `/design-system` (not in the sidebar - a
+   reference page) + `docs/design_system.md`.
+3. **New Home page** (mission-control dashboard) takes over `/`; the old
+   load/simulate flow moves to `/simulate`. Required fixing 5 existing
+   Playwright test files that assumed `/` was Simulate.
+4. **Every other page redesigned** with the shared components: Simulate
+   (stepper), Rocket, Monte Carlo, RCSM Cases, Analysis, Launch Day,
+   History, Exports, Validation - one commit each, full suite green
+   before every push.
+5. **Every matplotlib plot restyled** to the theme (`plot_theme.py`):
+   transparent figure/axes background + a neutral axis/grid/legend color
+   that reads on both light and dark surfaces (a static PNG can't react
+   to a live dark-mode toggle, so transparency is the fix, not a
+   hardcoded light/dark pair) - applied to all ~11 flight plots, the
+   rocket side-profile drawing, the Monte Carlo histogram/ellipse, the
+   weathercocking scatter, and the two report-only plots.
+6. **Quality pass**: WCAG AA contrast checked with a real formula (not
+   eyeballing), both 1366x768 and 1920x1080, both themes, every page, no
+   console errors, no horizontal overflow. Caught and fixed 2 real
+   contrast bugs (see "Two real contrast bugs" below). Full light+dark
+   screenshot gallery at `docs/screenshots/redesign/`.
+
+**Two real bugs found by testing, not by looking harder at the code:**
+
+- `rocket_drawing.draw_side_profile()`'s `dark=` parameter was dead code
+  - grepped all 4 call sites, none ever passed `dark=True`, so every
+  rocket drawing had silently rendered light-only forever. Fixed by
+  making it transparent-background (consistent with `plot_theme.py`)
+  and documenting the parameter as a no-op kept only for signature
+  compatibility.
+- WCAG contrast: the active nav icon used GOLD unconditionally (GOLD on
+  a light surface is ~2.7:1, failing even the 3:1 large-text/UI
+  threshold - an earlier hand-written comment in `theme.py` had wrongly
+  claimed it "just passes"), and `status_chip()`'s SUCCESS/WARNING/
+  ERROR/INFO colors, reused unchanged in both themes, measured as low
+  as ~2.2:1 against their own dark-mode tinted background. Both fixed
+  in `theme.py` with light/dark-specific values (same WINE(light)/
+  GOLD(dark) split `.bup-kpi-value` already used, extended to the nav
+  icon; new `*_DARK` variants for the 4 status colors) and locked in
+  with a real WCAG-formula test (`tests/test_redesign_quality.py`) that
+  computes contrast against the actual rendered background, not an
+  assumed pure white/black.
+
+**Honest scope note**: this run's own per-page redesign commits each
+re-ran the full e2e suite right after that page's change, which
+overwrites `docs/screenshots/*.png` with the ALREADY-redesigned page -
+there is no preserved pre-redesign "before" screenshot anywhere in this
+repo to diff against. `docs/screenshots/redesign/` is the complete
+"after" gallery (10 pages x 2 themes = 20 images at 1920x1080), not a
+before/after pair. See MORNING_REPORT.md.
+
+Full suite at the end of this run: 101 passed, 1 skipped.

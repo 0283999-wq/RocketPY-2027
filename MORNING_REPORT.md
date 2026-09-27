@@ -1,113 +1,145 @@
-# Morning report - autonomous run 2 (MEGA_PROMPT_2), all 7 sections done
+# Morning report - autonomous run 3, full UI redesign, every page done
 
-Every section of MEGA_PROMPT_2 is done. `main` builds and passes its
-full test suite + Playwright e2e after every commit - nothing below
-left the app in a broken state at any point.
+`main` builds and passes its full test suite + Playwright e2e after
+every commit tonight (14 commits, each pushed only once green) -
+nothing below left the app in a broken state at any point. This is a
+**visual/UX pass only**: no physics code changed, no feature was
+removed, every page still does everything it did before.
+
+`Major_tom.ork`/`kaboom.eng` (attached with tonight's instructions) were
+used for local smoke-checks only and were **not** committed, per your
+explicit instruction - and their prior absence is no longer listed as a
+blocker anywhere in this report or in PROGRESS.md.
 
 ## Status table
 
-| Section | Status |
+| Step | Status |
 |---|---|
-| 1 - mass/CG/inertia matching OpenRocket | **Done** (mechanism proven on PROMETEO + both OpenRocket examples; Major Tom itself still blocked, see below) |
-| 2 - reefing/settings persistence ("mission" save+reopen) | **Done** |
-| 3 - launch-day weather correctness (timezone bug) | **Done** |
-| 4 - History page (detail view, real delete fix, reopen) | **Done** |
-| 5 - validation consistency (V2 now passes) | **Done** |
-| 6 - real technical report (prose, not a data dump) | **Done** |
-| 7 - Mission Control redesign (3D playback, live MC) | **Done** (core pieces - see honest scope note below) |
+| 1 - Design system (tokens, font, components, gallery page + docs) | **Done** |
+| 2 - Motion (page transitions, stagger, count-up, skeletons, reduced-motion) | **Done** |
+| 3 - Every page redesigned (Home, Simulate, Rocket, Monte Carlo, RCSM, Analysis, Launch Day, History, Exports, Validation) | **Done** |
+| 3b - Every matplotlib plot restyled to the theme, light+dark safe | **Done** |
+| 4 - Quality pass (contrast, both resolutions/themes, screenshots, e2e path) | **Done** |
 
-## Your 8-item acceptance checklist, checked against what actually shipped
+## What changed, per page
 
-1. **Major Tom mass/CG/stability within 1-2% of OpenRocket** - the FIX is
-   done and proven (within ~1% on both OpenRocket's own shipped example
-   rockets, checked against their own stored-sim ground truth), but it
-   cannot be demonstrated ON Major Tom itself - **its `.ork`/`.eng` still
-   aren't in this repo** (flagged since Phase 1). Send them and this
-   becomes a 2-minute re-run, not new work.
-2. **Reefing ON -> ~200s flight time, 2 recovery stages everywhere, no
-   re-upload needed** - **Done.** Mission persistence (save+reopen) keeps
-   reefing/overrides/weather/profile together; verified with a real
-   `translate.build_rocket()` call producing 2 parachutes after a reopen.
-3. **Launch-day weather shows realistic wind; December -> climatology** -
-   **Done** for the actual bug you reported (a missing `timezone=`
-   param silently read "12:00 local" as 06:00 GMT) and for the
-   forecast-horizon/climatology fallback - both covered by tests with
-   mocked Open-Meteo responses, since this sandbox has no internet to
-   hit the real API. Diego's own machine is the first real end-to-end
-   check against live data.
-4. **History: click -> full detail; delete without duplicating controls** -
-   **Done**, and the exact reported duplication bug was root-caused
-   (the delete button never cleared its own row list container) and
-   fixed, with a Playwright test seeding 2 real runs and clicking
-   through the actual UI.
-5. **V2 uses the same path as the default run** - **Done.** V2 now goes
-   through the identical stored-sim-derived mass/CG/inertia/length
-   the default Simulate path uses, changing only the total mass -
-   this ALSO fixed a real bug (V2, 150 g lighter, was predicting a
-   LOWER apogee than the default path - physically backwards) and made
-   V2 pass validation (-3.4%, was -6.1%) as a side effect of the fix,
-   not a tuning pass.
-6. **Report reads like a real technical report, no jargon** - **Done.**
-   Rebuilt around a 12-section structure with a written, data-driven
-   paragraph per section, numbered/captioned figures, an independent
-   hand-Barrowman stability check, Beyond UP branding, and a REAL table
-   of contents (the old one was silently broken - never actually
-   populated - a genuine bug, not just an old PDF you'd seen).
-7. **New UI: playback + live Monte Carlo work offline and look great** -
-   **Core pieces done and tested**: a 3D flight playback view (rotatable
-   perspective + 3 synced orthographic views, event markers, play/
-   pause/0.25x-4x speed/seek slider, live readouts) and a live Monte
-   Carlo view (each trajectory appears as it finishes, landing points/
-   ellipse build up in real time), both on vendored three.js (no CDN,
-   confirmed working with network access cut). **Not attempted**: a
-   full from-scratch Home dashboard layout and animated
-   transitions/KPI count-up across every other page - see the honest
-   scope note in PROGRESS.md's Section 7 entry. The two hardest,
-   most-requested pieces are real and tested; the rest is cosmetic
-   polish, not a functional gap.
+- **Design system** (`bup_rocketpy/gui/theme.py` + `components.py`):
+  wine/gold/neutrals + success/warning/error/info tokens, Inter (vendored
+  locally, 4 weights, no CDN), spacing/radius/shadow/motion tokens, and
+  one shared component library (`page_header`, `card`, `kpi_card`,
+  `status_chip`, buttons, `empty_state`, skeletons, `dropzone`,
+  `confirm_dialog`, `data_table`, `hero_stat`, `error_bar`,
+  `stepper_header`) - every page below is built from these, not one-off
+  styling. Reference page at `/design-system`, documented in
+  `docs/design_system.md`.
+- **Home** (`/`, new): mission-control dashboard - current mission chip,
+  rocket drawing, 3D trajectory playback (Play/speed/scrub, reused from
+  last night's work), top KPI row, quick actions, recent runs, empty
+  state for a first-ever launch.
+- **Simulate** (moved from `/` to `/simulate`): a clean 4-step rail
+  (Load -> Review -> Simulate -> Results), drag-and-drop upload zones,
+  the import table grouped by status (imported/approximated/ignored)
+  inside collapsible sections, KPI cards with a count-up entrance,
+  tabbed plots, 3D playback.
+- **Rocket**: a large side-profile drawing with CG/CP markers, specs as
+  KPI cards (length, diameter, dry CG, static margin, reference area),
+  the recovery panel as clean cards.
+- **Monte Carlo**: settings panel + live 3D view/landing map side by
+  side, histogram + 90% band + landing ellipses below, an uncertainties
+  table with each source labeled.
+- **RCSM Cases**: 4 case cards with a status chip each, the compliance
+  checklist as icon+chip rows instead of a plain table.
+- **Analysis**: weathercocking and drag-comparison as two clear
+  side-by-side cards.
+- **Launch Day**: large field-friendly numbers (`hero_stat` for wind
+  speed/direction), an "offline after first download" chip, high
+  contrast, big inputs.
+- **History**: clean table, per-row actions, a detail drawer/page - the
+  exact per-click-fresh-dialog pattern that fixed the historical
+  "delete duplicates its own controls" bug was preserved through the
+  rewrite (still covered by its own regression test).
+- **Exports**: one card per export type with a REAL preview (the
+  altitude-plot thumbnail, an embedded PDF iframe, the zip's own file
+  listing) - not just a download link.
+- **Validation**: V1/V2 as cards with predicted-vs-flight, an
+  `error_bar` (shaded tolerance band + marker) and a PASS/FAIL chip.
+- **Sidebar/header**: consistent icons, active-page indicator, collapse
+  toggle, theme toggle, mission name in the header.
+- **Every matplotlib plot** (`bup_rocketpy/gui/plot_theme.py`, new):
+  transparent background + a neutral axis/grid/legend color that reads
+  on both light and dark surfaces, since a static PNG can't repaint
+  itself on a live dark-mode toggle. Applied to all ~11 flight plots,
+  the rocket side-profile drawing, the Monte Carlo histogram/ellipse,
+  the weathercocking scatter, and the report's own 2 inline plots.
 
-## Section 6 + 7 in a few lines each
+## Two real bugs found by testing, not by re-reading code
 
-**Section 6**: found and fixed a real bug (the PDF's table of contents
-was never populated - reportlab's `notify('TOCEntry', ...)` hook was
-never called, so it silently rendered empty on every report ever
-generated, which was your "placeholder for table of contents"
-complaint). Rebuilt the report with data-driven prose per section, a
-new independent hand-Barrowman stability check (`bup_rocketpy/barrowman.py`,
-verified within 0.8% of RocketPy's own CP for PROMETEO), Beyond UP
-page-1 branding, and editable text blocks that persist with the
-mission.
+1. **Material Icons rendering as literal text** ("rocket_launch" instead
+   of a glyph). Root cause: NiceGUI/Quasar ship their own CSS inside a
+   `@layer base`; an unlayered `* { font-family: 'Inter' }` rule
+   silently beats ANY layered rule regardless of specificity, per the
+   CSS cascade-layers spec, so it clobbered `.material-icons`'s own font.
+   Fixed with an explicit unlayered `!important` restore rule, locked in
+   with a Playwright test using `document.fonts.check(...)` (NOT
+   `innerText` - Material Icons is a font ligature, so the DOM text is
+   always the literal name regardless of whether the font actually
+   loaded; an early draft of this test got that wrong and would have
+   passed even with the bug present).
+2. **`rocket_drawing.draw_side_profile()`'s `dark=` parameter was dead
+   code** - grepped all 4 call sites, none ever passed `dark=True`, so
+   every rocket drawing had silently rendered light-only forever, in
+   every previous night's work too. Fixed by switching to a transparent
+   background (consistent with `plot_theme.py`) and documenting the
+   parameter as a no-op kept only for signature compatibility.
 
-**Section 7**: vendored three.js r128 (MIT, via a real npm tarball -
-most CDN hosts are blocked from this sandbox) at
-`bup_rocketpy/gui/static/vendor/three.min.js`, and wrote
-`bup_rocketpy/gui/static/playback.js` (the flight playback + live
-Monte Carlo viewers) and `bup_rocketpy/gui/flight_playback.py` (the
-decimated dataset they animate) from scratch. Caught and fixed a real
-bug before it shipped: the first end-to-end Playwright run found a 404
-on `three.min.js` (the script tag pointed at the wrong path) - found by
-checking the browser's own console log, not by re-reading the code.
+Plus a WCAG contrast pass that measured actual rendered colors instead
+of eyeballing screenshots, and found 2 more real issues:
 
-## Numbers before/after this run
+3. The active nav icon used GOLD unconditionally - GOLD on a light
+   surface is ~2.7:1 (fails even the 3:1 large-text/UI threshold; an
+   earlier hand-written comment had wrongly claimed it "just passes").
+4. `status_chip()`'s SUCCESS/WARNING/ERROR/INFO colors, reused unchanged
+   in both themes, measured as low as ~2.2:1 against their own dark-mode
+   tinted background (used for the PASS/FAIL and PROVISIONAL chips,
+   among others) - a real accessibility bug on safety-relevant UI, not
+   a cosmetic one.
 
-- **Section 1 (mass/CG)**: PROMETEO's own default-path apogee moved from
-  1088.0 m (old geometric thin-shell estimate) to **1072.1 m** (new:
-  OpenRocket's own stored-simulation mass/CG, minus motor) - grounded in
-  OpenRocket's own computed total instead of a from-scratch approximation
-  that was off by **-35% to -50%** on both shipped OpenRocket example
-  rockets. Margin: 1.94 -> 2.04 cal.
-- **Section 5 (validation)**: **V2 now predicts 1098.3 m vs. the 1137 m
-  target - error -3.4%, PASSES within +-5%** (was -6.1%, FAIL) - earned
-  from a real data-consistency bug fix, not tuning (V1, unchanged, still
-  fails, proving nothing was tweaked to force a pass).
-- **Section 3 (weather)**: root-caused Diego's reported "0.3 m/s from
-  121 deg vs. a 4-9 m/s NE forecast" to a missing `timezone=` parameter
-  (Open-Meteo silently read "12:00 local" as 06:00 GMT). Fixed.
-- **Section 6**: TOC bug fixed (see above); hand-Barrowman CP within
-  0.8% of RocketPy's own for PROMETEO.
-- **Section 7**: 3D playback + live Monte Carlo both render and animate
-  through a real headless-browser test, with zero network access
-  required (three.js fully vendored).
+Both (3) and (4) fixed in `theme.py` with light/dark-specific color
+values (same WINE(light)/GOLD(dark) split `.bup-kpi-value` already
+used, extended to the nav icon; new `*_DARK` variants for the 4 status
+colors), locked in by a real WCAG-formula test
+(`tests/test_redesign_quality.py`) rather than a comment someone has to
+remember to re-check by hand.
+
+## Screenshots
+
+**Honest scope note**: every previous commit tonight re-ran the full
+Playwright suite right after that page's own redesign, which
+overwrites `docs/screenshots/*.png` with the ALREADY-redesigned page -
+there is no preserved pre-redesign snapshot anywhere in this repo to
+show you a literal before/after diff. What you get instead is more
+useful for a final check: a **complete light+dark gallery of every
+page**, taken in one pass at the end, at `docs/screenshots/redesign/`
+(20 images, 10 pages x 2 themes, 1920x1080). `docs/screenshots/*.png`
+(root) remains the incrementally-updated "current state after each
+page's own commit" set, useful for reviewing individual commits in
+git history.
+
+## Quality checks run
+
+- WCAG AA contrast: computed with the real formula (relative luminance
+  + contrast ratio, not eyeballed) for every documented token pairing,
+  including `status_chip()`'s actual rendering (colored text on its own
+  translucent tint, not on flat white/black) - all pass now.
+- Every sidebar page + Home + Simulate, at both 1366x768 and 1920x1080,
+  in both light and dark mode: no console errors, no horizontal
+  overflow.
+- The full e2e user path (load PROMETEO with no overrides -> Simulate
+  -> playback -> Monte Carlo -> export report) still passes - covered
+  across `test_phase0_e2e_full.py` and `test_mission_control_e2e.py`,
+  both green.
+- `prefers-reduced-motion` gates every CSS keyframe animation added
+  tonight (page entrance, card stagger, skeleton shimmer).
 
 ## Exact PowerShell commands
 
@@ -116,30 +148,33 @@ git pull
 .\start.bat
 ```
 
-`start.bat` re-syncs `requirements.txt` on every run (now including
-`pypdf`, added for Section 6's own tests), so no separate reinstall
-step is ever needed after a `git pull`.
+`start.bat` re-syncs `requirements.txt` on every run, so no separate
+reinstall step is needed after a `git pull`. Nothing new was added to
+`requirements.txt` tonight (the Inter font and three.js are vendored as
+static files, not pip packages).
 
 ## What I need from you (one line each)
 
-- **Major Tom's `.ork`/`.eng`** - still not in this repo (flagged since
-  Phase 1). Item 1 above is otherwise ready to go the moment these
-  arrive.
-- **The July 4 .ork** - checked `reference/prometeo_mission44/data/rockets/`
-  again; only the two drag CSVs are there. V1 still uses the
+- **The July 4 `.ork`** - still only the two drag CSVs are in
+  `reference/prometeo_mission44/data/rockets/`; V1 still uses the
   Brasil-config CG approximation, not a July-4-specific measurement.
-- **Exact LASC 2026 flight date/time at Iacanga** - still pending from
-  an earlier session; needed for the Validation page's "V2 re-run with
-  real weather" to produce a real number.
-- **Real weather API access** - this sandbox has no internet, so
-  Section 3's climatology/forecast fixes are tested against mocked
-  Open-Meteo responses only. Your machine is the first live check.
+- **Exact LASC 2026 flight date/time at Iacanga** - still pending;
+  needed for the Validation page's "V2 re-run with real weather" to
+  produce a real number.
+- **Real weather API access** - this sandbox has no internet, so any
+  live Open-Meteo call (Launch Day, Validation's "re-run with real
+  weather") is untested against the real API here; your machine is the
+  first live check, same as every previous report.
 
-None of these block anything shipped tonight - each is an isolated,
-clearly labeled gap, same as every previous report.
+Major Tom's `.ork`/`.eng` is **not** on this list - you sent both files
+tonight, they were used for local checks only, and per your instruction
+they are intentionally not committed to the repo. That's expected, not
+a gap.
 
 ## Full test count
 
-97 passed, 1 skipped (93 unit/integration + 4 Playwright e2e tests),
-across every section's own test files plus the pre-existing suite -
-run in full at the end of Section 7, not just per-section.
+101 passed, 1 skipped, across every page's own redesign commit plus a
+final full-suite run at the end of tonight's work (14 commits total,
+each pushed only after the full suite was green) - including the two
+new test files added tonight (`tests/test_design_system_e2e.py`,
+`tests/test_redesign_quality.py`).
