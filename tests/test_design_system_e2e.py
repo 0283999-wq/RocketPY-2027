@@ -90,8 +90,24 @@ def test_design_system_gallery_page_loads_with_no_errors(tmp_path):
             page.wait_for_timeout(300)
             body_text = page.inner_text("body")
             assert "Traceback" not in body_text and "Internal Server Error" not in body_text
-            for section in ("Colors", "Buttons", "Status chips", "KPI cards", "Cards (staggered entrance)", "Empty state", "Skeleton loading", "Confirm dialog", "Data table"):
+            for section in ("Colors", "Buttons", "Status chips", "KPI cards", "Cards (staggered entrance)", "Empty state", "Skeleton loading", "Confirm dialog", "Error bar", "Data table"):
                 assert section in body_text, f"missing gallery section {section!r}"
+
+            # Real bug caught while building the Validation page: ui.html's
+            # own wrapper has no intrinsic width under a flex column, so
+            # error_bar's inner `width:100%` div rendered as a squished
+            # sliver instead of spanning its card - fixed by forcing the
+            # wrapper itself to w-full. Locks that in by measuring actual
+            # rendered widths, not just checking the page didn't crash.
+            widths = page.evaluate(
+                "() => { const bars = document.querySelectorAll('[style*=\"height:28px\"]'); "
+                "return Array.from(bars).map(b => ({bar: b.getBoundingClientRect().width, "
+                "parent: b.parentElement.getBoundingClientRect().width})); }"
+            )
+            assert widths, "expected at least one error_bar element on the design system page"
+            for w in widths:
+                assert w["bar"] > 0.85 * w["parent"], f"error_bar rendered too narrow relative to its container: {w}"
+
             js_errors = [e for e in console_errors if "favicon" not in e.lower()]
             assert not js_errors, f"JS console errors on the design system page: {js_errors}"
             browser.close()

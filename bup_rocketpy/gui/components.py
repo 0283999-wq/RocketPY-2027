@@ -163,6 +163,32 @@ def confirm_dialog(message, confirm_label="Delete", cancel_label="Cancel", dange
     return dialog, confirm_btn
 
 
+def error_bar(value_pct, tolerance_pct=5.0, range_pct=15.0):
+    """A visual +-tolerance error bar (Validation page: predicted vs.
+    flight) - a shaded PASS band around zero, a marker at the actual
+    error. Not a matplotlib plot (too heavy for one inline number) -
+    plain HTML/CSS, themed with the same tokens as everything else."""
+    def to_x(v):
+        return max(0.0, min(100.0, 50 + (v / range_pct) * 50))
+
+    band_lo, band_hi = to_x(-tolerance_pct), to_x(tolerance_pct)
+    marker_x = to_x(value_pct)
+    within = abs(value_pct) <= tolerance_pct
+    marker_color = "var(--bup-success)" if within else "var(--bup-error)"
+    # ui.html's own wrapper element has no intrinsic width under a flex
+    # column (components.card's layout) - without forcing it to w-full,
+    # the inner div's `width:100%` resolves against a near-zero
+    # shrink-to-fit containing block and the whole bar renders as a
+    # squished sliver instead of spanning the card (caught by screenshot).
+    ui.html(f"""
+    <div style="position:relative; width:100%; height:28px; background: var(--bup-border); border-radius:999px; margin: 6px 0;">
+      <div style="position:absolute; left:{band_lo}%; width:{band_hi - band_lo}%; top:0; bottom:0; background: rgba(46,125,50,0.20); border-radius:999px;"></div>
+      <div style="position:absolute; left:50%; top:0; bottom:0; width:1px; background: var(--bup-muted);"></div>
+      <div style="position:absolute; left:{marker_x}%; top:50%; width:14px; height:14px; margin-left:-7px; margin-top:-7px; border-radius:50%; background:{marker_color}; border: 2px solid var(--bup-surface); box-shadow: var(--bup-shadow-sm);"></div>
+    </div>
+    """).classes("w-full")
+
+
 def data_table(columns, rows, classes=""):
     return ui.table(columns=columns, rows=rows).classes(f"w-full bup-card {classes}").props("flat")
 

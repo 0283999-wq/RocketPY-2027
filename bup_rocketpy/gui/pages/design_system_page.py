@@ -76,6 +76,12 @@ def design_system_page():
         confirm_btn.on_click(lambda: (ui.notify("Confirmed (demo only)"), dialog.close()))
         components.button("Open confirm dialog", kind="danger", on_click=dialog.open)
 
+        _section("Error bar")
+        ui.label("V1 (FAIL, +11.0%)").classes("text-sm")
+        components.error_bar(11.0, tolerance_pct=5.0)
+        ui.label("V2 (PASS, -3.4%)").classes("text-sm mt-2")
+        components.error_bar(-3.4, tolerance_pct=5.0)
+
         _section("Data table")
         components.data_table(
             columns=[{"name": "case", "label": "Case", "field": "case"}, {"name": "apogee", "label": "Apogee AGL (m)", "field": "apogee"}],
