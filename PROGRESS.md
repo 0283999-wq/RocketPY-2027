@@ -2177,3 +2177,81 @@ repo to diff against. `docs/screenshots/redesign/` is the complete
 before/after pair. See MORNING_REPORT.md.
 
 Full suite at the end of this run: 101 passed, 1 skipped.
+
+## Fourth overnight run (2026-09-28): report/validation/comparison fixes
+
+You reviewed the redesign ("it's great, keep it") and sent a new
+punch list plus `docs/report_references/plantilla solid.docx`. Same
+rules: `main` always green, commit+push per section, nothing
+destructive, `MORNING_REPORT.md` at the end.
+
+### Section 1: the PROVISIONAL banner - done
+
+Replaced the hardcoded, already-stale ("V1/V2 has not both passed")
+banner with a live chip computed from `bup_rocketpy.validation.
+summarize_validation_status()` - e.g. "Model validated on 1 flight
+(LASC 2026, -3.4%) - 1 pending", clickable through to `/validation`.
+V1 now reports `status="inconclusive"` (not FAIL) since it uses a CG
+approximated from a different vehicle configuration - the July-4-
+specific design file is still missing, so scoring its miss as a plain
+FAIL would blame the flight model for an input-data gap, not a real
+disagreement. Scrubbed every "see PROGRESS.md" reference a user could
+actually see: the Validation page's own captions, the generated
+per-case `.py` files and the LASC `.zip`'s README.txt (both read by
+LASC judges), and a `translate.estimate_best_dry_mass_cg_inertia`
+code-name leak in the mass-source string shown throughout the app.
+Full suite: 104 passed, 1 skipped.
+
+### Section 2: OpenRocket comparison card + dimension/drawing fixes - done
+
+New `bup_rocketpy/openrocket_comparison.py`: a 9-row table (length, max
+diameter, mass w/ and w/o motor, CG w/ motor @t=0, CP @ Mach 0.3,
+stability @ Mach 0.3 (t=0), apogee, max Mach) comparing our own
+computed numbers against the `.ork`'s OWN stored simulation - not
+hand-typed per rocket, works for any `.ork` with a stored sim. CP/
+stability get 2% tolerance (documented rocketpy/OpenRocket body-lift
+model difference), everything else 1%.
+
+Investigated Major Tom's real `.ork`/`.eng` (sent locally with this
+run's instructions, used for local checks only, NOT committed - same
+rule as before). Found and fixed 3 real bugs:
+1. `<tubecoupler>` mass overrides (Major Tom's own carries a real,
+   measured 1.13 kg one) were silently dropped into the generic
+   "unhandled nested tag" IGNORED branch - fixed with the same
+   subcomponents-aware pattern `<innertube>`/`<centeringring>` already use.
+2. `draw_side_profile()`'s motor rectangle was real, working code that
+   had simply never been WIRED UP - none of its 4 call sites (app.py,
+   home_page.py, rocket_page.py, report.py) ever passed
+   `motor_length_m`, so the drawing had never shown a motor anywhere in
+   the app, ever. Fixed all 4.
+3. The transition/boat-tail was drawn at the same low alpha as the body
+   tube, so a shallow taper visually disappeared into it. Bumped
+   alpha/edge width.
+
+Investigated but did NOT change: extending `airframe_length_m()` to
+include a swept fin's tip overhang, tested against Major Tom's real
+file, made the length comparison WORSE (198 cm vs. your reported 193
+cm, instead of the existing formula's already-close 193.5 cm) -
+OpenRocket's own "Length" figure evidently excludes fin overhang too.
+Kept as a separate `fin_envelope_end_m()` helper instead of folding it
+into the length everything else already depends on (motor placement).
+
+**What I found on the actual mass mismatch you reported**: your
+Major Tom `.ork` file's OWN stored OpenRocket simulation (all 3 stored
+sims inside it agree) computes dry mass = **15.021 kg**, with-motor
+mass = 30.981 kg, CG (with motor, t=0) = 1.225 m from nose - and this
+app's comparison card matches ALL THREE of those to within 0.00-0.22%
+(an exact match on mass and CG). That's different from the 13,758 g /
+118 cm you reported reading off OpenRocket's live panel. Since the
+numbers embedded in the file you sent and the numbers you read live
+don't agree with EACH OTHER either, this looks like the file is a
+slightly earlier/later save than what you were looking at (an active
+design keeps moving) rather than a bug in how this app reads it - the
+comparison card will make this visible again immediately if you
+re-export and re-upload a fresher `.ork`. CP at Mach 0.3 is 2.10% off
+(just over the 2% model-difference tolerance) and stability 11.7% off
+(a small-difference-of-close-numbers amplification of that same CP
+gap, not a second separate error - see the card's own caption).
+
+Tests: `tests/test_openrocket_comparison.py`, `tests/test_rocket_drawing.py`.
+Full suite: 109 passed, 1 skipped.
