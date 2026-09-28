@@ -44,7 +44,7 @@ def design_system_page():
         with ui.row().classes("gap-2"):
             components.status_chip("Neutral", "neutral")
             components.status_chip("Reefing ON", "success")
-            components.status_chip("PROVISIONAL", "warning")
+            components.status_chip("Pending", "warning")
             components.status_chip("FAIL", "error")
             components.status_chip("Weather: Open-Meteo", "info")
 

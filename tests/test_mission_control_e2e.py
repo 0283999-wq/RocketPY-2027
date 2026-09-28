@@ -68,7 +68,7 @@ def test_flight_playback_and_live_monte_carlo_render_and_animate(tmp_path):
             page.get_by_role("button", name=re.compile("Load files", re.I)).click()
             page.wait_for_selector("text=/Imported|Approximated|Ignored/i", timeout=15000)
             page.get_by_role("button", name=re.compile("^Simulate$", re.I)).click()
-            page.wait_for_selector("text=/PROVISIONAL/i", timeout=60000)
+            page.wait_for_selector("text=/Apogee AGL/i", timeout=60000)  # 2026-09-28 review item 1: the old "PROVISIONAL" banner is gone - wait on the KPI grid instead, same marker test_phase0_e2e_full.py already uses
 
             # --- Flight playback (3D): the tab is the default-active one ---
             page.wait_for_timeout(1500)  # three.min.js load + BUP.playback.create()

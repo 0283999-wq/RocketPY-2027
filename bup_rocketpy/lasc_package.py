@@ -6,6 +6,21 @@ import shutil
 import zipfile
 
 
+def _validation_status_line():
+    """Live, plain-English validation summary for the LASC package's own
+    README - 2026-09-28 review item 1: this used to be a hardcoded
+    "PROVISIONAL: see PROGRESS.md" line, which was already stale and
+    pointed a LASC judge at an internal repo file they'd never have.
+    Falls back to a neutral line rather than failing the whole package
+    build if validation can't be computed for some reason."""
+    try:
+        from bup_rocketpy import validation
+        summary = validation.summarize_validation_status()
+        return f"Model validation status: {summary.text}. See the app's Validation page for the full breakdown."
+    except Exception:
+        return "Model validation status: see the app's Validation page for the current breakdown."
+
+
 def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None, mission_id_template=None):
     """cases: list of (case_name, include_recovery) tuples to export -
     typically [("Ballistic", False), ("Nominal", True)] at minimum
@@ -60,8 +75,7 @@ Contents:
 - {ork_filename} - the OpenRocket design file this was built from.
 - power_off_drag.csv / power_on_drag.csv - the Cd-vs-Mach curves used.
 
-PROVISIONAL: see this project's PROGRESS.md for validation status before
-treating any number here as final.
+{_validation_status_line()}
 """
     with open(os.path.join(staging_dir, "README.txt"), "w") as f:
         f.write(readme)

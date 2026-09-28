@@ -44,6 +44,15 @@ class ValidationResult:
     # case difference (e.g. V2 vs. the unconstrained default run) can be
     # visually audited rather than taken on faith.
     inputs: dict = None
+    # 2026-09-28 review item 1: "pass"/"fail"/"inconclusive" - a SEPARATE
+    # field from `passes` because a case can miss its +-5% tolerance for a
+    # reason that has nothing to do with the flight model being wrong (V1
+    # uses a CG approximated from a DIFFERENT vehicle configuration, since
+    # the July-4-specific design file was never provided - scoring that as
+    # a plain FAIL would unfairly blame the physics for an input-data gap).
+    # `passes` is kept as the raw +-5% boolean (still used internally/by
+    # older tests); `status` is what the UI shows.
+    status: str = "fail"
 
 
 def _prom_config():
@@ -108,11 +117,16 @@ def compute_v1():
         rail_length=3.0, inclination=89.0, heading=270.0,
     )
     error_pct = (apogee_agl - target) / target * 100
-    notes = ("Conditions: OpenRocket-recorded (prometeo4dejulio.csv), NOT live weather. "
-             "Dry CG is a Brasil-config approximation, not a July4-specific measurement. "
-             "NEEDS DIEGO: rebuild this from the actual July 4 .ork if it exists (not currently in "
-             "reference/prometeo_mission44/data/rockets/) instead of the Brasil-config CG approximation.")
-    return ValidationResult("V1 (2026-07-04, Pachuca profile)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
+    notes = ("Conditions: weather recorded by OpenRocket for this flight, not live/historical data. "
+             "Input data incomplete: the design file for this specific flight configuration is not yet "
+             "available, so this case reuses a center-of-gravity measurement taken from a different "
+             "vehicle configuration instead of one specific to this flight. This case will become a real "
+             "pass/fail once that file is added; until then its error number reflects that input gap as "
+             "much as the flight model itself, so it is not scored as a plain pass or fail.")
+    return ValidationResult(
+        "V1 (2026-07-04, Pachuca profile)", apogee_agl, target, error_pct, margin0,
+        abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs, status="inconclusive",
+    )
 
 
 def compute_v2():
@@ -166,7 +180,11 @@ def compute_v2():
         "rail_length_m": parsed.launch.rail_length_m, "inclination_deg": parsed.launch.inclination_deg, "heading_deg": parsed.launch.rail_direction_deg,
         "total_mass_kg": 10.370, "motor_mass_loaded_kg": round(10.370 - best.mass_est.mass_kg, 4),
     }
-    return ValidationResult("V2 (LASC 2026, Iacanga)", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
+    passes = abs(error_pct) <= TOLERANCE_PCT
+    return ValidationResult(
+        "V2 (LASC 2026, Iacanga)", apogee_agl, target, error_pct, margin0, passes, notes,
+        inputs=inputs, status="pass" if passes else "fail",
+    )
 
 
 def compute_default_path_reference():
@@ -200,7 +218,7 @@ def compute_default_path_reference():
     return ValidationResult(
         "Default path (no overrides, .ork's own stored-sim mass/CG)", apogee_agl, None, None, flight.stability_margin(0), None,
         "Not a validation case (no real-flight target - this .ork's own stored simulation is a design-phase report config, never flown). Shown for side-by-side comparison with V2 only.",
-        inputs=inputs,
+        inputs=inputs, status="n/a",
     )
 
 
@@ -209,6 +227,53 @@ def compute_v1_and_v2():
     them. Real computation each time - a couple hundred ms total, not a
     hot-loop-safe call."""
     return [compute_v1(), compute_v2()]
+
+
+@dataclass
+class ValidationSummary:
+    text: str
+    chip_kind: str  # "success" | "warning" | "error" - see components.status_chip
+
+
+def _short_case_label(name):
+    """"V1 (2026-07-04, Pachuca profile)" -> "2026-07-04"; "V2 (LASC 2026,
+    Iacanga)" -> "LASC 2026" - the bit inside the parens a reader actually
+    needs to tell cases apart, without the internal "V1"/"V2" jargon."""
+    if "(" in name and ")" in name:
+        inside = name.split("(", 1)[1].rsplit(")", 1)[0]
+        return inside.split(",")[0].strip()
+    return name
+
+
+def summarize_validation_status():
+    """2026-09-28 review item 1: the app used to show a hardcoded
+    "PROVISIONAL" banner on every result, pointing at this repo's own
+    PROGRESS.md (an internal file no user should ever be told to open) -
+    and it was already stale (V2 passes now). This replaces it with a
+    short, ALWAYS-CURRENT summary computed from the live V1/V2 results,
+    meant for a single small chip on the results view - e.g. "Model
+    validated on 1 flight (LASC 2026, -3.4%) - 1 pending". Full detail
+    (per-case notes, why a case is pending) lives on the Validation page
+    only, which this chip should link to."""
+    results = compute_v1_and_v2()
+    passing = [r for r in results if r.status == "pass"]
+    failing = [r for r in results if r.status == "fail"]
+    pending = [r for r in results if r.status == "inconclusive"]
+
+    if passing:
+        detail = "; ".join(f"{_short_case_label(r.name)}, {r.error_pct:+.1f}%" for r in passing)
+        clause = f"validated on {len(passing)} flight{'s' if len(passing) != 1 else ''} ({detail})"
+    else:
+        clause = "not yet validated against a real flight"
+    extra = []
+    if pending:
+        extra.append(f"{len(pending)} pending")
+    if failing:
+        extra.append(f"{len(failing)} failing")
+    text = "Model " + clause + (" - " + ", ".join(extra) if extra else "")
+
+    chip_kind = "error" if failing else ("success" if passing else "warning")
+    return ValidationSummary(text=text, chip_kind=chip_kind)
 
 
 # 2026-09-26 review item I: re-run V1/V2 with REAL recorded weather
@@ -247,19 +312,22 @@ def compute_v1_with_real_weather(cache_dir, force_refresh=False):
         rail_length=3.0, inclination=89.0, heading=270.0,
     )
     error_pct = (apogee_agl - target) / target * 100
-    notes = (f"Conditions: REAL historical weather from Open-Meteo ({profile.source}) for "
+    notes = (f"Conditions: real historical weather from Open-Meteo ({profile.source}) for "
              f"{V1_DATE} 12:00 local at Pachuca - wind {speed:.1f} m/s from {direction:.0f} deg "
-             "(compute_v1() instead uses the OpenRocket-recorded csv wind of 3.25 m/s from 90 deg). "
-             "Dry CG is still the Brasil-config approximation (same caveat as compute_v1()).")
-    return ValidationResult("V1 (2026-07-04, Pachuca profile) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
+             "(the OpenRocket-recorded-weather version of this case instead uses 3.25 m/s from 90 deg). "
+             "Input data incomplete: still uses a center-of-gravity measurement taken from a different "
+             "vehicle configuration, same as the OpenRocket-recorded-weather version of this case.")
+    return ValidationResult(
+        "V1 (2026-07-04, Pachuca profile) - REAL WEATHER", apogee_agl, target, error_pct, margin0,
+        abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs, status="inconclusive",
+    )
 
 
 class V2FlightDateUnknownError(ValueError):
     """Raised when compute_v2_with_real_weather is called with no date.
-    The exact LASC 2026 flight date/time is NOT YET RECORDED in this
-    project (see PROGRESS.md - Diego said this is "pending from me") -
-    CLAUDE.md Rule 2 forbids guessing one, so this refuses rather than
-    silently picking an arbitrary date's weather."""
+    The exact LASC 2026 flight date/time is not yet recorded in this
+    project - CLAUDE.md Rule 2 forbids guessing one, so this refuses
+    rather than silently picking an arbitrary date's weather."""
 
 
 def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
@@ -273,8 +341,8 @@ def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
     CG/length constants."""
     if not date:
         raise V2FlightDateUnknownError(
-            "The exact LASC 2026 flight date is not yet recorded in this project - ask Diego for it "
-            "(PROGRESS.md already logs this as pending) and enter it above before re-running with real weather."
+            "The exact LASC 2026 flight date is not yet recorded in this project - enter it above before "
+            "re-running with real weather."
         )
     from bup_rocketpy import weather
 
@@ -298,10 +366,11 @@ def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
     apogee_agl = flight.apogee - flight.env.elevation
     margin0 = flight.stability_margin(0)
     error_pct = (apogee_agl - target) / target * 100
-    notes = (f"Conditions: REAL historical weather from Open-Meteo ({profile.source}) for {date} "
-             f"12:00 local at Iacanga - wind {speed:.1f} m/s from {direction:.0f} deg. Still does NOT "
-             "reproduce LASC officials' own exact re-simulation inputs (CRS 10.2.1) - an independent replication, "
-             f"same caveat as compute_v2(). Mass/CG source: {best.mass_est.source}.")
+    notes = (f"Conditions: real historical weather from Open-Meteo ({profile.source}) for {date} "
+             f"12:00 local at Iacanga - wind {speed:.1f} m/s from {direction:.0f} deg. Still does not "
+             "reproduce the LASC officials' own exact re-simulation inputs (their on-site prediction was "
+             "made at the Launch Readiness Review) - this is our own independent replication. "
+             f"Mass/CG source: {best.mass_est.source}.")
     inputs = {
         "dry_mass_kg": round(best.mass_est.mass_kg, 4), "dry_cg_m": round(best.mass_est.cg_m, 4),
         "mass_source": best.mass_est.source,
@@ -309,4 +378,8 @@ def compute_v2_with_real_weather(date, cache_dir, force_refresh=False):
         "rail_length_m": parsed.launch.rail_length_m, "inclination_deg": parsed.launch.inclination_deg, "heading_deg": parsed.launch.rail_direction_deg,
         "total_mass_kg": 10.370, "motor_mass_loaded_kg": round(10.370 - best.mass_est.mass_kg, 4),
     }
-    return ValidationResult("V2 (LASC 2026, Iacanga) - REAL WEATHER", apogee_agl, target, error_pct, margin0, abs(error_pct) <= TOLERANCE_PCT, notes, inputs=inputs)
+    passes = abs(error_pct) <= TOLERANCE_PCT
+    return ValidationResult(
+        "V2 (LASC 2026, Iacanga) - REAL WEATHER", apogee_agl, target, error_pct, margin0, passes, notes,
+        inputs=inputs, status="pass" if passes else "fail",
+    )

@@ -51,7 +51,7 @@ REAL_CONTENT_MARKERS = {
     "/analysis": "Weathercocking",
     "/history": None,  # checked specially: the just-completed run's own row, not a fixed string
     "/exports": "Report (PDF",
-    "/validation": "PROVISIONAL",
+    "/validation": "INCONCLUSIVE",  # 2026-09-28 review item 1: the old "PROVISIONAL" banner is gone - V1's own per-case chip (input data incomplete) is the new stable marker
     "/launchday": "Launch-day weather",
 }
 

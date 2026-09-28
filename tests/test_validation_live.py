@@ -39,6 +39,53 @@ def test_v1_matches_test_phase2_validation_within_rounding():
     assert 950 < v2.predicted_agl_m < 1150
 
 
+def test_v1_is_inconclusive_not_fail_and_v2_status_matches_passes():
+    """2026-09-28 review item 1: V1 uses a CG approximated from a
+    DIFFERENT vehicle configuration (the July-4-specific design file is
+    missing) - scoring it a plain FAIL would blame the flight model for
+    an input-data gap that has nothing to do with it. It must report
+    status="inconclusive" (not "pass"/"fail") until that file exists.
+    V2 has no such gap, so its status must track its own +-5% pass/fail
+    exactly, same as before this review item."""
+    v1 = validation.compute_v1()
+    v2 = validation.compute_v2()
+    assert v1.status == "inconclusive", f"V1 should be inconclusive (input data incomplete), got {v1.status!r}"
+    assert v2.status == ("pass" if v2.passes else "fail")
+
+
+def test_no_internal_file_names_leak_into_user_facing_validation_text():
+    """2026-09-28 review item 1: the old hardcoded banner told users to
+    "see PROGRESS.md" - an internal repo file no user has. Every
+    user-facing string this module produces (notes, summary chip text,
+    the flight-date-unknown error message) must never name an internal
+    project file."""
+    banned = ["PROGRESS.md", "progress.md"]
+    results = validation.compute_v1_and_v2()
+    for r in results:
+        for term in banned:
+            assert term not in r.notes, f"{r.name}.notes leaks an internal file name: {term!r}"
+    summary = validation.summarize_validation_status()
+    for term in banned:
+        assert term not in summary.text
+    try:
+        validation.compute_v2_with_real_weather(None, "/tmp/unused_cache_dir")
+        assert False, "expected V2FlightDateUnknownError"
+    except validation.V2FlightDateUnknownError as exc:
+        for term in banned:
+            assert term not in str(exc)
+
+
+def test_summarize_validation_status_reflects_current_pass_pending_counts():
+    """Locks in the exact shape the mega-prompt asked for: "Model
+    validated on 1 flight (LASC 2026, -3.4%) - 1 pending" - computed
+    live from real V1 (inconclusive)/V2 (pass) results, not hand-typed."""
+    summary = validation.summarize_validation_status()
+    assert summary.text.startswith("Model validated on 1 flight ("), summary.text
+    assert "LASC 2026" in summary.text
+    assert summary.text.endswith("1 pending"), summary.text
+    assert summary.chip_kind == "success"
+
+
 def test_v2_lighter_config_predicts_a_higher_apogee_than_the_default_path():
     """2026-09-27 review item 5's actual reported bug, as a permanent
     regression guard: V2's config (10.370 kg, scale-measured at Iacanga)

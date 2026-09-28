@@ -379,9 +379,10 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
 
 
 def _validation_paragraphs(validation_block):
+    status_word = {"pass": "PASS", "fail": "FAIL", "inconclusive": "INCONCLUSIVE"}
     lines = []
     for r in validation_block:
-        status = "PASS" if r.passes else "FAIL"
+        status = status_word.get(r.status, "FAIL")
         lines.append(f"{r.name}: predicted {r.predicted_agl_m:.1f} m vs. real flight {r.target_agl_m:.1f} m (error {r.error_pct:+.1f}%, {status} against +-5%). {r.notes}")
     return lines
 

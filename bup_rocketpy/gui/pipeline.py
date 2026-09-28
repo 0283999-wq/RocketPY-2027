@@ -68,7 +68,8 @@ class SimResult:
     is_stable: bool  # 2026-09-26 review 2(b): pass/fail against FLT 4.3.5's 1.5-4 cal window, not just margin > 0
     plot_paths: dict  # {"altitude": path, "velocity": path, ...}
     csv_path: str
-    provisional_warning: str  # always non-empty until Phase 2's V1/V2 both pass - CLAUDE.md Rule 3
+    validation_summary_text: str  # 2026-09-28 review item 1: replaces the old hardcoded "PROVISIONAL" banner - a short, live-computed summary of the model's real-flight validation track record (bup_rocketpy.validation.summarize_validation_status), e.g. "Model validated on 1 flight (LASC 2026, -3.4%) - 1 pending". Never mentions an internal file name.
+    validation_summary_kind: str = "warning"  # "success" | "warning" | "error" - see components.status_chip
     dry_mass_kg: float = None  # the mass ACTUALLY used to build the flown rocket (override or geometric estimate) - crash (d)/(e) fix: every other page must read this, not the raw UI override field, or they show 0/None whenever no manual override was typed
     dry_cg_m: float = None
     mass_source: str = ""  # human-readable: "override" or "geometric estimate (...)"
@@ -340,6 +341,20 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         openrocket_csv_path = None
         print(f"WARNING: OpenRocket-style CSV export failed: {exc}")
 
+    # 2026-09-28 review item 1: the model's real-flight validation track
+    # record doesn't depend on which rocket is being simulated right now
+    # (V1/V2 are fixed PROMETEO reference cases) - computed fresh each
+    # Simulate click (a couple hundred ms, see validation.py's own
+    # docstring) rather than hardcoding a stale banner string, so it can
+    # never drift out of sync with the Validation page again.
+    try:
+        from bup_rocketpy import validation
+        validation_summary = validation.summarize_validation_status()
+        validation_summary_text, validation_summary_kind = validation_summary.text, validation_summary.chip_kind
+    except Exception as exc:
+        validation_summary_text, validation_summary_kind = "Validation status unavailable", "warning"
+        print(f"WARNING: validation summary failed: {exc}")
+
     return SimResult(
         apogee_agl_m=flight.apogee - env.elevation,
         max_speed_ms=flight.max_speed,
@@ -353,7 +368,8 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         plot_paths=plot_paths,
         csv_path=csv_path,
         openrocket_csv_path=openrocket_csv_path,
-        provisional_warning="PROVISIONAL: V1/V2 flight-data validation has not both passed within +-5% yet (see PROGRESS.md). Do not treat this result as final.",
+        validation_summary_text=validation_summary_text,
+        validation_summary_kind=validation_summary_kind,
         dry_mass_kg=mass_est.mass_kg,
         dry_cg_m=mass_est.cg_m,
         mass_source=mass_est.source,

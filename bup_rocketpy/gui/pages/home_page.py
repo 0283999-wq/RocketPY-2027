@@ -70,7 +70,7 @@ def home_page():
             if reefed:
                 components.status_chip("Reefing ON", "success")
             if s["sim_result"] is not None:
-                components.status_chip("PROVISIONAL" if s["sim_result"].provisional_warning else "Validated", "warning" if s["sim_result"].provisional_warning else "success")
+                components.status_chip(s["sim_result"].validation_summary_text, s["sim_result"].validation_summary_kind).classes("cursor-pointer").on("click", lambda: ui.navigate.to("/validation")).tooltip("Open the Validation page for the full breakdown")
 
         sim = s["sim_result"]
         if sim is None:

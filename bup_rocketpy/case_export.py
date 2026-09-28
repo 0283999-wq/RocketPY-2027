@@ -48,8 +48,8 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a("    pip install rocketpy")
     a(f"Run alongside this file: {eng_filename}, {power_off_drag_filename}, {power_on_drag_filename}")
     a("")
-    a("PROVISIONAL: see the source repo's PROGRESS.md for validation status")
-    a("and every documented approximation (mass/CG source, drag curve source).")
+    a("Model validation status and every documented approximation (mass/CG")
+    a("source, drag curve source) are on this app's Validation page.")
     a('"""')
     a("import os")
     a("from rocketpy import Environment, SolidMotor, Rocket, Flight")
@@ -60,7 +60,7 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
 
     a("# --- Environment ---")
     a(f"env = Environment(latitude={_fmt(parsed.launch.latitude)}, longitude={_fmt(parsed.launch.longitude)}, elevation={_fmt(parsed.launch.altitude_m)})")
-    a('env.set_atmospheric_model(type="standard_atmosphere")  # OpenRocket-recorded conditions - see PROGRESS.md; replace with real launch-day weather before submission')
+    a('env.set_atmospheric_model(type="standard_atmosphere")  # OpenRocket-recorded conditions; replace with real launch-day weather before submission')
     wind_u, wind_v = wind_uv(parsed.launch)
     if wind_u or wind_v:
         # rocketpy's set_atmospheric_model silently ignores wind_u/wind_v
@@ -90,7 +90,7 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a('    coordinate_system_orientation="nozzle_to_combustion_chamber",')
     a(")")
     a("")
-    a("# --- Rocket (dry mass/CG/inertia - see PROGRESS.md for source: override vs geometric estimate) ---")
+    a("# --- Rocket (dry mass/CG/inertia - source: override vs geometric estimate) ---")
     a("rocket = Rocket(")
     a(f"    radius={_fmt(radius_m)},")
     a(f"    mass={_fmt(dry_mass_kg)},")

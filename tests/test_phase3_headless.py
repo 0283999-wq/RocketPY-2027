@@ -63,11 +63,18 @@ def test_run_simulation_end_to_end_with_manual_mass_override():
     print(f"static margin: [{sim.min_static_margin_cal:.2f}, {sim.max_static_margin_cal:.2f}] cal, stable={sim.is_stable}")
     print(f"plots written: {[k for k, v in sim.plot_paths.items() if v]}")
     print(f"CSV: {sim.csv_path}")
-    print(f"warning shown to user: {sim.provisional_warning}")
+    print(f"validation chip shown to user: {sim.validation_summary_text} ({sim.validation_summary_kind})")
 
     assert sim.is_stable, "with the correct mass+CG this should be stable - if not, something regressed"
     assert 500 < sim.apogee_agl_m < 2000
-    assert sim.provisional_warning, "CLAUDE.md Rule 3: every result must show PROVISIONAL until V1+V2 both pass"
+    # 2026-09-28 review item 1: the old hardcoded "PROVISIONAL" banner is
+    # gone (it was already stale - V2 passes now - and named an internal
+    # file to the user). The chip must still always be present and must
+    # never claim a clean "validated, no caveats" state while V1 is
+    # unresolved - CLAUDE.md Rule 3's spirit (never overstate confidence),
+    # now expressed as a live, honest summary instead of a fixed banner.
+    assert sim.validation_summary_text
+    assert "PROGRESS.md" not in sim.validation_summary_text
 
 
 def test_parachute_deploys_at_apogee_not_late_and_max_acceleration_is_boost_only():

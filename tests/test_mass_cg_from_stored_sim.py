@@ -33,6 +33,12 @@ def test_stored_sim_derived_mass_and_cg_are_sane_for_prometeo():
     best = translate.estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, ENG_PATH, ork_path=ORK_PATH)
 
     assert "OpenRocket computed" in best.mass_est.source, f"expected the stored-sim path to win, got: {best.mass_est.source}"
+    # 2026-09-28 review item 1: this string is shown directly to users
+    # (Rocket/Simulate/Validation pages) - it must never leak a Python
+    # function/module name (it used to say "- see translate.estimate_
+    # best_dry_mass_cg_inertia", which is exactly what a user should
+    # never be told to go read).
+    assert "translate." not in best.mass_est.source, f"mass source string leaks a code name: {best.mass_est.source}"
     assert 5.0 < best.mass_est.mass_kg < 6.5, f"dry mass {best.mass_est.mass_kg} looks implausible"
     assert 0.4 < best.mass_est.cg_m < 1.0, f"dry CG {best.mass_est.cg_m} looks implausible"
     assert best.i_axial_kgm2 > 0 and best.i_transverse_kgm2 > 0

@@ -290,7 +290,7 @@ def simulate_page():
 
             results_container.clear()
             with results_container:
-                components.status_chip(sim.provisional_warning, "warning" if "PROVISIONAL" in sim.provisional_warning else "success")
+                components.status_chip(sim.validation_summary_text, sim.validation_summary_kind).classes("cursor-pointer").on("click", lambda: ui.navigate.to("/validation")).tooltip("Open the Validation page for the full breakdown")
                 with ui.grid(columns=4).classes("gap-3 mt-2 w-full"):
                     kpi_i = 0
                     for label, target, unit, decimals, good in [

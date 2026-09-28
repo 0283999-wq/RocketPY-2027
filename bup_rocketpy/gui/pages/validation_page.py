@@ -19,15 +19,24 @@ from bup_rocketpy.gui import components, layout
 CACHE_DIR = os.path.join(os.getcwd(), "outputs", "weather_cache")
 
 
+_STATUS_CHIP = {
+    "pass": ("PASS", "success"),
+    "fail": ("FAIL", "error"),
+    "inconclusive": ("INCONCLUSIVE", "warning"),
+}
+
+
 def _render_result_card(r):
+    chip_text, chip_kind = _STATUS_CHIP.get(r.status, ("FAIL", "error"))
+    kpi_status = "neutral" if r.status == "inconclusive" else ("good" if r.status == "pass" else "bad")
     with components.card(classes="w-full mt-2"):
         with ui.row().classes("items-center justify-between w-full"):
             ui.label(r.name).classes("font-bold")
-            components.status_chip("PASS" if r.passes else "FAIL", "success" if r.passes else "error")
+            components.status_chip(chip_text, chip_kind)
         with ui.grid(columns=3).classes("gap-4 w-full mt-1"):
             components.kpi_card("Predicted", f"{r.predicted_agl_m:.1f}", "m", status="neutral")
             components.kpi_card("Real flight", f"{r.target_agl_m:.1f}", "m", status="neutral")
-            components.kpi_card("Error", f"{r.error_pct:+.1f}", "%", status="good" if r.passes else "bad")
+            components.kpi_card("Error", f"{r.error_pct:+.1f}", "%", status=kpi_status)
         ui.label("Error vs. +-5% tolerance").classes("text-xs mt-2").style("color: var(--bup-muted)")
         components.error_bar(r.error_pct, tolerance_pct=5.0)
         ui.label(r.notes).classes("text-sm mt-1").style("color: var(--bup-muted)")
@@ -37,21 +46,17 @@ def _render_result_card(r):
 def validation_page():
     with layout.layout("Validation", current_path="/validation"):
         components.page_header("Validation", "V1/V2 against real flight telemetry - the only place in this app the word \"validated\" is earned.")
-        components.status_chip("PROVISIONAL", "warning")
 
         results = validation.compute_v1_and_v2()
-        both_pass = all(r.passes for r in results)
-        if both_pass:
-            components.status_chip("Both currently pass.", "success")
-        else:
-            components.status_chip("Neither does yet." if not any(r.passes for r in results) else "Not both do yet.", "warning")
+        summary = validation.summarize_validation_status()
+        components.status_chip(summary.text, summary.chip_kind)
 
         for r in results:
             _render_result_card(r)
 
         with components.card(classes="w-full mt-4"):
             ui.label("Code-to-code check vs. OpenRocket").classes("font-bold")
-            ui.label("Reproducing OpenRocket's own CSV-exported simulation with its EXACT inputs (no weather uncertainty at all, same site/rail/mass/wind the .ork itself recorded) currently passes within 2% (see PROGRESS.md for the exact number and history - not re-computed live on this page, it needs an OpenRocket CSV export as its reference that isn't loaded here).").classes("text-sm")
+            ui.label("Reproducing OpenRocket's own CSV-exported simulation with its EXACT inputs (no weather uncertainty at all, same site/rail/mass/wind the .ork itself recorded) currently passes within 2% (not re-computed live on this page - it needs an OpenRocket CSV export as its reference that isn't loaded here).").classes("text-sm")
             ui.label("V2's remaining gap above is most likely the difference between the .ork's recorded weather and the actual Iacanga flight-day conditions, not a code bug - real weather data can help resolve this further, below.").classes("text-sm mt-1").style("color: var(--bup-muted)")
 
         # 2026-09-27 review item 5: "print a side-by-side input table" -
@@ -91,7 +96,7 @@ def validation_page():
                     v2_val, def_val = v2_result.inputs.get(key), default_ref.inputs.get(key)
                     ui.label("n/a" if v2_val is None else fmt.format(v2_val))
                     ui.label("n/a" if def_val is None else fmt.format(def_val))
-            ui.label("Both rows use the IDENTICAL code path (translate.estimate_best_dry_mass_cg_inertia + translate.ork_to_flight) - the only real input difference is the total mass (10.370 kg scale-measured for V2 vs. the .ork's own stored-sim design-phase total). The lighter V2 config correctly predicts a HIGHER apogee than the default path, as physics requires - this used to be backwards due to a data-consistency bug (see PROGRESS.md Section 5).").classes("text-xs mt-1").style("color: var(--bup-muted)")
+            ui.label("Both rows go through the identical mass/CG/inertia and flight computation - the only real input difference is the total mass (10.370 kg scale-measured for V2 vs. the design file's own stored-simulation design-phase total). The lighter V2 configuration correctly predicts a HIGHER apogee than the default path, as physics requires.").classes("text-xs mt-1").style("color: var(--bup-muted)")
 
         with components.card(classes="w-full mt-4"):
             ui.label("Re-run with real weather (Open-Meteo historical)").classes("font-bold")
@@ -111,8 +116,8 @@ def validation_page():
             components.button("Re-run V1 with real weather", kind="secondary", icon="cloud_download", on_click=rerun_v1)
 
             ui.label(
-                "V2 (LASC 2026, Iacanga): the exact flight date is NOT YET RECORDED in this project "
-                "(PROGRESS.md logs this as pending from Diego) - enter it below once known."
+                "V2 (LASC 2026, Iacanga): the exact flight date is not yet recorded in this project - "
+                "enter it below once known."
             ).classes("text-sm mt-4").style("color: var(--bup-muted)")
             with ui.row().classes("items-center gap-2"):
                 v2_date_input = ui.input(label="LASC 2026 flight date (YYYY-MM-DD)")

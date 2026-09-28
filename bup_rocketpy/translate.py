@@ -435,7 +435,7 @@ def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=Non
                     i_total_axial_kgm2=ref.i_rot_t0, i_total_transverse_kgm2=ref.i_long_t0,
                 )
                 mass_override_note = f", total mass overridden to {total_mass_kg:.4f} kg" if total_mass_override_kg is not None else ""
-                mass_est.source = f"OpenRocket computed (stored simulation '{ref.name}', t=0, minus motor{mass_override_note} - see translate.estimate_best_dry_mass_cg_inertia)"
+                mass_est.source = f"OpenRocket computed (stored simulation '{ref.name}', t=0, minus motor{mass_override_note})"
                 if i_ax is not None and i_tr is not None and i_ax > 0 and i_tr > 0:
                     return BestMassEstimate(mass_est, i_ax, i_tr, f"OpenRocket computed (stored simulation '{ref.name}', minus motor)")
                 i_ax_geom, i_tr_geom = estimate_dry_inertia(parsed, mass_est)
