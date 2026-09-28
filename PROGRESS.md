@@ -2255,3 +2255,39 @@ gap, not a second separate error - see the card's own caption).
 
 Tests: `tests/test_openrocket_comparison.py`, `tests/test_rocket_drawing.py`.
 Full suite: 109 passed, 1 skipped.
+
+### Section 3: reefing missing from Monte Carlo - done
+
+Root cause found: `StochasticRocket.create_object()` doesn't carry over
+anything added to the nominal rocket via `rocket.add_X()` - already
+documented in this repo for nose/fins (a real rocketpy 1.13.0 bug,
+`tests/test_phase4_monte_carlo.py`'s own module docstring), but never
+re-checked for parachutes. `translate.build_rocket()` DOES correctly
+attach 1 or 2 (reefed) real parachutes to the nominal rocket - they
+just never got mirrored onto the `StochasticRocket` object Monte Carlo
+actually samples from, so every MC sample had **zero** parachutes,
+reefed or not. Confirmed empirically before the fix: with a fixed
+seed, reefed and non-reefed impact samples were bit-for-bit identical
+- exactly what you reported.
+
+Fixed in `monte_carlo.py` (re-registers every parachute on the
+`StochasticRocket`, same pattern nose/fins already use) + wired in the
+`parachute_cd_s_factor`/`parachute_lag_s` uncertainties that
+`default_uncertainties()` had listed with sources since Phase 4 but
+were never actually applied to anything. Found and fixed a second bug
+while verifying: randomizing lag around a real 0s nominal (common for
+an apogee-triggered chute) samples negative ~50% of the time -
+rocketpy's own docstring warns about this and it does corrupt the
+trajectory - now only randomizes lag when the nominal is comfortably
+positive (2-sigma).
+
+Checked the rest of your list (Flight, the 4 RCSM cases, report, CSV) -
+all already correct (`build_rocket()` is the one shared path all of
+them go through), confirmed with fresh runs: reefed Nominal case flight
+time 130.2s vs. 206.8s not reefed, for PROMETEO. Locked in with a new
+test in `test_reefed_parachute.py`.
+
+Tests: 2 new tests in `test_phase4_monte_carlo.py` (fixed-seed reefed-
+vs-not dispersion must differ AND narrow; sampled rocket's own
+`.parachutes` must be non-empty), 1 new in `test_reefed_parachute.py`.
+Full suite: 112 passed, 1 skipped.
