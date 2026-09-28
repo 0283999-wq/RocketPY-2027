@@ -75,6 +75,93 @@ def test_monte_carlo_produces_a_sane_apogee_distribution_with_no_excluded_sample
     assert ellipses[3]["width"] > ellipses[2]["width"] > ellipses[1]["width"] > 0, "sigma ellipses should nest (3-sigma widest)"
 
 
+def test_reefing_actually_changes_the_landing_dispersion():
+    """2026-09-28 review item 3: Diego reported Monte Carlo giving the
+    SAME landing ellipse area with and without reefing - root cause was
+    the SAME bug class as this file's own documented bug #2/#3 above,
+    just never caught for parachutes: StochasticRocket.create_object()
+    does not carry over ANYTHING added to the nominal `rocket` via
+    rocket.add_X(), including rocket.add_parachute() - so every Monte
+    Carlo sample had ZERO parachutes attached, reefed or not, and the
+    landing point was governed purely by ballistic free-fall drag in
+    both cases. Confirmed empirically before the fix: with a fixed
+    seed, reefed and non-reefed impact samples were IDENTICAL, bit for
+    bit. This locks in that they now differ, and that reefing narrows
+    the dispersion (falls fast under the small reefed canopy, so less
+    time for wind to carry it, until the cutter releases the full
+    canopy much lower)."""
+    import dataclasses
+
+    parsed = read_ork(ORK_PATH)
+    eng = read_eng(ENG_PATH)
+    mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
+    i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+    radius = next(t.radius for t in parsed.body_tubes if t.radius)
+    uncertainties = monte_carlo.default_uncertainties(DRY_MASS_KG, 1871.3, parsed.launch.wind_average_ms)
+
+    def run(reefed):
+        p = parsed
+        if reefed:
+            chute = p.parachutes[0]
+            p = dataclasses.replace(p, parachutes=[dataclasses.replace(
+                chute, is_reefed=True, reefed_diameter_m=0.7, reefed_cd=chute.cd,
+                cutter_altitude_m=500.0, cutter_delay_s=0.5,
+            )])
+        return monte_carlo.run_monte_carlo(
+            p, eng, ENG_PATH, POWER_OFF_DRAG, POWER_ON_DRAG,
+            DRY_MASS_KG, DRY_CG_M, i_ax, i_tr, radius,
+            uncertainties, n_simulations=12, output_dir=OUT_DIR, include_recovery=True, seed=42,
+        )
+
+    r_off = run(reefed=False)
+    r_on = run(reefed=True)
+    assert r_off.n_completed == 12 and r_on.n_completed == 12
+
+    def spread(result):
+        return max(result.impact_x_samples) - min(result.impact_x_samples)
+
+    spread_off, spread_on = spread(r_off), spread(r_on)
+    print(f"\nlanding X spread: not reefed={spread_off:.1f} m, reefed={spread_on:.1f} m")
+    assert spread_off != spread_on, "reefed and non-reefed landing dispersion is IDENTICAL - the reefing config isn't reaching Monte Carlo at all"
+    assert spread_on < spread_off, f"reefing should narrow the landing dispersion (falls fast, less wind-drift time), got reefed={spread_on:.1f} m >= not-reefed={spread_off:.1f} m"
+
+
+def test_stochastic_sample_rocket_actually_has_parachutes_attached():
+    """The literal root cause of the bug above, isolated: after
+    StochasticRocket.create_object(), the sampled Rocket must carry the
+    same parachutes the nominal `rocket` was built with - before the
+    fix this was always [], for every rocket, regardless of reefing."""
+    import dataclasses
+
+    from rocketpy import StochasticNoseCone, StochasticParachute, StochasticRocket, StochasticTrapezoidalFins
+
+    parsed = read_ork(ORK_PATH)
+    eng = read_eng(ENG_PATH)
+    chute = parsed.parachutes[0]
+    parsed.parachutes[0] = dataclasses.replace(
+        chute, is_reefed=True, reefed_diameter_m=0.7, reefed_cd=chute.cd,
+        cutter_altitude_m=500.0, cutter_delay_s=0.5,
+    )
+    mass_est = translate.MassEstimate(DRY_MASS_KG, DRY_CG_M, "test")
+    i_ax, i_tr = translate.estimate_dry_inertia(parsed, mass_est)
+    radius = next(t.radius for t in parsed.body_tubes if t.radius)
+    motor = translate.build_motor(eng, ENG_PATH)
+    rocket = translate.build_rocket(parsed, motor, mass_est, i_ax, i_tr, radius, power_off_drag=POWER_OFF_DRAG, power_on_drag=POWER_ON_DRAG, include_recovery=True)
+    assert len(rocket.parachutes) == 2, "sanity: the nominal rocket should have both reefed-stage parachutes"
+
+    stochastic_rocket = StochasticRocket(rocket=rocket, mass=(DRY_MASS_KG, 0.05))
+    stochastic_rocket.add_motor(motor)
+    if parsed.nose is not None:
+        stochastic_rocket.add_nose(StochasticNoseCone(nosecone=rocket.nosecones[0]))
+    for fin_surface in rocket.fins:
+        stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
+    for chute_obj in rocket.parachutes:
+        stochastic_rocket.add_parachute(StochasticParachute(parachute=chute_obj, cd_s=(chute_obj.cd_s, chute_obj.cd_s * 0.1)))
+
+    sample_rocket = stochastic_rocket.create_object()
+    assert len(sample_rocket.parachutes) == 2, f"expected both reefed-stage parachutes on the SAMPLED rocket, got {[p.name for p in sample_rocket.parachutes]}"
+
+
 def test_on_sample_complete_fires_once_per_sample_with_a_decimated_trajectory():
     """2026-09-27 review item 7: the live Monte Carlo 3D view needs each
     completed sample's own trajectory/landing point AS IT FINISHES, not

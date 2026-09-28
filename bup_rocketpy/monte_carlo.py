@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass, field
 
 import numpy as np
-from rocketpy import Flight, StochasticEnvironment, StochasticFlight, StochasticNoseCone, StochasticRocket, StochasticSolidMotor, StochasticTrapezoidalFins
+from rocketpy import Flight, StochasticEnvironment, StochasticFlight, StochasticNoseCone, StochasticParachute, StochasticRocket, StochasticSolidMotor, StochasticTrapezoidalFins
 
 
 @dataclass
@@ -201,6 +201,43 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
             stochastic_rocket.add_nose(StochasticNoseCone(nosecone=rocket.nosecones[0]))
         for fin_surface in rocket.fins:
             stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
+        # 2026-09-28 review item 3: SAME bug class as the nose/fins one
+        # above (StochasticRocket.create_object() does NOT carry over
+        # ANYTHING added to the nominal `rocket` via rocket.add_X() -
+        # this one had just never been caught for parachutes specifically,
+        # since a Monte Carlo run "completes" either way and only the
+        # landing dispersion silently goes wrong, not an exception).
+        # Verified empirically: sample_rocket.parachutes was [] every
+        # time, reefed or not - the ballistic free-fall-shaped descent
+        # this produces still LANDS somewhere, so "same ellipse area
+        # with/without reefing" (Diego's report) reads as a plausible
+        # result instead of an obvious crash. Every parachute the
+        # nominal `rocket` actually has (1 for a normal chute, 2 for a
+        # reefed one - see translate.build_rocket) must be individually
+        # re-registered here, same as nose/fins.
+        for chute in rocket.parachutes:
+            cd_s_std = chute.cd_s * u["parachute_cd_s_factor"].std_dev if "parachute_cd_s_factor" in u else 0
+            lag_std = u["parachute_lag_s"].std_dev if "parachute_lag_s" in u else 0
+            # StochasticParachute's own docstring: "Pay special attention
+            # to ensure the lag will not assume negative values based on
+            # its mean and standard deviation" - a real deploy lag is
+            # very commonly 0 (apogee-triggered, no added delay, true for
+            # PROMETEO's own parachute), so randomizing it unconditionally
+            # samples a NEGATIVE lag on close to half of all draws -
+            # confirmed empirically: rocketpy logs "Trying to add flight
+            # phase starting before the one preceding it" and produces a
+            # corrupted/NaN trajectory for that sample. Only randomize
+            # when the nominal lag is comfortably positive relative to
+            # the std dev (2 sigma, ~97.7% chance of staying >=0);
+            # otherwise this specific parachute's lag stays fixed at its
+            # nominal value for every sample - cd_s is still randomized
+            # either way.
+            lag_is_safe = chute.lag - 2 * lag_std >= 0
+            stochastic_rocket.add_parachute(StochasticParachute(
+                parachute=chute,
+                cd_s=(chute.cd_s, cd_s_std) if cd_s_std else None,
+                lag=(chute.lag, lag_std) if lag_std and lag_is_safe else None,
+            ))
         stochastic_flight = StochasticFlight(
             flight=flight,
             inclination=(nominal_inclination, u["inclination_deg"].std_dev) if "inclination_deg" in u else None,

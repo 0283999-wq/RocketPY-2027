@@ -73,6 +73,25 @@ def test_all_four_rcsm_cases_run_with_no_dual_deploy_warning():
     assert len(results["MainAtApogee"].flight.rocket.parachutes) == 1
 
 
+def test_reefing_shortens_nominal_flight_time_vs_unreefed():
+    """2026-09-28 review item 3's explicit checklist: "Reefing ON vs OFF:
+    shorter flight time ... 2 stages in the report". The Nominal RCSM
+    case (which report.py's own prose/recovery section is built from -
+    see bup_rocketpy.recovery.recovery_panel, which reads
+    flight.parachute_events, not the design-level parachute count) must
+    show BOTH: a real flight-time difference, and 2 deployment events."""
+    parsed_reefed, eng = _load_with_reefed_chute()
+    parsed_normal = read_ork(ORK_PATH)  # same .ork, chute left alone (not reefed)
+
+    reefed = rcsm_cases.run_all_cases(parsed_reefed, eng, ENG_PATH, POWER_OFF_DRAG, POWER_ON_DRAG, DRY_MASS_KG, DRY_CG_M)["Nominal"]
+    normal = rcsm_cases.run_all_cases(parsed_normal, eng, ENG_PATH, POWER_OFF_DRAG, POWER_ON_DRAG, DRY_MASS_KG, DRY_CG_M)["Nominal"]
+
+    print(f"\nflight time: reefed={reefed.flight.t_final:.1f} s, not reefed={normal.flight.t_final:.1f} s")
+    assert reefed.flight.t_final < normal.flight.t_final, "reefing (fast descent until the cutter) should shorten total flight time vs. a normal single-stage deployment"
+    assert len(list(reefed.flight.parachute_events)) == 2, "reefed Nominal case should log 2 deployment events (reefed stage + cutter release)"
+    assert len(list(normal.flight.parachute_events)) == 1
+
+
 def test_rec_813_and_814_checks_are_present_and_use_correct_altitude_convention():
     """Regression guard for a real bug caught during development: mixing
     up flight.altitude() (already AGL) with flight.z()/flight.apogee
