@@ -69,7 +69,14 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
         fr, ar = tr.fore_radius or body_radius, tr.aft_radius or body_radius
         xs = [tr.position_m, tr.position_m + tr.length, tr.position_m + tr.length, tr.position_m]
         ys = [fr, ar, -ar, -fr]
-        ax.fill(xs, ys, facecolor=theme.GOLD, alpha=0.10, edgecolor=fg, linewidth=1.2)
+        # 2026-09-28 review item 2: a transition/boat-tail at the same
+        # alpha as the body tube (0.10) visually disappeared into it,
+        # especially for a shallow taper - Diego's own complaint ("no
+        # tail/boat-tail" visible) was a real rendering issue, not a
+        # missing component (it WAS being drawn, just not legibly).
+        # Bumped alpha + a slightly thicker edge so the taper reads as
+        # its own distinct shape.
+        ax.fill(xs, ys, facecolor=theme.GOLD, alpha=0.30, edgecolor=fg, linewidth=1.6)
 
     for fin in parsed.fins:
         root_x0 = fin.position_m

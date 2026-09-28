@@ -571,6 +571,27 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
                 log.append(ImportRow(cname, "IMPORTED", f"instancecount={instance_count}, separation={separation:.4f} m -> upper@{upper:.4f} m, lower@{lower:.4f} m"))
             prev_aft = fore
 
+        elif tag == "tubecoupler":
+            # 2026-09-28 review item 2: previously fell into the generic
+            # "unhandled nested tag" IGNORED branch below, silently
+            # dropping a real, often substantial measured mass (Major
+            # Tom's own tube coupler carries a 1.13 kg <overridemass> -
+            # part of the mass-mismatch Diego reported for this rocket).
+            # Same shape as the innertube/centeringring/launchlug branch
+            # above: can carry its own <subcomponents>, and an override
+            # mass (when present) is the team's real measurement, not
+            # this reader's own guess, so it always wins over silence.
+            length = _child_text_num(comp, "length", 0.0)
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
+            override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
+            if override_mass:
+                parsed.point_masses.append(PointMass(name=cname, mass=override_mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "IMPORTED", f"mass={override_mass:.4f} kg (measured override on this <{tag}>) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            else:
+                log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass (no override present) - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            _parse_subcomponents_of(comp, fore, fore + length, parsed, log)
+            prev_aft = fore + length
+
         else:
             log.append(ImportRow(cname, "IGNORED", f"unhandled nested tag <{tag}>"))
 
@@ -611,11 +632,16 @@ class SimulationReference:
     cp_asymptotic_m: float  # m from nose tip, max stored CP (before AoA/Mach noise)
     i_long_t0: float  # kg m2, "Longitudinal moment of inertia" @ t=0, with motor
     i_rot_t0: float  # kg m2, "Rotational moment of inertia" @ t=0, with motor
-    reference_length_m: float
+    reference_length_m: float  # OpenRocket's own aerodynamic reference length - the rocket's MAX diameter when <referencetype>maximum</referencetype> (the common default; see reference_length_is_max_diameter)
     reference_area_m2: float
     apogee_agl_m: float
     max_velocity_ms: float
     rail_exit_velocity_ms: float
+    max_acceleration_ms2: float = None  # 2026-09-28 review item 2: <flightdata maxacceleration="..."> - boost-phase peak, same convention as pipeline.SimResult.max_acceleration_ms2
+    max_mach: float = None  # <flightdata maxmach="...">
+    cp_at_mach_0_3_m: float = None  # 2026-09-28 review item 2: "CP location" from the recorded datapoint whose "Mach number" is closest to 0.3 - OpenRocket's own design-view stability readout uses Mach 0.3 as its default reference Mach (CLAUDE.md's own "Stability @ M 0.3" convention), which isn't separately persisted in the file, so this is the closest available real number: an ACTUAL simulated aerodynamic state, not an interpolation/guess.
+    cp_at_mach_0_3_actual_mach: float = None  # the nearest row's real Mach (for the UI to show "closest recorded point: Mach X, not exactly 0.300")
+    reference_length_is_max_diameter: bool = False  # True only when the .ork declares <referencetype>maximum</referencetype> - otherwise reference_length_m is NOT necessarily the max diameter and must not be shown as one
 
 
 def parse_stored_simulation_references(path):
@@ -643,6 +669,15 @@ def parse_stored_simulation_references(path):
     header = header_m.group(1).split(",")
     idx = {name: i for i, name in enumerate(header)}
 
+    # <referencetype> is a whole-rocket design setting (not per-simulation) -
+    # "maximum" is OpenRocket's common default and the only value under
+    # which "Reference length"/"Reference area" are the rocket's own max
+    # diameter/area; any other value (e.g. "userdefined") means those
+    # columns are NOT necessarily the max diameter, so callers must not
+    # show them as one - see reference_length_is_max_diameter.
+    reftype_m = re.search(r"<referencetype>([^<]+)</referencetype>", data.split("<simulations>")[0])
+    reference_length_is_max_diameter = reftype_m is not None and reftype_m.group(1).strip() == "maximum"
+
     out = {}
     for branch_m in re.finditer(r'<simulation[^>]*>\s*<name>([^<]+)</name>.*?<flightdata ([^>]*)>(.*?)</simulation>', data, re.S):
         sim_name, attrs, body = branch_m.group(1), branch_m.group(2), branch_m.group(3)
@@ -665,6 +700,26 @@ def parse_stored_simulation_references(path):
 
         cps = [v for row in points if (v := val(row.split(","), "CP location")) is not None]
 
+        # 2026-09-28 review item 2: the recorded datapoint whose own "Mach
+        # number" is closest to 0.3 - OpenRocket's own default reference
+        # Mach for its design-view stability readout, not persisted
+        # anywhere else in the file. An ACTUAL simulated aerodynamic
+        # state (real CP at whatever Mach that row really is), not an
+        # interpolation - cp_at_mach_0_3_actual_mach lets the UI say how
+        # close the match really was.
+        cp_at_m03, actual_mach = None, None
+        best_gap = None
+        for row in points:
+            cols = row.split(",")
+            mach = val(cols, "Mach number")
+            if mach is None:
+                continue
+            gap = abs(mach - 0.3)
+            if best_gap is None or gap < best_gap:
+                cp_here = val(cols, "CP location")
+                if cp_here is not None:
+                    best_gap, cp_at_m03, actual_mach = gap, cp_here, mach
+
         out[sim_name] = SimulationReference(
             name=sim_name,
             mass_with_motor_t0_kg=val(t0, "Mass"),
@@ -678,6 +733,11 @@ def parse_stored_simulation_references(path):
             apogee_agl_m=attr("maxaltitude"),
             max_velocity_ms=attr("maxvelocity"),
             rail_exit_velocity_ms=attr("launchrodvelocity"),
+            max_acceleration_ms2=attr("maxacceleration"),
+            max_mach=attr("maxmach"),
+            cp_at_mach_0_3_m=cp_at_m03,
+            cp_at_mach_0_3_actual_mach=actual_mach,
+            reference_length_is_max_diameter=reference_length_is_max_diameter,
         )
     return out
 
@@ -814,6 +874,29 @@ def airframe_length_m(parsed):
     tube_end = max((t.position_m + t.length for t in parsed.body_tubes), default=nose_len)
     transition_end = max((tr.position_m + tr.length for tr in parsed.transitions), default=0.0)
     return max(nose_len, tube_end, transition_end)
+
+
+def fin_envelope_end_m(parsed):
+    """2026-09-28 review item 2: the aft-most point of any fin's SWEPT
+    TIP (root_position + max(root_chord, sweep_length + tip_chord)) -
+    can extend past airframe_length_m() for a swept-back fin (Major
+    Tom's own fins: root trailing edge lands exactly at the airframe's
+    aft end, but the swept tip trailing edge reaches ~4.5 cm further
+    back). Kept SEPARATE from airframe_length_m() rather than folded
+    into it: airframe_length_m() is also used to place the motor
+    (translate.build_rocket/derive_dry_mass_and_inertia_from_with_motor
+    assume the motor sits at the STRUCTURAL airframe's own aft end,
+    which the fin surface's extent has no bearing on) and, empirically
+    checked against Diego's own OpenRocket-reported Major Tom length,
+    folding fin overhang into it made that comparison WORSE (198 cm vs.
+    OpenRocket's 193 cm, instead of airframe_length_m()'s own 193.5 cm)
+    - OpenRocket's own "Length" figure evidently does NOT count fin
+    overhang either. This function exists for the rocket drawing and
+    the comparison card's own "full vehicle envelope" context only."""
+    return max(
+        (f.position_m + max(f.root_chord, f.sweep_length + f.tip_chord) for f in parsed.fins),
+        default=0.0,
+    )
 
 
 def components_outside_airframe(parsed):

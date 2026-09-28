@@ -216,7 +216,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         except Exception:
             cp_m = None
 
-    fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=sim_result.dry_cg_m, cp_m=cp_m, static_margin_cal=sim_result.min_static_margin_cal)
+    fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=sim_result.dry_cg_m, cp_m=cp_m, motor_length_m=eng_header.length_mm / 1000.0, static_margin_cal=sim_result.min_static_margin_cal)
     side_profile_path = _fresh_path(outputs_dir, "report_side_profile")
     fig.savefig(side_profile_path)
     import matplotlib.pyplot as plt
