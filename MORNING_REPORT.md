@@ -1,145 +1,169 @@
-# Morning report - autonomous run 3, full UI redesign, every page done
+# Morning report - autonomous run 4: validation chip, OpenRocket comparison, reefing fix, report rewrite
 
-`main` builds and passes its full test suite + Playwright e2e after
-every commit tonight (14 commits, each pushed only once green) -
-nothing below left the app in a broken state at any point. This is a
-**visual/UX pass only**: no physics code changed, no feature was
-removed, every page still does everything it did before.
+`main` builds and passes its full test suite after every commit tonight
+(4 sections, 8 commits, each pushed only after the full suite was
+green). Nothing below left the app in a broken state at any point.
 
-`Major_tom.ork`/`kaboom.eng` (attached with tonight's instructions) were
-used for local smoke-checks only and were **not** committed, per your
-explicit instruction - and their prior absence is no longer listed as a
-blocker anywhere in this report or in PROGRESS.md.
+Major Tom's `.ork`/`.eng` (attached with tonight's instructions) were
+used for local checks only in Section 2 and are **not** committed, per
+your explicit instruction.
 
 ## Status table
 
-| Step | Status |
+| Section | Status |
 |---|---|
-| 1 - Design system (tokens, font, components, gallery page + docs) | **Done** |
-| 2 - Motion (page transitions, stagger, count-up, skeletons, reduced-motion) | **Done** |
-| 3 - Every page redesigned (Home, Simulate, Rocket, Monte Carlo, RCSM, Analysis, Launch Day, History, Exports, Validation) | **Done** |
-| 3b - Every matplotlib plot restyled to the theme, light+dark safe | **Done** |
-| 4 - Quality pass (contrast, both resolutions/themes, screenshots, e2e path) | **Done** |
+| 1 - Replace the stale PROVISIONAL banner with a real validation chip | **Done** |
+| 2 - Rocket page OpenRocket comparison card + fix dimension/drawing gaps | **Done** |
+| 3 - Fix reefing never reaching Monte Carlo | **Done** |
+| 4 - Rewrite report generation as HTML/CSS -> PDF/DOCX | **Done** |
 
-## What changed, per page
+## Section 1: the PROVISIONAL banner
 
-- **Design system** (`bup_rocketpy/gui/theme.py` + `components.py`):
-  wine/gold/neutrals + success/warning/error/info tokens, Inter (vendored
-  locally, 4 weights, no CDN), spacing/radius/shadow/motion tokens, and
-  one shared component library (`page_header`, `card`, `kpi_card`,
-  `status_chip`, buttons, `empty_state`, skeletons, `dropzone`,
-  `confirm_dialog`, `data_table`, `hero_stat`, `error_bar`,
-  `stepper_header`) - every page below is built from these, not one-off
-  styling. Reference page at `/design-system`, documented in
-  `docs/design_system.md`.
-- **Home** (`/`, new): mission-control dashboard - current mission chip,
-  rocket drawing, 3D trajectory playback (Play/speed/scrub, reused from
-  last night's work), top KPI row, quick actions, recent runs, empty
-  state for a first-ever launch.
-- **Simulate** (moved from `/` to `/simulate`): a clean 4-step rail
-  (Load -> Review -> Simulate -> Results), drag-and-drop upload zones,
-  the import table grouped by status (imported/approximated/ignored)
-  inside collapsible sections, KPI cards with a count-up entrance,
-  tabbed plots, 3D playback.
-- **Rocket**: a large side-profile drawing with CG/CP markers, specs as
-  KPI cards (length, diameter, dry CG, static margin, reference area),
-  the recovery panel as clean cards.
-- **Monte Carlo**: settings panel + live 3D view/landing map side by
-  side, histogram + 90% band + landing ellipses below, an uncertainties
-  table with each source labeled.
-- **RCSM Cases**: 4 case cards with a status chip each, the compliance
-  checklist as icon+chip rows instead of a plain table.
-- **Analysis**: weathercocking and drag-comparison as two clear
-  side-by-side cards.
-- **Launch Day**: large field-friendly numbers (`hero_stat` for wind
-  speed/direction), an "offline after first download" chip, high
-  contrast, big inputs.
-- **History**: clean table, per-row actions, a detail drawer/page - the
-  exact per-click-fresh-dialog pattern that fixed the historical
-  "delete duplicates its own controls" bug was preserved through the
-  rewrite (still covered by its own regression test).
-- **Exports**: one card per export type with a REAL preview (the
-  altitude-plot thumbnail, an embedded PDF iframe, the zip's own file
-  listing) - not just a download link.
-- **Validation**: V1/V2 as cards with predicted-vs-flight, an
-  `error_bar` (shaded tolerance band + marker) and a PASS/FAIL chip.
-- **Sidebar/header**: consistent icons, active-page indicator, collapse
-  toggle, theme toggle, mission name in the header.
-- **Every matplotlib plot** (`bup_rocketpy/gui/plot_theme.py`, new):
-  transparent background + a neutral axis/grid/legend color that reads
-  on both light and dark surfaces, since a static PNG can't repaint
-  itself on a live dark-mode toggle. Applied to all ~11 flight plots,
-  the rocket side-profile drawing, the Monte Carlo histogram/ellipse,
-  the weathercocking scatter, and the report's own 2 inline plots.
+Replaced the big "PROVISIONAL" banner that appeared on every single
+simulation with a small status chip on the results page ("Model
+validated on 1 flight (LASC 2026, -3.4%) - 1 pending"), linking to the
+Validation page. V1 (the 2026-07-04 profile check) now reports
+`status="inconclusive"` instead of FAIL - it uses a CG approximated
+from a different vehicle configuration (the July-4-specific design
+file still hasn't arrived), so scoring its miss as a plain FAIL would
+blame the flight model for an input-data gap, not a real disagreement.
 
-## Two real bugs found by testing, not by re-reading code
+Also scrubbed every `"see PROGRESS.md"` reference a real person could
+see: the Validation page's own captions, the generated per-case `.py`
+files and the LASC `.zip`'s `README.txt` (both read by LASC judges),
+and a `translate.estimate_best_dry_mass_cg_inertia` code-name leak in
+the mass-source string shown throughout the app.
 
-1. **Material Icons rendering as literal text** ("rocket_launch" instead
-   of a glyph). Root cause: NiceGUI/Quasar ship their own CSS inside a
-   `@layer base`; an unlayered `* { font-family: 'Inter' }` rule
-   silently beats ANY layered rule regardless of specificity, per the
-   CSS cascade-layers spec, so it clobbered `.material-icons`'s own font.
-   Fixed with an explicit unlayered `!important` restore rule, locked in
-   with a Playwright test using `document.fonts.check(...)` (NOT
-   `innerText` - Material Icons is a font ligature, so the DOM text is
-   always the literal name regardless of whether the font actually
-   loaded; an early draft of this test got that wrong and would have
-   passed even with the bug present).
-2. **`rocket_drawing.draw_side_profile()`'s `dark=` parameter was dead
-   code** - grepped all 4 call sites, none ever passed `dark=True`, so
-   every rocket drawing had silently rendered light-only forever, in
-   every previous night's work too. Fixed by switching to a transparent
-   background (consistent with `plot_theme.py`) and documenting the
-   parameter as a no-op kept only for signature compatibility.
+## Section 2: OpenRocket comparison card
 
-Plus a WCAG contrast pass that measured actual rendered colors instead
-of eyeballing screenshots, and found 2 more real issues:
+New `bup_rocketpy/openrocket_comparison.py`: a 9-row table (length, max
+diameter, mass with/without motor, CG with motor at t=0, CP at Mach
+0.3, stability at Mach 0.3 (t=0), apogee, max Mach) comparing this
+app's own computed numbers against the `.ork`'s OWN stored simulation -
+works for any `.ork` with a stored sim, not hand-typed per rocket.
+CP/stability get a 2% tolerance (documented RocketPy/OpenRocket body-
+lift model difference), everything else 1%.
 
-3. The active nav icon used GOLD unconditionally - GOLD on a light
-   surface is ~2.7:1 (fails even the 3:1 large-text/UI threshold; an
-   earlier hand-written comment had wrongly claimed it "just passes").
-4. `status_chip()`'s SUCCESS/WARNING/ERROR/INFO colors, reused unchanged
-   in both themes, measured as low as ~2.2:1 against their own dark-mode
-   tinted background (used for the PASS/FAIL and PROVISIONAL chips,
-   among others) - a real accessibility bug on safety-relevant UI, not
-   a cosmetic one.
+Investigated Major Tom's real files and found/fixed 3 real bugs:
+1. `<tubecoupler>` mass overrides were silently dropped into the
+   generic "unhandled nested tag" IGNORED branch.
+2. The vehicle drawing's motor rectangle was real, working code that
+   had simply never been wired up at any of its 4 call sites - no
+   rocket drawing anywhere in the app had ever shown a motor.
+3. The transition/boat-tail was drawn at the same low opacity as the
+   body tube, so a shallow taper visually disappeared into it.
 
-Both (3) and (4) fixed in `theme.py` with light/dark-specific color
-values (same WINE(light)/GOLD(dark) split `.bup-kpi-value` already
-used, extended to the nav icon; new `*_DARK` variants for the 4 status
-colors), locked in by a real WCAG-formula test
-(`tests/test_redesign_quality.py`) rather than a comment someone has to
-remember to re-check by hand.
+On the specific mass mismatch you reported: Major Tom's `.ork`'s OWN
+stored simulation computes dry mass 15.021 kg / with-motor 30.981 kg,
+and this app's comparison card matches all three of those numbers to
+within 0.00-0.22%. That's different from the 13,758 g you read off
+OpenRocket's live panel - since the numbers embedded in the file you
+sent and the numbers you read live don't agree with each other either,
+this looks like the file being a slightly earlier/later save than what
+you were looking at, not a bug in how the app reads it. Re-export and
+re-upload a fresher `.ork` and the comparison card will show it
+immediately.
 
-## Screenshots
+## Section 3: reefing missing from Monte Carlo
 
-**Honest scope note**: every previous commit tonight re-ran the full
-Playwright suite right after that page's own redesign, which
-overwrites `docs/screenshots/*.png` with the ALREADY-redesigned page -
-there is no preserved pre-redesign snapshot anywhere in this repo to
-show you a literal before/after diff. What you get instead is more
-useful for a final check: a **complete light+dark gallery of every
-page**, taken in one pass at the end, at `docs/screenshots/redesign/`
-(20 images, 10 pages x 2 themes, 1920x1080). `docs/screenshots/*.png`
-(root) remains the incrementally-updated "current state after each
-page's own commit" set, useful for reviewing individual commits in
-git history.
+Root cause: RocketPy 1.13.0's `StochasticRocket.create_object()`
+doesn't carry over anything added to the nominal rocket via
+`rocket.add_X()` - a documented bug class for nose/fins, never
+re-checked for parachutes. Every Monte Carlo sample had **zero**
+parachutes, reefed or not (confirmed: with a fixed seed, reefed and
+non-reefed impact samples were bit-for-bit identical, exactly what you
+reported).
 
-## Quality checks run
+Fixed by re-registering every parachute on the `StochasticRocket`, plus
+wiring in the `parachute_cd_s_factor`/`parachute_lag_s` uncertainties
+that had been listed with sources since Phase 4 but never actually
+applied to anything. Found and fixed a second bug while verifying:
+randomizing lag around a real 0s nominal samples negative ~50% of the
+time, which corrupts the trajectory (RocketPy's own docstring warns
+about this) - now only randomizes lag when the nominal is comfortably
+positive.
 
-- WCAG AA contrast: computed with the real formula (relative luminance
-  + contrast ratio, not eyeballed) for every documented token pairing,
-  including `status_chip()`'s actual rendering (colored text on its own
-  translucent tint, not on flat white/black) - all pass now.
-- Every sidebar page + Home + Simulate, at both 1366x768 and 1920x1080,
-  in both light and dark mode: no console errors, no horizontal
-  overflow.
-- The full e2e user path (load PROMETEO with no overrides -> Simulate
-  -> playback -> Monte Carlo -> export report) still passes - covered
-  across `test_phase0_e2e_full.py` and `test_mission_control_e2e.py`,
-  both green.
-- `prefers-reduced-motion` gates every CSS keyframe animation added
-  tonight (page entrance, card stagger, skeleton shimmer).
+Confirmed with a fresh run: reefed Nominal case flight time 130.2s vs.
+206.8s not reefed, for PROMETEO. The 4 RCSM cases, report and CSV all
+already went through the same shared `build_rocket()` path, so they
+needed no separate fix - just confirmation.
+
+## Section 4: report rewritten as HTML/CSS -> PDF/DOCX
+
+Replaced the entire reportlab PDF pipeline and the old python-docx
+generator (per your instruction to stop fighting reportlab). New
+architecture: `report_html.py` + `report_templates/report.html`
+renders via Jinja2, printed by real Playwright Chromium, with a
+two-pass render for a genuine table of contents with real page
+numbers. New `report_docx.py` builds a real Word document with a
+genuine TOC field, styled tables, and a real header/footer with
+PAGE/NUMPAGES fields. Both consume the same `build_report_data()`
+dict, so the two formats can never silently disagree.
+
+Added the requested structure: General information and set-up (with a
+Simulation Parameters sub-section reading RocketPy's own integrator
+settings directly, modeled on the SOLIDWORKS template you sent), a
+Global min-max table section, and an Appendix A with the actual motor/
+drag/parachute/launch input data.
+
+**Visual QA** (rendering every PDF page to PNG and inspecting it, per
+your explicit instruction) found and fixed 6 real bugs unit tests alone
+would never have caught:
+
+1. A table's last row split across a page boundary, leaving the next
+   page 95% blank with one stranded row.
+2. **The table of contents' page numbers were completely broken** -
+   every row showed "..." instead of a real number, in every report
+   this new architecture had ever produced. Root cause: Chromium's
+   print pipeline does not paint `color:transparent` (or `opacity:0`)
+   text at all - it never reaches the PDF's text layer, so the
+   invisible page markers the TOC mechanism searches for were never
+   actually in the rendered PDF. Fixed by switching the markers to
+   `color:#ffffff` (invisible on the white page, but painted and
+   extractable).
+3. The old internal codename "StellaIgnis" was leaking into the
+   Propulsion section and Appendix A - traced to PROMETEO's own `.eng`
+   file (pre-dating the Section 0 rename), not to any report code.
+   Fixed at the source file; cosmetic metadata only, no physics
+   affected.
+4. A plot legend overlapped its own annotation text on the static
+   margin figure.
+5. The Monte Carlo landing-ellipse figure baked huge blank margins into
+   its own PNG (equal-aspect axes on a square canvas, needed for
+   correct 1m-in-X-equals-1m-in-Y scaling, almost never actually fill a
+   square) - fixed with a tight crop on save, in both the report and
+   the live Monte Carlo page.
+6. Appendix A's parachute row read "Deploy: never @ 200 m" for
+   PROMETEO - technically what's in the `.ork` (OpenRocket keeps a
+   stale altitude value even when deployment is set to "never"), but
+   actively misleading. Now shown as "Deploy: simulated at apogee (.ork
+   says \"never\")" with the existing explanatory warning.
+
+**A 7th bug came from the full test suite, not visual QA**: the actual
+"Generate PDF report" button in the running app started silently timing
+out. Playwright's sync API refuses to run inside a thread with a
+running asyncio event loop, and the button's `on_click` handler called
+the Chromium-driving report generator directly on NiceGUI's own event
+loop thread. Fixed by running report generation through `run.io_bound`,
+the same pattern Monte Carlo already uses for background work -
+confirmed with a minimal repro before and after the fix, then verified
+against the real end-to-end Playwright test that clicks the actual
+button.
+
+DOCX was checked structurally (soffice cannot render ANY `.docx` in
+this sandbox, confirmed with a trivial test file too - an environment
+limitation, not a bug here): real TOC field present, PAGE/NUMPAGES
+fields present in the footer, no leftover codenames, no unresolved
+`{fig}` placeholders, exactly one appropriately-scoped yellow
+`[EDIT: ...]` mark (team member names).
+
+Sample reports (PDF + DOCX + per-page PNGs) committed to
+`docs/sample_reports/`: `prometeo_mission44/` (real motor + real drag
+data, Monte Carlo N=30, full appendix) and `openrocket_example/` (the
+repo's own `Dual_parachute_deployment.ork` fixture, clearly labeled as
+a demo pairing - it correctly shows a static margin OUTSIDE the RCSM
+band and a red "NO" stability chip rather than hiding or fabricating a
+pass).
 
 ## Exact PowerShell commands
 
@@ -148,33 +172,32 @@ git pull
 .\start.bat
 ```
 
-`start.bat` re-syncs `requirements.txt` on every run, so no separate
-reinstall step is needed after a `git pull`. Nothing new was added to
-`requirements.txt` tonight (the Inter font and three.js are vendored as
-static files, not pip packages).
+`start.bat` re-syncs `requirements.txt` on every run. Tonight added
+`jinja2` and removed `reportlab` - no separate install step needed
+after `git pull`.
+
+To see tonight's report changes without running the app: open
+`docs/sample_reports/prometeo_mission44/prometeo_mission44_report.pdf`
+(or `.docx`), or just look at the page PNGs in that folder.
 
 ## What I need from you (one line each)
 
-- **The July 4 `.ork`** - still only the two drag CSVs are in
-  `reference/prometeo_mission44/data/rockets/`; V1 still uses the
-  Brasil-config CG approximation, not a July-4-specific measurement.
-- **Exact LASC 2026 flight date/time at Iacanga** - still pending;
-  needed for the Validation page's "V2 re-run with real weather" to
-  produce a real number.
-- **Real weather API access** - this sandbox has no internet, so any
-  live Open-Meteo call (Launch Day, Validation's "re-run with real
-  weather") is untested against the real API here; your machine is the
-  first live check, same as every previous report.
-
-Major Tom's `.ork`/`.eng` is **not** on this list - you sent both files
-tonight, they were used for local checks only, and per your instruction
-they are intentionally not committed to the repo. That's expected, not
-a gap.
+- **The July 4 `.ork`** - still pending; V1 still uses a CG
+  approximated from the Brasil-config file, which is why it now reports
+  "inconclusive" rather than a scored PASS/FAIL.
+- **A fresher Major Tom `.ork`** - the one you sent tonight's stored
+  simulation doesn't match the numbers you read live off OpenRocket's
+  panel (see Section 2 above); re-export and re-upload to get an
+  accurate comparison card.
+- **Exact LASC 2026 flight date/time at Iacanga** - still pending, for
+  a real weather-based V2 re-run.
 
 ## Full test count
 
-101 passed, 1 skipped, across every page's own redesign commit plus a
-final full-suite run at the end of tonight's work (14 commits total,
-each pushed only after the full suite was green) - including the two
-new test files added tonight (`tests/test_design_system_e2e.py`,
-`tests/test_redesign_quality.py`).
+112 passed, 1 skipped - a single clean full-suite run at the end of
+tonight's work (an earlier run showed spurious failures from two
+pytest processes accidentally racing on the same shared `outputs/`
+directory; re-ran clean to confirm before committing). Same count as
+before tonight's run - Section 4's two rewritten report tests replaced
+their old reportlab-specific assertions 1:1, no tests added or removed
+elsewhere.
