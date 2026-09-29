@@ -2291,3 +2291,131 @@ Tests: 2 new tests in `test_phase4_monte_carlo.py` (fixed-seed reefed-
 vs-not dispersion must differ AND narrow; sampled rocket's own
 `.parachutes` must be non-empty), 1 new in `test_reefed_parachute.py`.
 Full suite: 112 passed, 1 skipped.
+
+### Section 4: report rewritten as HTML/CSS -> PDF/DOCX (stopped fighting reportlab) - done
+
+Per your instruction, replaced the whole reportlab PDF pipeline and the
+old python-docx one. New architecture: `report.build_report_data()`
+(unchanged interface, extended with `general_info`, `global_minmax`,
+`openrocket_comparison`, `appendix_input_data`) feeds a single dict to
+two independent renderers -
+- `report_html.py` + `report_templates/report.html`: Jinja2 -> HTML,
+  printed by real Playwright Chromium (`page.pdf()`), styled like the
+  PROMETEO reference report with Beyond UP branding. A genuine table of
+  contents with real page numbers uses a two-pass render: pass 1 prints
+  with placeholders, a text search over that PDF finds which page each
+  section's own invisible marker landed on, pass 2 re-renders with the
+  real numbers filled in.
+- `report_docx.py`: python-docx on a styled template - Heading styles,
+  bordered tables, a real header/footer with PAGE/NUMPAGES fields, and
+  a genuine Word TOC field (`w:fldChar`/`TOC \o "1-2" \h \z \u`) that
+  Word itself populates on open/F9 - the old reportlab TOC was never
+  actually wired to fire and always rendered empty.
+
+New "General information and set-up" section (env/software/integrator
+settings + model files, modeled on the SOLIDWORKS template you sent),
+a "Global min-max table" section (every key flight variable's min/max
+and when it occurs), and an Appendix A with the actual motor/drag/
+parachute/launch input data - all per your requested 11-section +
+3-appendix structure. `SimResult` now carries real
+`computation_time_s` (timed around the actual `Flight()` call).
+
+Visual QA (your own explicit instruction: render every PDF page to PNG
+and inspect it) found and fixed 6 REAL bugs that unit tests alone would
+never have caught:
+1. A table's last row split across a page boundary, leaving the next
+   page 95% blank with one stranded row. Fixed with `page-break-inside:
+   avoid` at the block level, and let the table-of-contents flow
+   (rather than force a fresh page) so it absorbs any overflow instead
+   of leaving a near-empty page behind.
+2. **The table of contents' page numbers were completely broken** -
+   every row showed "..." instead of a real number, in EVERY report
+   this architecture had ever produced, undetected until this visual
+   pass. Root cause: Chromium's print pipeline simply does not paint
+   `color:transparent` (or `opacity:0`) text at all - it never reaches
+   the PDF's text layer, so the invisible marker spans the two-pass TOC
+   mechanism searches for were never actually IN the rendered PDF to
+   find. Proven with a minimal repro (4 techniques tested, only
+   `color:#ffffff` on a white page survives Chromium's print export).
+   Fixed by switching the markers to `color:#ffffff` instead of
+   `transparent`.
+3. The old internal codename "StellaIgnis" was leaking into the
+   Propulsion section and Appendix A ("Manufacturer: StellaIgnis") -
+   traced to the PROMETEO `.eng` file's own RASP data line and header
+   comment (pre-dating the Section 0 rename), not to any report code.
+   Fixed at the source file (cosmetic metadata only, no physics
+   affected). Diego's own Major Tom-style `.ork`/`.eng` files aren't
+   affected by this - this was PROMETEO's reference `.eng` only.
+4. Figure 13 (static margin vs. time)'s legend overlapped its own
+   "FLT 4.3.6 max" annotation in the top-right corner - both were
+   placed with `loc="upper right"`. Moved the legend to the empty
+   lower-left of the plot.
+5. The Monte Carlo landing-ellipse figure (square canvas + equal-aspect
+   axes, needed for correct 1m-in-X-equals-1m-in-Y scaling) baked huge
+   blank margins into the saved PNG whenever the actual footprint was
+   much wider than tall (the normal case) - looked like a broken gap
+   between the image and its own caption. Fixed with
+   `bbox_inches="tight"` on save (also fixed the live Monte Carlo page,
+   same bug, same fix).
+6. Appendix A's parachute row read "Deploy: never @ 200 m" for
+   PROMETEO - technically what's IN the `.ork` (OpenRocket's `<deploy
+   event>never</deployevent>` keeps a stale, inactive `<deployaltitude>`
+   value even when disabled), but actively misleading on its own.
+   `translate.parachute_trigger()` already computes what's ACTUALLY
+   simulated (apogee-triggered, with a warning) - it just wasn't wired
+   into the report. Now shown as "Deploy: simulated at apogee (.ork
+   says "never")" plus the existing warning text, in both PDF and DOCX.
+
+A 7th bug was self-inflicted and caught on the next QA pass before it
+shipped: tightening the page's outer margins to fix bug 1 above made
+body text on other pages (e.g. Section 6.2) overlap the footer. Reverted
+those margin/spacing changes once the real fix (item 1's structural
+change) made them unnecessary.
+
+**A 7th REAL bug, found by the full test suite, not visual QA**: the
+actual "Generate PDF report" button in the running app started timing
+out. `report_html.py` calls Playwright's SYNC API (`sync_playwright()`)
+to drive Chromium; `exports_page.py`'s button handler called
+`report.generate_pdf()` directly from a plain `on_click`, which NiceGUI
+runs on its own asyncio event-loop thread - and Playwright's sync API
+refuses to run inside a thread with a running asyncio loop ("use the
+Async API instead"), raising an exception that never reached the UI.
+The report silently never finished; `report_status` never updated to
+"Report written". Fixed by making `build_report()` async and running
+both `generate_pdf`/`generate_docx` through `run.io_bound` (the exact
+pattern Monte Carlo already uses for its own background work) - proven
+with a minimal repro before and after the fix, then confirmed against
+the real e2e Playwright test that exercises the actual button.
+
+DOCX visually checked via structural inspection (soffice can't render
+ANY docx in this sandbox, confirmed with a trivial python-docx file
+too - an environment limitation, not a bug here): real TOC field
+present, PAGE/NUMPAGES fields present in the footer part, no leftover
+codenames, no unresolved `{fig}` placeholders, exactly one appropriately-
+scoped yellow `[EDIT: ...]` mark (team member names - mission ID is
+already a required app field, so it needs no placeholder).
+
+Sample reports (PDF + DOCX + per-page PNGs) committed to
+`docs/sample_reports/`: `prometeo_mission44/` (real motor + real drag
+data, Monte Carlo N=30, full appendix) and `openrocket_example/` (the
+`Dual_parachute_deployment.ork` fixture paired with PROMETEO's own
+`.eng` - same honest fixture pairing `test_phase5_rcsm_cases.py`
+already uses, clearly labeled as a demo pairing in its own intro text;
+correctly shows a static margin OUTSIDE the RCSM band and a red "NO"
+stability chip rather than hiding or fabricating a pass).
+
+Updated `tests/test_phase5_report_and_zip.py` for the new architecture:
+the "Deliverables and setup" section was renamed "General information
+and set-up" per your new structure; the old reportlab-outline-based TOC
+check (Chromium PDFs have no outline/bookmarks at all) was replaced
+with a real end-to-end check of the marker-based mechanism - reads the
+TOC page's own text, confirms every row has a real number (not "..."),
+and cross-checks that the page it names for Section 1 actually contains
+Section 1's own heading.
+
+`requirements.txt`: removed `reportlab`, added `jinja2`.
+
+Full suite: 112 passed, 1 skipped (same count as before this section -
+the two rewritten report tests replaced their old assertions 1:1, no
+tests added or removed).
+Full suite: 112 passed, 1 skipped.
