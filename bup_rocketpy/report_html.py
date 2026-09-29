@@ -18,9 +18,9 @@ import re
 import jinja2
 
 from bup_rocketpy import report as report_module  # WINE/GOLD/INK/LIGHT_GREY - the one place these brand colors are pinned
+from bup_rocketpy.browser_launch import launch_chromium
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_templates")
-CHROMIUM_PATH = "/opt/pw-browsers/chromium"
 
 # (anchor id, TOC display title, the marker text to search for in the
 # rendered PDF's own extracted text to find its real page) - each
@@ -174,7 +174,9 @@ def _print_pdf(html, data, output_path):
         f.write(html)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM_PATH)
+            # See bup_rocketpy/browser_launch.py - `playwright install
+            # chromium` (see README) must have been run once first.
+            browser = launch_chromium(p)
             page = browser.new_page()
             page.goto("file://" + os.path.abspath(tmp_html_path), wait_until="networkidle")
             page.pdf(
@@ -214,6 +216,23 @@ def _find_toc_page_numbers(pdf_path, sections):
     return result
 
 
+def _scrub_pdf_metadata(path):
+    """Chromium's page.pdf() stamps /Creator with its own full user-agent
+    string ("Mozilla/5.0 (X11; Linux x86_64) ... HeadlessChrome/...") and
+    that reveals whatever machine generated the file - not useful to a
+    reader and not something to leak into a report that may be submitted
+    to competition judges or committed to a public repo. Overwritten with
+    plain, non-identifying values after the real render is done."""
+    import pypdf
+
+    reader = pypdf.PdfReader(path)
+    writer = pypdf.PdfWriter()
+    writer.append(reader)
+    writer.add_metadata({"/Producer": "Beyond UP RocketPy", "/Creator": "Beyond UP RocketPy"})
+    with open(path, "wb") as f:
+        writer.write(f)
+
+
 def render_pdf(output_path, data):
     """Two-pass render - see module docstring. Returns output_path."""
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -234,6 +253,7 @@ def render_pdf(output_path, data):
 
     pass2_html = _render_html(data, real_pages)
     _print_pdf(pass2_html, data, output_path)
+    _scrub_pdf_metadata(output_path)
     return output_path
 
 

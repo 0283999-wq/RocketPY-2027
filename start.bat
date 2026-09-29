@@ -61,6 +61,14 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Checking the PDF report's browser engine is installed...
+.venv\Scripts\python -m playwright install chromium
+if errorlevel 1 (
+    echo Could not install Chromium for Playwright. The app will still run,
+    echo but generating a PDF report will fail until this succeeds - check
+    echo your internet connection and try double-clicking start.bat again.
+)
+
 :run
 echo Starting Beyond UP RocketPy...
 .venv\Scripts\python -m bup_rocketpy.gui.app

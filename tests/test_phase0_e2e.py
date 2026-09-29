@@ -21,6 +21,8 @@ import time
 import pytest
 from playwright.sync_api import sync_playwright
 
+from conftest import launch_chromium
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
 ENG_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "motors", "Icarus_I_K519.eng")
@@ -60,11 +62,7 @@ def app_server():
 
 def test_upload_ork_and_eng_and_simulate_shows_apogee(app_server):
     with sync_playwright() as p:
-        # /opt/pw-browsers/chromium is a symlink straight to the pre-installed
-        # chrome binary (per this environment's own docs) - the pip-installed
-        # playwright package's own version-pinned lookup path doesn't match
-        # what's actually on disk here, so point at it directly.
-        browser = p.chromium.launch(executable_path="/opt/pw-browsers/chromium")
+        browser = launch_chromium(p)
         page = browser.new_page()
         page.goto(BASE_URL + "/simulate", wait_until="networkidle")
 

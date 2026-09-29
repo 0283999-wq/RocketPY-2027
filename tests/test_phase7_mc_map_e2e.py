@@ -36,6 +36,7 @@ import time
 
 import pytest
 from playwright.sync_api import sync_playwright
+from conftest import launch_chromium
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_LEAFLET_TEST"),
@@ -47,7 +48,6 @@ ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "o
 ENG_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "motors", "Icarus_I_K519.eng")
 PORT = 8181
 BASE_URL = f"http://127.0.0.1:{PORT}"
-CHROMIUM = "/opt/pw-browsers/chromium"
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +79,7 @@ def app_server(tmp_path_factory):
 
 def test_monte_carlo_run_and_leaflet_map_render(app_server):
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM)
+        browser = launch_chromium(p)
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
         console_errors = []
         page.on("pageerror", lambda exc: console_errors.append(str(exc)))

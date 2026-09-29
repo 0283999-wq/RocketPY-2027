@@ -28,13 +28,13 @@ import time
 
 import pytest
 from playwright.sync_api import sync_playwright
+from conftest import launch_chromium
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
 ENG_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "motors", "Icarus_I_K519.eng")
 SECOND_ORK_PATH = os.path.join(REPO_ROOT, "reference", "openrocket_examples", "A_simple_model_rocket.ork")
 SCREENSHOTS_DIR = os.path.join(REPO_ROOT, "docs", "screenshots")
-CHROMIUM = "/opt/pw-browsers/chromium"
 
 PAGES = [("/", "04_home.png"), ("/rocket", "05_rocket.png"), ("/montecarlo", "06_montecarlo.png"),
          ("/rcsm", "07_rcsm.png"), ("/analysis", "08_analysis.png"), ("/history", "09_history.png"),
@@ -94,7 +94,7 @@ def test_corrupt_runs_dir_does_not_crash_history_page(tmp_path):
     proc, base_url = _start_app(port, runs_dir)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page()
             page.goto(base_url + "/history", wait_until="networkidle")
             body_text = page.inner_text("body")
@@ -114,7 +114,7 @@ def test_default_path_every_page_and_second_ork(tmp_path):
     proc, base_url = _start_app(port, runs_dir)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page(viewport={"width": 1440, "height": 900})
 
             # --- Load PROMETEO with NO manual override - the actual default path ---
@@ -224,7 +224,7 @@ def test_history_delete_does_not_duplicate_controls_and_detail_page_opens(tmp_pa
     proc, base_url = _start_app(port, runs_dir)
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page()
             page.goto(base_url + "/history", wait_until="networkidle")
             page.wait_for_timeout(500)

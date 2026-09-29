@@ -4,7 +4,9 @@ Two `.ork` files pulled from the [OpenRocket project's own example
 rockets](https://github.com/openrocket/openrocket/tree/master/core/src/main/resources/datafiles/examples)
 (GPL v3, bundled with every OpenRocket install for exactly this kind of
 use - testing a reader/importer against real files that aren't
-PROMETEO's). Used only as **test fixtures**, not simulated for any
+PROMETEO's; full license text at `../../LICENSE.OpenRocket`, which
+applies only to this folder - the rest of the repo is MIT, see the
+root `LICENSE`). Used only as **test fixtures**, not simulated for any
 validation claim:
 
 - `A_simple_model_rocket.ork` - a single-fin, single-parachute Estes

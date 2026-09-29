@@ -9,9 +9,8 @@
 
 ## 0. The user
 
-**Diego** studies engineering at Universidad Panamericana and is on the **Beyond UP**
-rocketry team. He designs rockets in OpenRocket through its GUI and **does not
-program**, although he is willing to learn what he needs to win.
+**Diego** is on the **Beyond UP** rocketry team. He designs rockets in OpenRocket
+through its GUI and **does not program**.
 
 **The rule that overrides everything:** whatever you build must be usable by **loading
 files and clicking buttons**. If the only way to use something is by editing Python, it
@@ -25,9 +24,9 @@ in whatever language he uses, but everything that goes into the repo is in Engli
 **Diego's machine runs Windows (x64).** Every README command is PowerShell, and there
 must be a `start.bat` that he can double-click.
 
-**Save tokens:** Diego is on limited credits. Don't re-read files you have already read,
-don't paste long outputs, and keep commits small and frequent. If you are missing data
-or a file, **ask for it in one line** rather than inventing it or working around it.
+**Be efficient:** don't re-read files you have already read, don't paste long outputs,
+and keep commits small and frequent. If you are missing data or a file, **ask for it in
+one line** rather than inventing it or working around it.
 
 ---
 
@@ -112,9 +111,8 @@ soon" label rather than shipping something that half-works or crashes on click.
 - Official motor: **Icarus I / K503**, KNSB 65:35, 2 BATES grains, **1,855.9 N·s**,
   514.1 N average thrust, 3.61 s burn. Older documents call it K519, K554, K526 or K497:
   **these are all the same motor under wrong names**.
-- The old repo `0283999-wq/RocketPy-Prometeo-Mission-44` has a `thrust_curve.csv`
-  (≈ 1,871 N·s, labelled "K519"). Use it **only as a fallback** if the `.eng` doesn't
-  arrive, and flag it as approximate.
+- An earlier prototype repo has a `thrust_curve.csv` (≈ 1,871 N·s, labelled "K519").
+  Use it **only as a fallback** if the `.eng` doesn't arrive, and flag it as approximate.
 - Diego has a local `RocketPY/` folder with `Mission44_Nominal_RocketPy_v1.0.py`, which
   is probably the LASC submission. It should be committed under
   `reference/prometeo_mission44/`. When it is there, inventory its inputs (mass, Cd

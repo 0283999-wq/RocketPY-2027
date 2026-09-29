@@ -15,9 +15,9 @@ import time
 
 import pytest
 from playwright.sync_api import sync_playwright
+from conftest import launch_chromium
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CHROMIUM = "/opt/pw-browsers/chromium"
 
 
 def _start_app(port, runs_dir):
@@ -49,7 +49,7 @@ def test_material_icons_render_as_glyphs_not_literal_text(tmp_path):
     proc, base_url = _start_app(port, str(tmp_path / "runs"))
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page()
             page.goto(base_url + "/", wait_until="networkidle")
             font_family = page.evaluate(
@@ -82,7 +82,7 @@ def test_design_system_gallery_page_loads_with_no_errors(tmp_path):
     proc, base_url = _start_app(port, str(tmp_path / "runs"))
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page()
             console_errors = []
             page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)

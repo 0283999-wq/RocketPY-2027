@@ -101,7 +101,7 @@ def main():
 
     os.makedirs(os.path.dirname(OUT_ENG), exist_ok=True)
     with open(OUT_ENG, "w", encoding="ascii") as f:
-        f.write(f"; Icarus I - SRAD KNSB 65:35 motor - Team Beyond UP / Stella Ignis - LASC 2026 Mission 44\n")
+        f.write(f"; Icarus I - SRAD KNSB 65:35 motor - Team Beyond UP - LASC 2026 Mission 44\n")
         f.write(f"; Total impulse {reduced_impulse:.1f} Ns | Avg thrust {reduced_impulse/burnout_t:.1f} N | Burn time {burnout_t:.2f} s\n")
         f.write(f"; Thrust curve source: Prometeo_Launchsite_BRASIL.csv, resampled {len(t_raw)}->{len(reduced)} pts (RDP, impulse error {err_pct:.4f}%)\n")
         f.write(f"; Casing diameter/length are TODO CONFIRM - see docs/OPEN_ITEMS.md\n")
@@ -109,7 +109,7 @@ def main():
         casing_len_mm = config.MOTOR_CASING_LENGTH * 1000
         f.write(
             f"{config.MOTOR_DESIGNATION} {casing_dia_mm:.0f} {casing_len_mm:.0f} 0 "
-            f"{config.PROPELLANT_MASS:.4f} {config.MOTOR_MASS_LOADED:.4f} StellaIgnis\n"
+            f"{config.PROPELLANT_MASS:.4f} {config.MOTOR_MASS_LOADED:.4f} BeyondUP\n"
         )
         for t, thrust in reduced:
             f.write(f"   {t:.3f} {thrust:.2f}\n")

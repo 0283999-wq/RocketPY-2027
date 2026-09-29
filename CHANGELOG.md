@@ -1,5 +1,10 @@
 # Changelog
 
+> Some entries below reference `PROGRESS.md`/`MORNING_REPORT.md`/
+> `NOTES_FOR_DIEGO.md` for more detail - those are kept as private
+> working notes (not in this repo) rather than public documentation.
+> This file is the public record of what changed and why.
+
 ## 2026-09-26 overnight run, item 2 - UI redesign
 
 - `bup_rocketpy/gui/theme.py`: gold #B79357 / wine #8A1538 palette, one

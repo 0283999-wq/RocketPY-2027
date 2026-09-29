@@ -19,3 +19,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+This MIT license covers the Beyond UP RocketPy application code in this
+repository (`bup_rocketpy/`, `tests/`, and other files this team wrote).
+It does NOT cover everything under `reference/`:
+
+- `reference/openrocket_examples/` contains example `.ork` files taken from
+  the OpenRocket project, licensed under the GNU General Public License
+  v3 (GPLv3) - see `reference/openrocket_examples/README.md` for the
+  source and `LICENSE.OpenRocket` for the full GPLv3 text.
+- `reference/prometeo_mission44/` is Beyond UP's own PROMETEO / Mission 44
+  reference implementation, separately MIT-licensed - see
+  `reference/prometeo_mission44/LICENSE`.

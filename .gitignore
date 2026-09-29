@@ -5,3 +5,10 @@ __pycache__/
 outputs/
 runs/*
 !runs/.gitkeep
+
+# Internal working notes (dev-session logs, casual/unpolished) - kept
+# locally, not published. CHANGELOG.md is the public record of what
+# changed and why.
+PROGRESS.md
+MORNING_REPORT*.md
+NOTES_FOR_DIEGO.md

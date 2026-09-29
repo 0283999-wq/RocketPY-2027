@@ -182,8 +182,14 @@ def _general_info_block(load_result, sim_result, app_commit_hash):
     return {
         "software": f"RocketPy {rocketpy_version} (Python {sys.version.split()[0]})",
         "app_version": app_commit_hash,
-        "cpu": platform.processor() or platform.machine() or "unknown",
-        "os": platform.platform(),
+        # Deliberately coarse (OS family + CPU architecture, not the exact
+        # kernel/distro build or processor model string platform.platform()/
+        # platform.processor() would give) - this report may be submitted
+        # to competition judges, and a precise machine fingerprint is not
+        # useful to them but does leak detail about whoever's computer
+        # generated it.
+        "cpu": platform.machine() or "unknown",
+        "os": platform.system() or "unknown",
         "computation_time_s": sim_result.computation_time_s,
         "model_files": [
             ("OpenRocket design file", os.path.basename(load_result.ork_path) if getattr(load_result, "ork_path", None) else "not recorded"),

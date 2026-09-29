@@ -22,6 +22,7 @@ import time
 
 import pytest
 from playwright.sync_api import sync_playwright
+from conftest import launch_chromium
 
 from bup_rocketpy.gui import theme
 
@@ -29,7 +30,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ORK_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "ork", "PrometeoLasc2026.ork")
 ENG_PATH = os.path.join(REPO_ROOT, "reference", "prometeo_mission44", "data", "motors", "Icarus_I_K519.eng")
 REDESIGN_DIR = os.path.join(REPO_ROOT, "docs", "screenshots", "redesign")
-CHROMIUM = "/opt/pw-browsers/chromium"
 
 ALL_PAGES = [
     ("/", "home"), ("/simulate", "simulate"), ("/rocket", "rocket"),
@@ -184,7 +184,7 @@ def test_every_page_both_themes_both_resolutions_no_console_errors(tmp_path):
     overflow_issues = []
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROMIUM)
+            browser = launch_chromium(p)
             page = browser.new_page(viewport={"width": 1920, "height": 1080})
             page.on("console", lambda msg: console_errors.setdefault(page.url, []).append(msg.text) if msg.type == "error" else None)
 

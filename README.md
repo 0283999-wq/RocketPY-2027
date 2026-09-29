@@ -8,8 +8,7 @@ and the self-contained `.py` scripts LASC actually grades.
 
 **This app does not design rockets.** Diego designs in OpenRocket; this app
 simulates what he designs. See `CLAUDE.md` for the full brief, phases and
-verified project facts, and `PROGRESS.md` for exactly what's done, what's
-approximate, and what's blocked right now.
+verified project facts, and `CHANGELOG.md` for what's been done and why.
 
 ```
 OpenRocket -> .ork  (+ exported simulation CSV)
@@ -54,11 +53,11 @@ and shows "load files first" until you have.
 - **Run the tests before changing anything**: `.venv\Scripts\python -m pytest tests\ -q`
   (or `.venv/bin/python -m pytest tests/ -q` outside Windows). One test
   is a real headless-Chromium run and is slower (~20s) than the rest.
-- **Everything is PROVISIONAL until V1 and V2 both pass** (`CLAUDE.md`
-  Rule 3, `bup_rocketpy/validation.py`, the Validation page). Never
-  present a number from this app as final without that badge - see
-  `PROGRESS.md` for the current V1/V2 numbers and why they haven't
-  passed yet.
+- **Never present a number from this app as validated without checking
+  the Validation page first** (`CLAUDE.md` Rule 3, `bup_rocketpy/
+  validation.py`) - it computes the V1/V2 flight-data checks live and
+  shows a small status chip on the results view summarizing the current
+  track record, rather than a hardcoded claim.
 - **Two altitude conventions coexist in rocketpy and it's easy to mix
   them up**: `flight.altitude(t)` is already AGL (above ground level);
   `flight.z(t)` and `flight.apogee` are ASL (above sea level, need
@@ -84,11 +83,18 @@ and shows "load files first" until you have.
   `weather.py` test mocks the HTTP call; a teammate adding a new weather
   source should do the same rather than skip testing it.
 
-## Running it (Windows)
+## Running it
 
-Double-click **`start.bat`**. First run creates `.venv` and installs
-`requirements.txt` (pinned versions); every run after that just opens the
-app in your browser. No Python knowledge required.
+### Windows (no Python knowledge required)
+
+1. [Download this repository](../../archive/refs/heads/main.zip) (or
+   `git clone` it) and unzip it anywhere.
+2. Double-click **`start.bat`**.
+
+That's it. First run creates `.venv`, installs `requirements.txt`
+(pinned versions), and installs the Chromium engine the PDF report uses
+(via Playwright) - every run after that just re-checks those are still
+up to date (fast) and opens the app in your browser.
 
 **Python version: this app is tested on Python 3.11/3.12.** `start.bat`
 prefers Python **3.12** specifically, via the Windows `py` launcher
@@ -111,25 +117,86 @@ If you'd rather run it from PowerShell yourself:
 ```powershell
 py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m playwright install chromium
 .venv\Scripts\python -m bup_rocketpy.gui.app
 ```
 
+### macOS / Linux
+
+There's no double-click launcher for these yet, but the app itself is
+plain Python + NiceGUI and runs the same way:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium
+.venv/bin/python -m bup_rocketpy.gui.app
+```
+
+Then open the URL it prints (usually <http://localhost:8080>) in your
+browser.
+
 ## Status
 
-See `PROGRESS.md` for the live checklist and every honestly-documented
-limitation (what's approximate, what's blocked, what needs a decision from
-Diego). Short version: load a `.ork` + `.eng` with **no overrides** and
+See `CHANGELOG.md` for the full history of what's been built and every
+honestly-documented limitation along the way. Short version: load a
+`.ork` + `.eng` with **no overrides** and
 click Simulate - full KPIs, plots, recovery panel, RCSM cases, Monte Carlo
 (parallelized across CPU cores), the PDF/DOCX report, an OpenRocket-format
 CSV export, and a self-contained `.py` export all work end to end against
-PROMETEO's real `.ork`. **Every result is PROVISIONAL** (per `CLAUDE.md`
-Rule 3) until Phase 2's V1/V2 flight-data validation tests both pass
-within +-5% - right now neither does (V1: +11.0%, V2: -6.1% - see the
-Validation page, computed live, not hardcoded), and the causes are
-documented, not hidden (see `PROGRESS.md` - several real bugs were found
-and fixed along the way, and the zero-weather-uncertainty code-to-code
-check against OpenRocket's own simulation now passes at -1.45%). `PrometeoLasc2026.ork`'s
+PROMETEO's real `.ork`. The results view always shows a live-computed
+validation chip (never a stale hardcoded claim) summarizing the app's
+real flight-data validation track record against Phase 2's V1/V2 tests
+(+-5% tolerance) - see the Validation page for the full detail,
+including any case still marked inconclusive for lack of input data.
+`PrometeoLasc2026.ork`'s
 own OpenRocket overrides are also incomplete (only one bodytube's shell
 mass, not the whole rocket), so the app's automatic mass/CG estimate for
 it is unstable - a manual override is available in the UI's Advanced
 panel until that `.ork` is fixed in OpenRocket.
+
+## How to cite / Beyond UP
+
+This project is built on [RocketPy](https://github.com/RocketPy-Team/RocketPy),
+whose 6-DOF simulation core does all of the actual trajectory work - this
+app is an OpenRocket-to-RocketPy translation layer, a UI, and a report
+generator around it, not a replacement for it. If you use RocketPy itself
+(directly or through this app), please cite its validation paper:
+
+> Ceotto, G. H., et al. "RocketPy: Six Degree-of-Freedom Rocket Trajectory
+> Simulator." *Journal of Aerospace Engineering*, 2021.
+> DOI: [10.1061/(ASCE)AS.1943-5525.0001331](http://dx.doi.org/10.1061/%28ASCE%29AS.1943-5525.0001331)
+
+```bibtex
+@article{rocketpy,
+  title   = {RocketPy: Six Degree-of-Freedom Rocket Trajectory Simulator},
+  author  = {Ceotto, Giovani Hidalgo and Alves, Guilherme Fernandes and Junqueira, Mateus Stano and Bressan, Pedro Henrique Marinho and others},
+  journal = {Journal of Aerospace Engineering},
+  year    = {2021},
+  doi     = {10.1061/(ASCE)AS.1943-5525.0001331}
+}
+```
+
+This application and the Beyond UP RocketPy pipeline were built by the
+**Beyond UP** rocketry team at Universidad Panamericana, submitted for the
+LASC RocketPy Computational Simulation award. If you reference this
+specific app or its PROMETEO / Mission 44 validation work:
+
+```bibtex
+@software{beyondup_rocketpy,
+  title  = {Beyond UP RocketPy: an OpenRocket-to-RocketPy simulation pipeline},
+  author = {{Beyond UP}},
+  year   = {2026},
+  url    = {<REPLACE WITH THIS REPO'S PUBLIC URL>}
+}
+```
+
+## License
+
+The application code in this repository (`bup_rocketpy/`, `tests/`, and
+the Beyond UP-authored files under `reference/prometeo_mission44/`) is
+MIT-licensed - see `LICENSE`. `reference/openrocket_examples/` carries its
+own GPLv3 license inherited from the OpenRocket project - see
+`LICENSE.OpenRocket` and that folder's own README. RocketPy itself
+(a separate, pip-installed dependency, not vendored in this repo) is
+MIT-licensed by the RocketPy Team.
