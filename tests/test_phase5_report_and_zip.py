@@ -41,8 +41,13 @@ def test_docx_report_has_real_sections_and_no_jargon():
     assert "RCSM compliance" not in full_text, "the compliance table only appears in the optional Appendix, off by default"
     for jargon in ("CLAUDE.md", "PROGRESS.md", "Rule 3", "Phase 5"):
         assert jargon not in full_text, f"no internal jargon ({jargon!r}) in a report a judge/teammate reads"
-    for section in ("Deliverables and setup", "Vehicle configuration", "Propulsion", "Trajectory", "Aerodynamics",
-                     "Stability", "Recovery", "Monte Carlo", "Flight-test correlation", "Discussion and conclusions",
+    # 2026-09-29 review item 4: report rewritten as HTML->PDF/DOCX with
+    # the mega-prompt's own section numbering; "Deliverables and setup"
+    # became "General information and set-up", and flight-test
+    # correlation moved into the optional Appendix B (not asserted here
+    # since include_appendix defaults to False).
+    for section in ("General information and set-up", "Vehicle configuration", "Propulsion", "Trajectory",
+                     "Aerodynamics", "Stability", "Recovery", "Monte Carlo", "Discussion and conclusions",
                      "Files delivered"):
         assert section in full_text, f"missing section {section!r}"
 
@@ -125,14 +130,31 @@ def test_pdf_report_generates_with_monte_carlo_and_has_populated_toc():
     path = report.generate_pdf(os.path.join(OUT_DIR, "report.pdf"), data)
     assert os.path.exists(path) and os.path.getsize(path) > 1000
 
-    # 2026-09-27 review item 6: the TOC was a placeholder before (the doc
-    # template never called notify('TOCEntry', ...)) - reportlab's own TOC
-    # bookmarks are inspectable via the outline entries it registers.
+    # 2026-09-29 review item 4: report rewritten as HTML/CSS printed by
+    # Chromium (Playwright) - it produces no PDF outline/bookmarks (unlike
+    # the old reportlab build), so "the TOC is populated" is checked the
+    # way it actually works now: a two-pass render fills each TOC row
+    # with the REAL page its section landed on (see report_html.py's
+    # _find_toc_page_numbers), not a placeholder "...". Verify both that
+    # the numbers are real and that they are correct (the listed page
+    # actually contains that section's own heading).
+    import re
     import pypdf
     reader = pypdf.PdfReader(path)
     assert len(reader.pages) > 5, "a real multi-section report should be more than a handful of pages"
-    outline = reader.outline
-    assert len(outline) >= 8, f"expected a populated outline/bookmark list (one per numbered section), got {outline}"
+    pages_text = [p.extract_text() or "" for p in reader.pages]
+    toc_page_idx = next(i for i, t in enumerate(pages_text) if "Table of contents" in t)
+    toc_text = pages_text[toc_page_idx]
+    toc_lines = [l.strip() for l in toc_text.splitlines() if l.strip()]
+    numbered_lines = [l for l in toc_lines if re.search(r"\d+$", l)]
+    assert len(numbered_lines) >= 8, f"expected >=8 TOC rows with a real page number, got: {toc_lines}"
+    assert "..." not in toc_text, "TOC still shows the unresolved placeholder instead of real page numbers"
+    m = re.search(r"General information and set-up\s*(\d+)\s*$", toc_text, re.MULTILINE)
+    assert m, f"could not find section 1's TOC row: {toc_lines}"
+    sec1_page = int(m.group(1))
+    assert "General information and set-up" in pages_text[sec1_page - 1], (
+        f"TOC says section 1 is on page {sec1_page}, but that page's text doesn't have the heading"
+    )
 
 
 def test_pdf_report_footer_has_mission_and_event_not_just_page_number():

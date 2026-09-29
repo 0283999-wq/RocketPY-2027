@@ -46,7 +46,7 @@ def _plot_static_margin_with_limits(path, t, margins):
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Margin (cal)")
     ax.set_title("Static margin vs. time", fontsize=10)
-    ax.legend(fontsize=7, loc="upper right")
+    ax.legend(fontsize=7, loc="lower left")
     plot_theme.apply(ax, fig)
     fig.tight_layout()
     plot_theme.savefig(fig, path)

@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ data.mission_id }} - {{ data.vehicle_name }} - Computational Simulation Report</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: {{ INK }};
+    font-size: 9.5pt;
+    line-height: 1.45;
+  }
+  .page-margin { padding: 8mm 16mm 12mm 16mm; }
+  a { color: {{ WINE }}; }
+
+  /* ---- Title page ---- */
+  .title-block { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; margin-top: 4mm; }
+  .title-left h1 { font-size: 22pt; margin: 0 0 2mm 0; color: {{ INK }}; }
+  .title-left .subtitle { font-size: 11pt; color: {{ MUTED }}; margin: 0; }
+  .title-right { text-align: right; font-size: 8.5pt; color: {{ MUTED }}; white-space: nowrap; }
+  .title-right .org { font-weight: 700; color: {{ WINE }}; font-size: 9.5pt; letter-spacing: 0.03em; }
+  .title-rule { height: 2.2mm; background: linear-gradient(90deg, {{ WINE }}, {{ GOLD }}); margin: 4mm 0 5mm 0; border-radius: 1mm; }
+  .abstract { font-size: 10pt; margin-bottom: 5mm; }
+  .abstract b { color: {{ WINE }}; }
+
+  .kpi-row { display: flex; gap: 4mm; margin-bottom: 6mm; }
+  .kpi-card { flex: 1; border: 1px solid {{ BORDER }}; border-radius: 2mm; padding: 3mm 4mm; background: {{ LIGHT_GREY }}; }
+  .kpi-card .label { font-size: 7pt; text-transform: uppercase; letter-spacing: 0.04em; color: {{ MUTED }}; }
+  .kpi-card .value { font-size: 15pt; font-weight: 700; color: {{ WINE }}; margin-top: 1mm; }
+
+  /* ---- Section headings ---- */
+  h2.section { font-size: 13pt; color: {{ INK }}; border-bottom: 0.6mm solid {{ WINE }}; padding-bottom: 1.5mm; margin: 7mm 0 3mm 0; page-break-after: avoid; }
+  h3.subsection { font-size: 10.5pt; color: {{ WINE }}; margin: 5mm 0 2mm 0; page-break-after: avoid; }
+  p { margin: 0 0 3mm 0; text-align: justify; }
+  .section-block { page-break-inside: avoid; }
+
+  /* ---- Tables ---- */
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm 0; font-size: 8.7pt; }
+  table.compact td, table.compact th { padding: 1.1mm 2mm; }
+  th { text-align: left; font-weight: 700; border-bottom: 0.4mm solid {{ INK }}; color: {{ INK }}; padding: 1.3mm 2mm; }
+  td { border-bottom: 0.2mm solid {{ BORDER }}; padding: 1.3mm 2mm; vertical-align: top; }
+  tr:last-child td { border-bottom: 0.4mm solid {{ INK }}; }
+  tr { page-break-inside: avoid; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .two-col { display: flex; gap: 6mm; }
+  .two-col > div { flex: 1; min-width: 0; }
+
+  /* ---- Figures ---- */
+  .figure { text-align: center; margin: 3mm 0 5mm 0; page-break-inside: avoid; }
+  .figure img { max-width: 100%; max-height: 92mm; }
+  .figure .caption { text-align: left; font-size: 8.3pt; margin-top: 1.5mm; }
+  .figure .caption b { color: {{ INK }}; }
+  .figure-row { display: flex; gap: 4mm; }
+  .figure-row .figure { flex: 1; min-width: 0; }
+
+  /* ---- Chips / status ---- */
+  .chip { display: inline-block; padding: 0.5mm 2.2mm; border-radius: 10mm; font-size: 7.6pt; font-weight: 700; border: 0.3mm solid; }
+  .chip-pass { color: {{ SUCCESS }}; border-color: {{ SUCCESS }}; background: {{ SUCCESS }}15; }
+  .chip-fail { color: {{ ERROR }}; border-color: {{ ERROR }}; background: {{ ERROR }}15; }
+  .chip-warn { color: {{ WARNING }}; border-color: {{ WARNING }}; background: {{ WARNING }}15; }
+  .chip-neutral { color: {{ MUTED }}; border-color: {{ BORDER }}; background: {{ LIGHT_GREY }}; }
+
+  .callout { border-radius: 2mm; padding: 3mm 4mm; margin: 3mm 0; font-size: 8.7pt; page-break-inside: avoid; }
+  .callout-warn { background: {{ WARNING }}12; border-left: 1.2mm solid {{ WARNING }}; }
+  .callout-info { background: {{ GOLD }}12; border-left: 1.2mm solid {{ GOLD }}; }
+  .callout b { color: {{ INK }}; }
+
+  ul.bullets { margin: 0 0 3mm 0; padding-left: 5mm; }
+  ul.bullets li { margin-bottom: 1mm; }
+
+  .muted { color: {{ MUTED }}; }
+  .small { font-size: 8pt; }
+  .edit-mark { background: #FFF3B0; padding: 0 1mm; }
+
+  /* ---- TOC ---- */
+  .toc-entry { display: flex; justify-content: space-between; border-bottom: 0.2mm dotted {{ BORDER }}; padding: 1.3mm 0; font-size: 9.5pt; }
+  .toc-entry.sub { padding-left: 6mm; font-size: 9pt; color: {{ MUTED }}; }
+  .toc-page { font-variant-numeric: tabular-nums; color: {{ MUTED }}; }
+
+  .page-break { page-break-before: always; }
+  .avoid-break { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: TITLE + ABSTRACT + KPIs, Section 1 continues on the same page ============ -->
+<div class="page-margin">
+  <div class="title-block">
+    <div class="title-left">
+      <h1>Computational Simulation Report</h1>
+      <p class="subtitle">Mission {{ data.mission_id }} &middot; {{ data.vehicle_name }} &middot; Trajectory, aerodynamics and flight-dynamics analysis</p>
+    </div>
+    <div class="title-right">
+      <div class="org">BEYOND UP</div>
+      <div>Universidad Panamericana &middot; M&eacute;xico</div>
+      <div>{{ data.event_name }}</div>
+      <div>Generated {{ data.generated_at }}</div>
+    </div>
+  </div>
+  <div class="title-rule"></div>
+
+  <p class="abstract">{{ data.report_text.introduction }} This mission is submitted for <b>{{ data.event_name }}</b>. {{ data.report_text.objectives }}</p>
+
+  <div class="kpi-row">
+    {% for label, value in data.kpi_cards %}
+    <div class="kpi-card">
+      <div class="label">{{ label }}</div>
+      <div class="value">{{ value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h2 class="section" id="sec-1">1&ensp;General information and set-up<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-1</span></h2>
+  <p>{{ prose.deliverables }}</p>
+  {% if data.general_info %}
+  <div class="two-col avoid-break">
+    <div>
+      <h3 class="subsection">1.1&ensp;Analysis environment</h3>
+      <table class="compact">
+        <tr><td>Simulation engine</td><td>{{ data.general_info.software }}</td></tr>
+        <tr><td>Application build</td><td>{{ data.general_info.app_version }}</td></tr>
+        <tr><td>CPU</td><td>{{ data.general_info.cpu }}</td></tr>
+        <tr><td>Operating system</td><td>{{ data.general_info.os }}</td></tr>
+        <tr><td>Computation time</td><td>{{ "%.2f"|format(data.general_info.computation_time_s) if data.general_info.computation_time_s is not none else "n/a" }} s</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 class="subsection">1.2&ensp;Model information</h3>
+      <table class="compact">
+        {% for label, value in data.general_info.model_files %}
+        <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  {% if data.general_info.integrator %}
+  <div class="avoid-break">
+    <h3 class="subsection">1.3&ensp;Simulation parameters</h3>
+    <table class="compact">
+      <tr><td>ODE solver</td><td>{{ data.general_info.integrator.ode_solver }}</td><td>Equations of motion</td><td>{{ data.general_info.integrator.equations_of_motion }}</td></tr>
+      <tr><td>Relative tolerance (rtol)</td><td>{{ data.general_info.integrator.rtol }}</td><td>Absolute tolerance (atol)</td><td>{{ data.general_info.integrator.atol_summary }}</td></tr>
+      <tr><td>Max. time step</td><td>{{ data.general_info.integrator.max_time_step }}</td><td>Min. time step</td><td>{{ data.general_info.integrator.min_time_step }}</td></tr>
+      <tr><td>Termination condition</td><td colspan="3">{{ data.general_info.integrator.termination }}</td></tr>
+    </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+<!-- ============ Table of contents ============
+     No forced page-break here: if section 1 spills a little onto a
+     second page, the TOC flows right in after it instead of leaving
+     that page nearly blank. avoid-break keeps the TOC itself from
+     being split - it moves to a fresh page as a whole if it doesn't
+     fit in whatever space is left. -->
+<div class="page-margin avoid-break">
+  <h2 class="section">Table of contents</h2>
+  {% for title, page in toc %}
+  <div class="toc-entry"><span>{{ title }}</span><span class="toc-page">{{ page }}</span></div>
+  {% endfor %}
+</div>
+
+<!-- ============ Section 2: Vehicle ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-2">2&ensp;Vehicle configuration and mass properties<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-2</span></h2>
+  {% if data.vehicle.side_profile_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.vehicle.side_profile_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.vehicle.side_profile_path] }}.</b> {{ fig_captions.vehicle }}</div>
+  </div>
+  {% endif %}
+  <p>{{ prose.vehicle }}</p>
+  <table class="compact">
+    <tr><td>Length</td><td class="num">{{ "%.1f"|format(data.vehicle.length_cm) }} cm</td><td>Diameter</td><td class="num">{{ "%.1f"|format(data.vehicle.diameter_cm) }} cm</td></tr>
+    <tr><td>Reference area</td><td class="num">{{ "%.5f"|format(data.vehicle.reference_area_m2) }} m&sup2;</td><td>Dry mass</td><td class="num">{{ "%.3f"|format(data.vehicle.dry_mass_kg) }} kg</td></tr>
+    <tr><td>Dry CG (from nose)</td><td class="num">{{ "%.3f"|format(data.vehicle.dry_cg_m) }} m</td><td>Mass/CG source</td><td>{{ data.vehicle.mass_source }}</td></tr>
+    <tr><td>Static margin range (ascent)</td><td class="num">{{ "%.2f"|format(data.vehicle.min_margin_cal) }} - {{ "%.2f"|format(data.vehicle.max_margin_cal) }} cal</td>
+        <td>Stable (FLT 4.3.5/4.3.6)</td><td>{% if data.vehicle.is_stable %}<span class="chip chip-pass">YES</span>{% else %}<span class="chip chip-fail">NO</span>{% endif %}</td></tr>
+  </table>
+  {% if data.vehicle.parachutes %}
+  <h3 class="subsection">2.1&ensp;Parachutes</h3>
+  <table class="compact">
+    <tr><th>Parachute</th><th class="num">Diameter (m)</th><th class="num">Area (m&sup2;)</th><th class="num">Cd</th></tr>
+    {% for name, diam, area, cd in data.vehicle.parachutes %}
+    <tr><td>{{ name }}</td><td class="num">{{ "%.2f"|format(diam) }}</td><td class="num">{{ "%.3f"|format(area) }}</td><td class="num">{{ "%.2f"|format(cd) if cd is not none else "auto" }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if data.vehicle.mass_plot_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.vehicle.mass_plot_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.vehicle.mass_plot_path] }}.</b> Total mass (rocket + motor) through the powered phase.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============ Section 3: Propulsion ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-3">3&ensp;Propulsion &mdash; {{ data.propulsion.designation }}<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-3</span></h2>
+  {% if data.propulsion.thrust_plot_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.propulsion.thrust_plot_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.propulsion.thrust_plot_path] }}.</b> Thrust curve used for this simulation.</div>
+  </div>
+  {% endif %}
+  <p>{{ prose.propulsion }}</p>
+  <table class="compact">
+    <tr><td>Motor</td><td>{{ data.propulsion.designation }} ({{ data.propulsion.manufacturer }})</td><td>Total impulse</td><td class="num">{{ "%.1f"|format(data.propulsion.total_impulse_Ns) }} N&middot;s</td></tr>
+    <tr><td>Average thrust</td><td class="num">{{ "%.1f"|format(data.propulsion.avg_thrust_N) }} N</td><td>Peak thrust</td><td class="num">{{ "%.1f"|format(data.propulsion.peak_thrust_N) }} N</td></tr>
+    <tr><td>Burn time</td><td class="num">{{ "%.2f"|format(data.propulsion.burn_time_s) }} s</td><td>Propellant / dry / total mass</td><td class="num">{{ "%.3f"|format(data.propulsion.propellant_mass_kg) }} / {{ "%.3f"|format(data.propulsion.dry_mass_kg) }} / {{ "%.3f"|format(data.propulsion.total_mass_kg) }} kg</td></tr>
+  </table>
+</div>
+
+<!-- ============ Section 4: Trajectory ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-4">4&ensp;Trajectory &mdash; nominal and ballistic cases<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-4</span></h2>
+  <p>{{ prose.trajectory }}</p>
+  <div class="figure-row">
+    {% for key, title, path in data.trajectory_plots[:2] %}
+    <div class="figure avoid-break">
+      <img src="{{ path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[path] }}.</b> {{ title }}.</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% for key, title, path in data.trajectory_plots[2:] %}
+    {% if loop.index0 is even %}<div class="figure-row">{% endif %}
+    <div class="figure avoid-break">
+      <img src="{{ path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[path] }}.</b> {{ title }}.</div>
+    </div>
+    {% if loop.index0 is odd or loop.last %}</div>{% endif %}
+  {% endfor %}
+</div>
+
+<!-- ============ Section 5: Aerodynamics ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-5">5&ensp;Aerodynamics<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-5</span></h2>
+  {% if data.aero.cd_plot_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.aero.cd_plot_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.aero.cd_plot_path] }}.</b> Drag coefficient vs. Mach number (curve actually used by the simulation).</div>
+  </div>
+  {% endif %}
+  <p>{{ prose.aero }}</p>
+  {% if data.aero.extra_plots %}
+  <div class="figure-row">
+    {% for key, title, path in data.aero.extra_plots %}
+    <div class="figure avoid-break">
+      <img src="{{ path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[path] }}.</b> {{ title }}.</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============ Section 6: Stability ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-6">6&ensp;Stability<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-6</span></h2>
+  {% set margin_plot = data.stability_plots | selectattr("0", "equalto", "static_margin") | first %}
+  {% if margin_plot %}
+  <div class="figure avoid-break">
+    <img src="{{ margin_plot[2] | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[margin_plot[2]] }}.</b> Static margin vs. time, with the RCSM's 1.5-4.0 cal allowed band shaded.</div>
+  </div>
+  {% endif %}
+  <p>{{ prose.stability }}</p>
+  <div class="figure-row">
+    {% for key, title, path in data.stability_plots %}
+    {% if key != "static_margin" %}
+    <div class="figure avoid-break">
+      <img src="{{ path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[path] }}.</b> {{ title }}.</div>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if data.barrowman %}
+  <h3 class="subsection">6.1&ensp;Independent analytical verification (Barrowman)</h3>
+  <p>{{ data.barrowman.method }}</p>
+  <table class="compact">
+    <tr><td>Nose CN-&alpha;</td><td class="num">{{ "%.2f"|format(data.barrowman.nose_cn_alpha) }} /rad</td><td>Nose CP</td><td class="num">{{ "%.3f"|format(data.barrowman.nose_cp_m) }} m from nose</td></tr>
+    <tr><td>Fins CN-&alpha; (total, w/ interference)</td><td class="num">{{ "%.2f"|format(data.barrowman.fins_cn_alpha) }} /rad</td><td>Fins CP</td><td class="num">{{ "%.3f"|format(data.barrowman.fins_cp_m) }} m from nose</td></tr>
+    <tr><td>Total CN-&alpha;</td><td class="num">{{ "%.2f"|format(data.barrowman.cn_alpha_total) }} /rad</td><td><b>Hand-calculated CP</b></td><td class="num"><b>{{ "%.3f"|format(data.barrowman.cp_m) }} m</b></td></tr>
+    {% if data.barrowman.rocketpy_cp_m is not none %}
+    <tr><td>RocketPy's own CP (t=0)</td><td class="num">{{ "%.3f"|format(data.barrowman.rocketpy_cp_m) }} m</td><td>Agreement</td><td class="num">{{ "%.1f"|format(data.barrowman.diff_pct) }}%</td></tr>
+    {% endif %}
+  </table>
+  {% endif %}
+
+  {% if data.openrocket_comparison %}
+  <h3 class="subsection">6.2&ensp;Comparison against OpenRocket ({{ data.openrocket_comparison.sim_name }})</h3>
+  <p class="small muted">Static margin (ascent minimum, the KPI reported above) and stability at Mach 0.3 (t=0, OpenRocket's own default design-view snapshot) are two different quantities - see the note under the table below.</p>
+  <table class="compact">
+    <tr><th>Quantity</th><th class="num">Ours</th><th class="num">OpenRocket</th><th class="num">Diff</th></tr>
+    {% for row in data.openrocket_comparison.rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td class="num">{{ ("%."+row.decimals|string+"f")|format(row.ours) if row.ours is not none else "n/a" }} {{ row.unit }}</td>
+      <td class="num">{{ ("%."+row.decimals|string+"f")|format(row.openrocket) if row.openrocket is not none else "n/a" }} {{ row.unit }}</td>
+      <td class="num">{% if row.pct_diff is not none %}<span class="{{ 'chip chip-fail' if row.over_threshold else 'chip chip-pass' }}">{{ "%+.2f"|format(row.pct_diff) }}%</span>{% else %}n/a{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="small muted">CP-derived rows use a 2% tolerance (RocketPy and OpenRocket use slightly different body-lift models, a documented and expected difference); every other row uses 1%.</p>
+  {% endif %}
+</div>
+
+<!-- ============ Section 7: Recovery ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-7">7&ensp;Recovery and landing footprint<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-7</span></h2>
+  {% if data.recovery.rows %}
+  <table class="compact">
+    <tr><th>Stage</th><th class="num">Diameter (m)</th><th class="num">Area (m&sup2;)</th><th class="num">Cd&middot;S (m&sup2;)</th><th class="num">Deploy (s)</th><th class="num">Sim. descent (m/s)</th><th class="num">Hand-calc descent (m/s)</th></tr>
+    {% for r in data.recovery.rows %}
+    <tr>
+      <td>{{ r.name }}</td><td class="num">{{ "%.2f"|format(r.diameter_m) }}</td><td class="num">{{ "%.3f"|format(r.area_m2) }}</td>
+      <td class="num">{{ "%.3f"|format(r.cd_s_m2) }}</td><td class="num">{{ "%.1f"|format(r.deploy_time_s) }}</td>
+      <td class="num">{{ "%.1f"|format(r.descent_rate_sim_ms) }}</td><td class="num">{{ "%.1f"|format(r.hand_terminal_velocity_at_ground_ms) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if data.recovery.descent_plot_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.recovery.descent_plot_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.recovery.descent_plot_path] }}.</b> Descent velocity after apogee.</div>
+  </div>
+  {% endif %}
+  <p>{{ prose.recovery }}</p>
+</div>
+
+<!-- ============ Section 8: Flight cases ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-8">8&ensp;Flight cases (RCSM)<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-8</span></h2>
+  <table class="compact">
+    <tr><th>Case</th><th class="num">Apogee AGL (m)</th><th class="num">Max speed (m/s)</th><th class="num">Rail exit (m/s)</th><th>Note</th></tr>
+    {% for name, apogee, max_speed, rail_exit, note in data.cases.rows %}
+    <tr>
+      <td>{{ name }}</td>
+      <td class="num">{{ "%.1f"|format(apogee) if apogee is not none else "-" }}</td>
+      <td class="num">{{ "%.1f"|format(max_speed) if max_speed is not none else "-" }}</td>
+      <td class="num">{{ "%.1f"|format(rail_exit) if rail_exit is not none else "-" }}</td>
+      <td class="small">{{ note or "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if data.cases.altitude_overlay_path %}
+  <div class="figure avoid-break">
+    <img src="{{ data.cases.altitude_overlay_path | b64img }}">
+    <div class="caption"><b>Figure {{ fig_number_by_path[data.cases.altitude_overlay_path] }}.</b> Altitude comparison across the required flight cases.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ============ Section 9: Monte Carlo ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-9">9&ensp;Monte Carlo dispersion<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-9</span></h2>
+  <p>{{ prose.monte_carlo }}</p>
+  {% if data.monte_carlo %}
+  {% if data.monte_carlo.low_n_warning %}
+  <div class="callout callout-warn"><b>Low sample count.</b> Only {{ data.monte_carlo.n_completed }} completed trajectories - this is a rough check, not a statistically meaningful dispersion estimate.</div>
+  {% endif %}
+  <div class="figure-row">
+    {% if data.monte_carlo.histogram_path %}
+    <div class="figure avoid-break">
+      <img src="{{ data.monte_carlo.histogram_path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[data.monte_carlo.histogram_path] }}.</b> Apogee distribution across Monte Carlo trajectories.</div>
+    </div>
+    {% endif %}
+    {% if data.monte_carlo.ellipse_path %}
+    <div class="figure avoid-break">
+      <img src="{{ data.monte_carlo.ellipse_path | b64img }}">
+      <div class="caption"><b>Figure {{ fig_number_by_path[data.monte_carlo.ellipse_path] }}.</b> Landing dispersion footprint (1/2/3-sigma).</div>
+    </div>
+    {% endif %}
+  </div>
+  {% if data.monte_carlo.uncertainties %}
+  <table class="compact">
+    <tr><th>Uncertainty</th><th class="num">Std. dev.</th><th>Source</th></tr>
+    {% for name, std_dev, source in data.monte_carlo.uncertainties %}
+    <tr><td>{{ name }}</td><td class="num">{{ "%.4g"|format(std_dev) }}</td><td class="small">{{ source }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% endif %}
+</div>
+
+<!-- ============ Section 10: Global min-max ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-10">10&ensp;Global min-max table<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-10</span></h2>
+  <p class="small muted">Minimum and maximum of every key flight variable across the full simulated trajectory, with the time each occurs.</p>
+  {% if data.global_minmax %}
+  <table class="compact">
+    <tr><th>Variable</th><th class="num">Minimum</th><th class="num">at t (s)</th><th class="num">Maximum</th><th class="num">at t (s)</th></tr>
+    {% for label, unit, vmin, tmin, vmax, tmax, decimals in data.global_minmax %}
+    <tr>
+      <td>{{ label }} ({{ unit }})</td>
+      <td class="num">{{ ("%."+decimals|string+"f")|format(vmin) if vmin is not none else "n/a" }}</td>
+      <td class="num">{{ "%.2f"|format(tmin) if tmin is not none else "-" }}</td>
+      <td class="num">{{ ("%."+decimals|string+"f")|format(vmax) if vmax is not none else "n/a" }}</td>
+      <td class="num">{{ "%.2f"|format(tmax) if tmax is not none else "-" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">Not available for this report.</p>
+  {% endif %}
+</div>
+
+<!-- ============ Section 11: Discussion and conclusions ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-11">11&ensp;Discussion and conclusions<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-11</span></h2>
+  <h3 class="subsection">11.1&ensp;Discussion</h3>
+  <p>{{ data.report_text.discussion }}</p>
+  <h3 class="subsection">11.2&ensp;Conclusions</h3>
+  <p>{{ data.report_text.conclusions }}</p>
+
+  <h3 class="subsection">11.3&ensp;Files delivered</h3>
+  <table class="compact">
+    <tr><th>Item</th><th>Detail</th></tr>
+    {% for label, value in data.delivered_files %}
+    <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h3 class="subsection">11.4&ensp;Assumptions and data sources</h3>
+  <ul class="bullets">
+    {% for a in data.assumptions %}
+    <li>{{ a }}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<!-- ============ Appendix A: input data ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-appA">Appendix A&ensp;&mdash;&ensp;Input data<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-appA</span></h2>
+  {% set ai = data.appendix_input_data %}
+  {% if ai %}
+  <h3 class="subsection">A.1&ensp;Motor</h3>
+  <table class="compact">
+    {% for label, value in ai.motor_table %}
+    <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  {% if ai.drag_excerpt.power_off or ai.drag_excerpt.power_on %}
+  <h3 class="subsection">A.2&ensp;Drag curve excerpt (evenly sampled)</h3>
+  <div class="two-col">
+    {% if ai.drag_excerpt.power_off %}
+    <div>
+      <p class="small muted" style="margin-bottom:1mm;">Power-off (coast)</p>
+      <table class="compact">
+        <tr><th class="num">Mach</th><th class="num">Cd</th></tr>
+        {% for mach, cd in ai.drag_excerpt.power_off %}
+        <tr><td class="num">{{ "%.3f"|format(mach) }}</td><td class="num">{{ "%.4f"|format(cd) }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+    {% if ai.drag_excerpt.power_on %}
+    <div>
+      <p class="small muted" style="margin-bottom:1mm;">Power-on (boost)</p>
+      <table class="compact">
+        <tr><th class="num">Mach</th><th class="num">Cd</th></tr>
+        {% for mach, cd in ai.drag_excerpt.power_on %}
+        <tr><td class="num">{{ "%.3f"|format(mach) }}</td><td class="num">{{ "%.4f"|format(cd) }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <h3 class="subsection">A.3&ensp;Parachutes</h3>
+  {% for p in ai.parachutes %}
+  <table class="compact">
+    <tr><td>{{ p.name }}</td><td class="num">{{ "%.2f"|format(p.diameter_m) }} m</td><td class="num">Cd {{ "%.2f"|format(p.cd) if p.cd is not none else "auto" }}</td>
+        <td>Deploy: {% if p.deploy_event == "altitude" %}at {{ "%.0f"|format(p.deploy_altitude_m) }} m AGL{% elif p.deploy_event == "apogee" %}at apogee{% else %}simulated at apogee ({{ ".ork" }} says &quot;{{ p.deploy_event }}&quot;){% endif %}{% if p.deploy_delay_s %}, delay {{ "%.1f"|format(p.deploy_delay_s) }} s{% endif %}</td></tr>
+    {% if p.deploy_note %}
+    <tr><td colspan="4" class="small muted">{{ p.deploy_note }}</td></tr>
+    {% endif %}
+    {% if p.is_reefed %}
+    <tr><td colspan="4" class="small muted">Reefed: {{ "%.2f"|format(p.reefed_diameter_m) }} m @ Cd {{ "%.2f"|format(p.reefed_cd) }}, cutter release at {{ "%.0f"|format(p.cutter_altitude_m) }} m AGL (delay {{ "%.1f"|format(p.cutter_delay_s) }} s)</td></tr>
+    {% endif %}
+  </table>
+  {% endfor %}
+
+  <h3 class="subsection">A.4&ensp;Atmosphere, wind and rail</h3>
+  {% set ra = ai.rail_atmosphere %}
+  <table class="compact">
+    <tr><td>Launch site</td><td>{{ "%.4f"|format(ra.site_lat) if ra.site_lat is not none else "-" }}, {{ "%.4f"|format(ra.site_lon) if ra.site_lon is not none else "-" }}, {{ "%.0f"|format(ra.site_altitude_m) if ra.site_altitude_m is not none else "-" }} m MSL</td></tr>
+    <tr><td>Wind</td><td>{{ "%.1f"|format(ra.wind_speed_ms) if ra.wind_speed_ms is not none else "-" }} m/s from {{ "%.0f"|format(ra.wind_direction_deg) if ra.wind_direction_deg is not none else "-" }}&deg;</td></tr>
+    <tr><td>Launch rail</td><td>{{ "%.1f"|format(ra.rail_length_m) if ra.rail_length_m is not none else "-" }} m, {{ "%.1f"|format(ra.rail_inclination_deg) if ra.rail_inclination_deg is not none else "-" }}&deg; from vertical, heading {{ "%.0f"|format(ra.rail_direction_deg) if ra.rail_direction_deg is not none else "-" }}&deg;</td></tr>
+  </table>
+  {% endif %}
+</div>
+
+{% if data.validation %}
+<!-- ============ Appendix B: model validation ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-appB">Appendix B&ensp;&mdash;&ensp;Model validation<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-appB</span></h2>
+  <p class="small muted">This is the simulation MODEL's own track record against real PROMETEO flights - not specific to the vehicle in this report. Included as evidence of how much to trust this application's predictions in general.</p>
+  <ul class="bullets">
+    {% for line in validation_lines %}
+    <li>{{ line }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if data.compliance_rows %}
+<!-- ============ Appendix C: compliance ============ -->
+<div class="page-margin page-break">
+  <h2 class="section" id="sec-appC">Appendix C&ensp;&mdash;&ensp;RCSM compliance (Nominal case)<span style="font-size:1px;color:#ffffff;">TOCMARK_sec-appC</span></h2>
+  <table class="compact">
+    <tr><th>Rule</th><th>Check</th><th>Status</th><th>Detail</th></tr>
+    {% for row in data.compliance_rows %}
+    <tr>
+      <td>{{ row[0] }}</td><td class="small">{{ row[1] }}</td>
+      <td>
+        {% if row[2] == "PASS" or row[2] == "Met" %}<span class="chip chip-pass">{{ row[2] }}</span>
+        {% elif row[2] == "FAIL" %}<span class="chip chip-fail">{{ row[2] }}</span>
+        {% else %}<span class="chip chip-warn">{{ row[2] }}</span>{% endif %}
+      </td>
+      <td class="small">{{ row[3] if row|length > 3 else "" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+</body>
+</html>

@@ -6,6 +6,7 @@ importable package bup_rocketpy/ (core, no UI) with bup_rocketpy/gui/
 """
 import glob
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 
@@ -91,6 +92,7 @@ class SimResult:
     inertia_source: str = ""
     flight: object = None  # 2026-09-27 review item 7: the live rocketpy Flight object itself, for the 3D playback view (gui/flight_playback.py) to sample - NOT JSON-serialized anywhere (run_history.save_run pulls specific numeric fields off THIS object, never the whole SimResult), safe to hold a live object here since run_simulation runs in a thread (run.io_bound), not a separate process
     motor: object = None
+    computation_time_s: float = None  # 2026-09-28 review item 4: wall-clock time for the Flight() ODE integration itself - the report's General Information section wants this
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -240,12 +242,18 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
 
     from rocketpy import Flight
     env = translate.build_environment(launch)
+    # 2026-09-28 review item 4: wall-clock time for the ODE integration
+    # itself - the report's "General information" section wants this
+    # (matching the SOLIDWORKS-style template's own "Analysis Time"
+    # field), measured around the actual solve, not file loading/setup.
+    _t0 = time.time()
     flight = Flight(
         rocket=rocket, environment=env,
         rail_length=launch.rail_length_m,
         inclination=launch.inclination_deg,
         heading=launch.rail_direction_deg,
     )
+    computation_time_s = time.time() - _t0
 
     # 2026-09-26 review 2(b): margin computed RAIL-EXIT TO APOGEE only.
     # The full-flight window used to include the descent phase, where
@@ -370,6 +378,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         openrocket_csv_path=openrocket_csv_path,
         validation_summary_text=validation_summary_text,
         validation_summary_kind=validation_summary_kind,
+        computation_time_s=computation_time_s,
         dry_mass_kg=mass_est.mass_kg,
         dry_cg_m=mass_est.cg_m,
         mass_source=mass_est.source,

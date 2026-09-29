@@ -1,8 +1,8 @@
-; Icarus I - SRAD KNSB 65:35 motor - Team Beyond UP / Stella Ignis - LASC 2026 Mission 44
+; Icarus I - SRAD KNSB 65:35 motor - Team Beyond UP - LASC 2026 Mission 44
 ; Total impulse 1871.4 Ns | Avg thrust 524.2 N | Burn time 3.57 s
 ; Thrust curve source: Prometeo_Launchsite_BRASIL.csv, resampled 196->49 pts (RDP, impulse error 0.0104%)
 ; Casing diameter/length are TODO CONFIRM - see docs/OPEN_ITEMS.md
-K519 75 280 0 2.0167 4.7378 StellaIgnis
+K519 75 280 0 2.0167 4.7378 BeyondUP
    0.030 419.69
    0.330 449.35
    0.570 471.40

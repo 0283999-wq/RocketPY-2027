@@ -3,7 +3,7 @@ report, and the LASC .zip with the per-case .py files.
 """
 import os
 
-from nicegui import ui
+from nicegui import run, ui
 
 from bup_rocketpy.gui import components, layout, state
 from bup_rocketpy import competition_profiles, lasc_package, rcsm_cases, report, run_history, translate
@@ -68,7 +68,7 @@ def exports_page():
 
                 report_preview_container = ui.column().classes("w-full mt-2")
 
-                def build_report(fmt):
+                async def build_report(fmt):
                     mission_id = mission_id_input.value
                     s["mission_id"] = mission_id
                     s["report_text"] = {k: inp.value for k, inp in text_inputs.items()}
@@ -98,10 +98,20 @@ def exports_page():
                         compliance_rows=compliance_rows,
                     )
                     path = os.path.join(OUTPUTS_DIR, f"report.{fmt}")
+                    # 2026-09-29 review item 4: generate_pdf() launches
+                    # Playwright's SYNC API (Chromium) - calling that
+                    # directly from a plain on_click handler runs it on
+                    # NiceGUI's own event-loop thread, and Playwright's
+                    # sync API refuses to run inside a thread that has a
+                    # running asyncio loop ("use the Async API instead"),
+                    # so the report silently never finished and the e2e
+                    # test's wait for "Report written" timed out. run.
+                    # io_bound (the same pattern Monte Carlo already uses)
+                    # runs it on a real worker thread instead.
                     if fmt == "docx":
-                        report.generate_docx(path, data)
+                        await run.io_bound(report.generate_docx, path, data)
                     else:
-                        report.generate_pdf(path, data)
+                        await run.io_bound(report.generate_pdf, path, data)
                     report_status.set_text(f"Report written: {os.path.basename(path)}")
                     report_preview_container.clear()
                     with report_preview_container:

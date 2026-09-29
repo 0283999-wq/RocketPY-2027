@@ -125,7 +125,7 @@ def montecarlo_page():
                     plot_theme.apply(ax2, fig2)
                     ellipse_path = pipeline.fresh_image_path(OUTPUTS_DIR, "mc_ellipse")
                     fig2.tight_layout()
-                    plot_theme.savefig(fig2, ellipse_path)
+                    plot_theme.savefig(fig2, ellipse_path, bbox_inches="tight")
                     plt.close(fig2)
                     with components.card(classes="w-full max-w-xl mt-2"):
                         ui.image(ellipse_path).classes("w-full")

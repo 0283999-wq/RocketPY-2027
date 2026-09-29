@@ -135,9 +135,177 @@ def _plot_mc_histogram_and_ellipse(mc_result, outputs_dir):
         plot_theme.apply(ax2, fig2)
         ellipse_path = _fresh_path(outputs_dir, "report_mc_ellipse")
         fig2.tight_layout()
-        plot_theme.savefig(fig2, ellipse_path)
+        # bbox_inches="tight": the equal-aspect axes above almost never
+        # fill a square canvas (the landing footprint is usually much
+        # wider than it is tall), which otherwise bakes big blank margins
+        # into the saved PNG above and below the actual plot.
+        plot_theme.savefig(fig2, ellipse_path, bbox_inches="tight")
         plt.close(fig2)
     return hist_path, ellipse_path
+
+
+def _general_info_block(load_result, sim_result, app_commit_hash):
+    """2026-09-28 review item 4: "General Information" block modeled on
+    docs/report_references/plantilla solid.docx (SOLIDWORKS Flow
+    Simulation's own report template) - Analysis Environment (software +
+    versions, CPU, OS, computation time), Model Information (files
+    used), Simulation Parameters (integrator tolerances/time step/
+    termination). Every value read from the actual objects that ran the
+    simulation, never hand-typed."""
+    import platform
+    import sys
+    from importlib import metadata as importlib_metadata
+
+    try:
+        rocketpy_version = importlib_metadata.version("rocketpy")
+    except importlib_metadata.PackageNotFoundError:
+        rocketpy_version = "unknown"
+
+    flight = sim_result.flight
+    integrator = None
+    if flight is not None:
+        atol = flight.atol
+        atol_summary = f"{atol[0]:.2g} (position/velocity/quaternion components; see RocketPy's own Flight docs for the full 13-element vector)" if isinstance(atol, (list, tuple)) and atol else str(atol)
+        integrator = {
+            "ode_solver": flight.ode_solver,
+            "equations_of_motion": flight.equations_of_motion,
+            "rtol": flight.rtol,
+            "atol_summary": atol_summary,
+            "max_time_step": "unlimited (adaptive)" if flight.max_time_step == float("inf") else f"{flight.max_time_step:.4g} s",
+            "min_time_step": f"{flight.min_time_step:.4g} s",
+            "termination": (
+                "apogee only (recovery/descent not modeled)" if getattr(flight, "terminate_on_apogee", False)
+                else "full flight, through ground impact or landing under recovery"
+            ),
+        }
+
+    return {
+        "software": f"RocketPy {rocketpy_version} (Python {sys.version.split()[0]})",
+        "app_version": app_commit_hash,
+        "cpu": platform.processor() or platform.machine() or "unknown",
+        "os": platform.platform(),
+        "computation_time_s": sim_result.computation_time_s,
+        "model_files": [
+            ("OpenRocket design file", os.path.basename(load_result.ork_path) if getattr(load_result, "ork_path", None) else "not recorded"),
+            ("Motor data file (.eng)", os.path.basename(load_result.eng_path) if load_result.eng_path else "not recorded"),
+            ("Drag curve source", load_result.drag_curve_source),
+        ],
+        "integrator": integrator,
+    }
+
+
+def _global_minmax_rows(sim_result):
+    """2026-09-28 review item 4: "Global min-max table" (SOLIDWORKS
+    template's own "Global Min-Max-Table") - min/max of every key flight
+    variable WITH the time it occurs, read straight off the actual solved
+    Flight (sim_result.flight), not a separate/duplicate computation."""
+    flight = sim_result.flight
+    if flight is None:
+        return []
+    env = flight.env
+    rocket = flight.rocket
+    motor = rocket.motor
+    t = list(flight.time)
+    if not t:
+        return []
+
+    def col(label, unit, fn, decimals=2):
+        vals = []
+        for ti in t:
+            try:
+                vals.append((fn(ti), ti))
+            except Exception:
+                continue
+        if not vals:
+            return (label, unit, None, None, None, None, decimals)
+        vmin, tmin = min(vals, key=lambda x: x[0])
+        vmax, tmax = max(vals, key=lambda x: x[0])
+        return (label, unit, vmin, tmin, vmax, tmax, decimals)
+
+    burn_out = motor.burn_out_time
+    return [
+        col("Altitude AGL", "m", lambda ti: flight.z(ti) - env.elevation, 1),
+        col("Vertical velocity", "m/s", flight.vz, 2),
+        col("Total velocity", "m/s", flight.speed, 2),
+        col("Total acceleration", "m/s2", flight.acceleration, 2),
+        col("Mach number", "-", flight.mach_number, 3),
+        col("Dynamic pressure", "kPa", lambda ti: flight.dynamic_pressure(ti) / 1000.0, 2),
+        col("Total mass (rocket + motor)", "kg", rocket.total_mass, 3),
+        col("Center of gravity", "m from nose", lambda ti: -rocket.center_of_mass(ti), 3),
+        col("Center of pressure", "m from nose", lambda ti: -rocket.cp_position(flight.mach_number(ti)), 3),
+        col("Static margin", "cal", flight.stability_margin, 2),
+        col("Angle of attack", "deg", flight.angle_of_attack, 2),
+        col("Thrust", "N", lambda ti: motor.thrust(ti) if ti <= burn_out else 0.0, 1),
+    ]
+
+
+def _appendix_input_data(parsed, load_result, eng_header):
+    """2026-09-28 review item 4: Appendix A input data, modeled on the
+    SOLIDWORKS template's own "Material Data" appendix - the motor
+    table, a drag-curve excerpt (evenly sampled, not just the first N
+    rows), parachute data (incl. reefing) and the atmosphere/wind/rail
+    setup, so a reader can check every raw input without re-opening the
+    original files."""
+    motor_table = [
+        ("Designation", eng_header.designation),
+        ("Manufacturer", eng_header.manufacturer),
+        ("Diameter", f"{eng_header.diameter_mm:.1f} mm"),
+        ("Length", f"{eng_header.length_mm:.1f} mm"),
+        ("Delays", eng_header.delays or "-"),
+        ("Propellant mass", f"{eng_header.propellant_mass_kg:.4f} kg"),
+        ("Total mass (loaded)", f"{eng_header.total_mass_kg:.4f} kg"),
+    ]
+
+    def _sample_curve(path, n=12):
+        if not path or not os.path.exists(path):
+            return None
+        import csv
+        rows = []
+        with open(path) as f:
+            for line in csv.reader(f):
+                if len(line) >= 2:
+                    try:
+                        rows.append((float(line[0]), float(line[1])))
+                    except ValueError:
+                        continue
+        if not rows:
+            return None
+        step = max(1, len(rows) // n)
+        return rows[::step][:n]
+
+    drag_excerpt = {
+        "power_off": _sample_curve(getattr(load_result, "power_off_drag_path", None)),
+        "power_on": _sample_curve(getattr(load_result, "power_on_drag_path", None)),
+    }
+
+    from bup_rocketpy import translate
+
+    parachute_rows = []
+    for c in parsed.parachutes:
+        trigger, deploy_note = translate.parachute_trigger(c)
+        row = {
+            "name": c.name, "diameter_m": c.diameter, "cd": c.cd,
+            "deploy_event": c.deploy_event, "deploy_altitude_m": c.deploy_altitude, "deploy_delay_s": c.deploy_delay,
+            "is_reefed": c.is_reefed,
+            "simulated_trigger": trigger, "deploy_note": deploy_note,
+        }
+        if c.is_reefed:
+            row.update(
+                reefed_diameter_m=c.reefed_diameter_m, reefed_cd=c.reefed_cd,
+                cutter_altitude_m=c.cutter_altitude_m, cutter_delay_s=c.cutter_delay_s,
+            )
+        parachute_rows.append(row)
+
+    launch = parsed.launch
+    rail_atmosphere = {
+        "site_lat": launch.latitude if launch else None, "site_lon": launch.longitude if launch else None,
+        "site_altitude_m": launch.altitude_m if launch else None,
+        "wind_speed_ms": launch.wind_average_ms if launch else None, "wind_direction_deg": launch.wind_direction_deg if launch else None,
+        "rail_length_m": launch.rail_length_m if launch else None, "rail_inclination_deg": launch.inclination_deg if launch else None,
+        "rail_direction_deg": launch.rail_direction_deg if launch else None,
+    }
+
+    return {"motor_table": motor_table, "drag_excerpt": drag_excerpt, "parachutes": parachute_rows, "rail_atmosphere": rail_atmosphere}
 
 
 _DEFAULT_TEXT_BLOCKS = {
@@ -268,6 +436,23 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         from bup_rocketpy import validation
         validation_block = validation.compute_v1_and_v2()
 
+    # 2026-09-28 review item 4: General Information + Global Min-Max +
+    # OpenRocket comparison + Appendix input data - modeled on
+    # docs/report_references/plantilla solid.docx (SOLIDWORKS Flow
+    # Simulation's own report template) per this review's instruction.
+    general_info_block = _general_info_block(load_result, sim_result, app_commit_hash)
+    global_minmax_rows = _global_minmax_rows(sim_result)
+    openrocket_comparison_block = None
+    if getattr(load_result, "ork_path", None):
+        try:
+            from bup_rocketpy import openrocket_comparison
+            sim_name, comparison_rows = openrocket_comparison.compare_to_openrocket(parsed, sim_result, load_result.ork_path)
+            if comparison_rows is not None:
+                openrocket_comparison_block = {"sim_name": sim_name, "rows": comparison_rows}
+        except Exception:
+            openrocket_comparison_block = None
+    appendix_input_data = _appendix_input_data(parsed, load_result, eng_header)
+
     assumptions = [
         f"Dry mass: {sim_result.dry_mass_kg:.4f} kg ({sim_result.mass_source})",
         f"Dry CG: {sim_result.dry_cg_m:.4f} m from nose ({sim_result.mass_source})",
@@ -364,6 +549,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         "trajectory_plots": trajectory_plots,
         "stability_plots": stability_plots,
         "barrowman": barrowman_block,
+        "openrocket_comparison": openrocket_comparison_block,
         "recovery": {
             "rows": sim_result.recovery_rows,
             "descent_plot_path": sim_result.plot_paths.get("descent_velocity"),
@@ -375,6 +561,9 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         "compliance_rows": compliance_rows or [],
         "validation": validation_block,
         "include_appendix": include_appendix,
+        "general_info": general_info_block,
+        "global_minmax": global_minmax_rows,
+        "appendix_input_data": appendix_input_data,
     }
 
 
@@ -524,557 +713,20 @@ def _prose_flight_test_correlation(data):
     )
 
 
-def generate_docx(output_path, data):
-    from docx import Document
-    from docx.shared import Inches, Pt
-
-    doc = Document()
-
-    # -- Page 1: header (title left / team block right), abstract, KPI cards
-    title_p = doc.add_paragraph()
-    run = title_p.add_run(f"Mission {data['mission_id']} — {data['vehicle_name']}")
-    run.bold = True
-    run.font.size = Pt(20)
-    doc.add_paragraph("Computational Simulation Report").runs[0].font.size = Pt(13)
-    team_p = doc.add_paragraph(data["report_text"]["team"].replace("\n", " · "))
-    team_p.runs[0].bold = True
-    doc.add_paragraph(f"{data['event_name']}  |  Generated {data['generated_at']}  |  App version {data['app_commit_hash']}  |  Author: {data['author']}")
-    doc.add_paragraph(
-        f"This report summarizes the predicted flight of {data['vehicle_name']}: an apogee of "
-        f"{next(v for k, v in data['kpis'] if k == 'Apogee AGL')} at a peak speed of "
-        f"{next(v for k, v in data['kpis'] if k == 'Max speed')} (Mach {next(v for k, v in data['kpis'] if k == 'Max Mach')}), "
-        f"with a minimum static margin of {data['vehicle']['min_margin_cal']:.2f} cal through the ascent."
-    )
-    kt = doc.add_table(rows=2, cols=4)
-    for i, (label, value) in enumerate(data["kpi_cards"]):
-        kt.rows[0].cells[i].text = label
-        kt.rows[1].cells[i].text = value
-        kt.rows[1].cells[i].paragraphs[0].runs[0].bold = True if kt.rows[1].cells[i].paragraphs[0].runs else None
-    doc.add_page_break()
-
-    doc.add_heading("Table of contents", level=1)
-    doc.add_paragraph("(Word: right-click and choose \"Update field\" to populate, or use References > Table of Contents.)")
-    doc.add_page_break()
-
-    fig_no = [0]
-
-    def figure(path, caption, width=6):
-        if not path:
-            return
-        fig_no[0] += 1
-        doc.add_picture(path, width=Inches(width))
-        p = doc.add_paragraph()
-        r = p.add_run(f"Figure {fig_no[0]}. {caption}")
-        r.bold = True
-
-    doc.add_heading("1. Deliverables and setup", level=1)
-    doc.add_paragraph(_prose_deliverables(data))
-
-    doc.add_heading("2. Vehicle configuration and mass properties", level=1)
-    v = data["vehicle"]
-    figure(v["side_profile_path"], "Vehicle side profile with CG/CP and static margin.", width=6)
-    doc.add_paragraph(_prose_vehicle(data, fig_no[0]))
-    for label, value in [
-        ("Length", f"{v['length_cm']:.1f} cm"), ("Diameter", f"{v['diameter_cm']:.1f} cm"),
-        ("Reference area", f"{v['reference_area_m2']:.5f} m2"),
-        ("Dry mass", f"{v['dry_mass_kg']:.3f} kg"), ("Dry CG", f"{v['dry_cg_m']:.3f} m from nose"),
-        ("Static margin range (ascent)", f"{v['min_margin_cal']:.2f} - {v['max_margin_cal']:.2f} cal"),
-        ("Stable (FLT 4.3.5/4.3.6, 1.5-4 cal)", "YES" if v["is_stable"] else "NO"),
-    ]:
-        doc.add_paragraph(f"{label}: {value}")
-    if v["parachutes"]:
-        pt = doc.add_table(rows=1, cols=4)
-        pt.rows[0].cells[0].text, pt.rows[0].cells[1].text, pt.rows[0].cells[2].text, pt.rows[0].cells[3].text = "Parachute", "Diameter (m)", "Area (m2)", "Cd"
-        for name, diam, area, cd in v["parachutes"]:
-            row = pt.add_row().cells
-            row[0].text, row[1].text, row[2].text, row[3].text = name, f"{diam:.2f}", f"{area:.3f}", f"{cd:.2f}" if cd is not None else "auto"
-    if v["mass_plot_path"]:
-        figure(v["mass_plot_path"], "Total mass (rocket + motor) vs. time.")
-
-    doc.add_heading("3. Propulsion", level=1)
-    pr = data["propulsion"]
-    figure(pr["thrust_plot_path"], "Thrust curve used for this simulation.")
-    doc.add_paragraph(_prose_propulsion(data, fig_no[0]))
-    for label, value in [
-        ("Motor", f"{pr['designation']} ({pr['manufacturer']})"),
-        ("Total impulse", f"{pr['total_impulse_Ns']:.1f} N*s"),
-        ("Average / peak thrust", f"{pr['avg_thrust_N']:.1f} N / {pr['peak_thrust_N']:.1f} N"),
-        ("Burn time", f"{pr['burn_time_s']:.2f} s"),
-        ("Propellant / dry / total mass", f"{pr['propellant_mass_kg']:.3f} / {pr['dry_mass_kg']:.3f} / {pr['total_mass_kg']:.3f} kg"),
-    ]:
-        doc.add_paragraph(f"{label}: {value}")
-
-    doc.add_heading("4. Trajectory (nominal and ballistic)", level=1)
-    first = True
-    for key, title, path in data["trajectory_plots"]:
-        if first:
-            figure(path, "Ascent and descent trajectory - see remaining plots below for individual quantities.")
-            doc.add_paragraph(_prose_trajectory(data, fig_no[0]))
-            first = False
-        else:
-            doc.add_heading(title, level=2)
-            doc.add_picture(path, width=Inches(6))
-
-    doc.add_heading("5. Aerodynamics", level=1)
-    ae = data["aero"]
-    figure(ae["cd_plot_path"], "Drag coefficient vs. Mach (curve actually used).")
-    doc.add_paragraph(_prose_aero(data, fig_no[0]))
-    for key, title, path in ae["extra_plots"]:
-        doc.add_heading(title, level=2)
-        doc.add_picture(path, width=Inches(6))
-
-    doc.add_heading("6. Stability", level=1)
-    margin_path = next((p for k, t, p in data["stability_plots"] if k == "static_margin"), None)
-    figure(margin_path, "Static margin vs. time, with the RCSM's 1.5-4.0 cal allowed band shaded.")
-    doc.add_paragraph(_prose_stability(data, fig_no[0]))
-    for key, title, path in data["stability_plots"]:
-        if key == "static_margin":
-            continue
-        doc.add_heading(title, level=2)
-        doc.add_picture(path, width=Inches(6))
-    if data["barrowman"]:
-        bw = data["barrowman"]
-        doc.add_heading("6.1 Independent hand stability check (Barrowman method)", level=2)
-        doc.add_paragraph(bw["method"])
-        doc.add_paragraph(f"Nose CN-alpha: {bw['nose_cn_alpha']:.2f}, CP at {bw['nose_cp_m']:.3f} m from nose.")
-        doc.add_paragraph(f"Fins CN-alpha (total): {bw['fins_cn_alpha']:.2f}, CP at {bw['fins_cp_m']:.3f} m from nose.")
-        doc.add_paragraph(f"Combined hand-calculated CP: {bw['cp_m']:.3f} m from nose (total CN-alpha {bw['cn_alpha_total']:.2f}).")
-        if bw.get("rocketpy_cp_m") is not None:
-            doc.add_paragraph(f"RocketPy's own CP at t=0: {bw['rocketpy_cp_m']:.3f} m from nose (difference {bw['diff_pct']:+.1f}%).")
-
-    doc.add_heading("7. Recovery and landing footprint", level=1)
-    rec = data["recovery"]
-    if rec["rows"]:
-        rt = doc.add_table(rows=1, cols=7)
-        for i, h in enumerate(["Chute", "Diameter (m)", "Area (m2)", "Cd*S (m2)", "Deploy time (s)", "Sim descent (m/s)", "Hand-calc descent (m/s)"]):
-            rt.rows[0].cells[i].text = h
-        for r in rec["rows"]:
-            row = rt.add_row().cells
-            row[0].text, row[1].text, row[2].text, row[3].text = r.name, f"{r.diameter_m:.2f}", f"{r.area_m2:.3f}", f"{r.cd_s_m2:.3f}"
-            row[4].text, row[5].text, row[6].text = f"{r.deploy_time_s:.1f}", f"{r.descent_rate_sim_ms:.1f}", f"{r.hand_terminal_velocity_at_ground_ms:.1f}"
-    figure(rec["descent_plot_path"], "Descent velocity after apogee.")
-    doc.add_paragraph(_prose_recovery(data, fig_no[0]))
-
-    doc.add_heading("8. Flight cases (RCSM)", level=1)
-    ct = doc.add_table(rows=1, cols=5)
-    for i, h in enumerate(["Case", "Apogee AGL (m)", "Max speed (m/s)", "Rail exit (m/s)", "Note"]):
-        ct.rows[0].cells[i].text = h
-    for name, apogee, max_speed, rail_exit, note in data["cases"]["rows"]:
-        row = ct.add_row().cells
-        row[0].text = name
-        row[1].text = f"{apogee:.1f}" if apogee is not None else "-"
-        row[2].text = f"{max_speed:.1f}" if max_speed is not None else "-"
-        row[3].text = f"{rail_exit:.1f}" if rail_exit is not None else "-"
-        row[4].text = note or ""
-    figure(data["cases"]["altitude_overlay_path"], "Altitude comparison across the required flight cases.")
-
-    doc.add_heading("9. Monte Carlo dispersion", level=1)
-    mc = data["monte_carlo"]
-    doc.add_paragraph(_prose_monte_carlo(data))
-    if mc is not None:
-        figure(mc["histogram_path"], "Apogee distribution across Monte Carlo trajectories.")
-        figure(mc["ellipse_path"], "Landing dispersion footprint (1/2/3-sigma).")
-        if mc["uncertainties"]:
-            ut = doc.add_table(rows=1, cols=3)
-            ut.rows[0].cells[0].text, ut.rows[0].cells[1].text, ut.rows[0].cells[2].text = "Uncertainty", "Std dev", "Source"
-            for name, std_dev, source in mc["uncertainties"]:
-                row = ut.add_row().cells
-                row[0].text, row[1].text, row[2].text = name, f"{std_dev:.4g}", source
-
-    doc.add_heading("10. Flight-test correlation", level=1)
-    doc.add_paragraph(_prose_flight_test_correlation(data))
-
-    doc.add_heading("11. Discussion and conclusions", level=1)
-    doc.add_heading("11.1 Discussion", level=2)
-    doc.add_paragraph(data["report_text"]["discussion"])
-    doc.add_heading("11.2 Conclusions", level=2)
-    doc.add_paragraph(data["report_text"]["conclusions"])
-
-    doc.add_heading("12. Files delivered", level=1)
-    ft = doc.add_table(rows=1, cols=2)
-    ft.rows[0].cells[0].text, ft.rows[0].cells[1].text = "Item", "Detail"
-    for label, value in data["delivered_files"]:
-        row = ft.add_row().cells
-        row[0].text, row[1].text = label, value
-
-    doc.add_heading("Assumptions and data sources", level=1)
-    for a in data["assumptions"]:
-        doc.add_paragraph(a, style="List Bullet")
-
-    if data["validation"] or data["compliance_rows"]:
-        doc.add_heading("Appendix", level=1)
-        if data["compliance_rows"]:
-            doc.add_heading("A.1 RCSM compliance table (Nominal case)", level=2)
-            at = doc.add_table(rows=1, cols=4)
-            for i, h in enumerate(["Rule", "Check", "Status", "Detail"]):
-                at.rows[0].cells[i].text = h
-            for row_data in data["compliance_rows"]:
-                row = at.add_row().cells
-                for i, v in enumerate(row_data[:4]):
-                    row[i].text = str(v)
-        if data["validation"]:
-            doc.add_heading("A.2 Model validation vs. real PROMETEO flights", level=2)
-            doc.add_paragraph("This is the SIMULATION MODEL's own track record against 2 real flights of a different vehicle (PROMETEO) - not specific to the vehicle in this report. Included as evidence of how much to trust this app's predictions in general.")
-            for line in _validation_paragraphs(data["validation"]):
-                doc.add_paragraph(line, style="List Bullet")
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    doc.save(output_path)
-    return output_path
-
-
-class _ReportDocTemplate:
-    """Wraps BaseDocTemplate with a real afterFlowable hook so the Table
-    of Contents actually gets populated (reportlab's standard two-pass
-    TOC recipe - see reportlab's own documentation on TableOfContents).
-    The previous version built a TableOfContents flowable but never
-    called notify('TOCEntry', ...), so it always rendered as an empty
-    table - this was Diego's "placeholder for table of contents" bug."""
-
-    def __new__(cls, *args, **kwargs):
-        from reportlab.platypus import BaseDocTemplate
-
-        class _Impl(BaseDocTemplate):
-            def afterFlowable(self, flowable):
-                from reportlab.platypus import Paragraph
-                if not isinstance(flowable, Paragraph):
-                    return
-                style_name = getattr(flowable.style, "name", "")
-                text = flowable.getPlainText()
-                level = {"H1Numbered": 0, "H2Numbered": 1}.get(style_name)
-                if level is None:
-                    return
-                self.notify("TOCEntry", (level, text, self.page))
-                key = f"bookmark-{id(flowable)}"
-                self.canv.bookmarkPage(key)
-                self.canv.addOutlineEntry(text, key, level=level, closed=False)
-
-        return _Impl(*args, **kwargs)
-
-
-class _NumberedCanvas:
-    """Footer: "Beyond UP - Mission X - Computational Simulation Report -
-    <event>" left, "Page N of M" right - reportlab's standard two-pass
-    recipe (BaseDocTemplate.multiBuild already does pass 1/2 for the TOC;
-    this canvas subclass piggybacks on the same page count)."""
-    def __init__(self, canvas_cls, footer_left=""):
-        self._canvas_cls = canvas_cls
-        self._footer_left = footer_left
-
-    def __call__(self, *args, **kwargs):
-        from reportlab.pdfgen import canvas as canvas_module
-        footer_left = self._footer_left
-
-        class NumberedCanvas(canvas_module.Canvas):
-            def __init__(self, *a, **kw):
-                canvas_module.Canvas.__init__(self, *a, **kw)
-                self._saved_page_states = []
-
-            def showPage(self):
-                self._saved_page_states.append(dict(self.__dict__))
-                self._startPage()
-
-            def save(self):
-                num_pages = len(self._saved_page_states)
-                for state in self._saved_page_states:
-                    self.__dict__.update(state)
-                    self.setFont("Helvetica", 8)
-                    self.setFillColor(canvas_module.Color(0.13, 0.10, 0.09))
-                    if footer_left:
-                        self.drawString(0.75 * 72, 20, footer_left)
-                    self.drawRightString(200 * 2.83, 20, f"Page {self._pageNumber} of {num_pages}")
-                    canvas_module.Canvas.showPage(self)
-                canvas_module.Canvas.save(self)
-
-        return NumberedCanvas(*args, **kwargs)
 
 
 def generate_pdf(output_path, data):
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_RIGHT
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import inch
-    from reportlab.platypus import Frame, HRFlowable, Image, PageBreak, PageTemplate, Paragraph, Spacer, Table, TableStyle
-    from reportlab.platypus.tableofcontents import TableOfContents
+    """2026-09-28 review item 4: HTML + CSS, printed by a real browser
+    engine (Playwright Chromium) - see bup_rocketpy/report_html.py.
+    Replaces the old reportlab implementation entirely (this project's
+    own instruction: "stop fighting reportlab")."""
+    from bup_rocketpy import report_html
+    return report_html.render_pdf(output_path, data)
 
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="H1Numbered", parent=styles["Heading1"], textColor=colors.HexColor(WINE)))
-    styles.add(ParagraphStyle(name="H2Numbered", parent=styles["Heading2"], textColor=colors.HexColor(INK)))
-    styles.add(ParagraphStyle(name="FigureCaption", parent=styles["BodyText"], fontSize=9, textColor=colors.HexColor(INK), spaceBefore=2, spaceAfter=10))
-    styles.add(ParagraphStyle(name="RightSmall", parent=styles["BodyText"], alignment=TA_RIGHT, fontSize=9))
-    styles.add(ParagraphStyle(name="TitleLeft", fontName="Helvetica-Bold", fontSize=20, textColor=colors.HexColor(WINE)))
-    styles.add(ParagraphStyle(name="SubtitleLeft", fontName="Helvetica", fontSize=12, textColor=colors.HexColor(INK), spaceAfter=4))
 
-    frame = Frame(0.75 * inch, 0.75 * inch, letter[0] - 1.5 * inch, letter[1] - 1.5 * inch, id="normal")
-    footer_left = f"Beyond UP · Mission {data['mission_id']} · Computational Simulation Report · {data['event_name']}"
-    doc = _ReportDocTemplate(output_path, pagesize=letter, pageTemplates=[PageTemplate(id="all", frames=[frame])])
-
-    story = []
-
-    # --- Page 1: header (title left / team block right), rules, abstract, KPI cards
-    team_lines = data["report_text"]["team"].split("\n")
-    header_left = [
-        Paragraph(f"Mission {data['mission_id']}", styles["TitleLeft"]),
-        Paragraph(data["vehicle_name"], styles["SubtitleLeft"]),
-        Paragraph("Computational Simulation Report", styles["SubtitleLeft"]),
-    ]
-    header_right = [Paragraph(line, styles["RightSmall"]) for line in team_lines]
-    header_right.append(Paragraph(data["event_name"], styles["RightSmall"]))
-    header_table = Table([[header_left, header_right]], colWidths=[3.75 * inch, 2.75 * inch])
-    header_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story.append(header_table)
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=2, color=colors.black))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor(GOLD), spaceAfter=10))
-
-    story.append(Paragraph(
-        f"This report summarizes the predicted flight of {data['vehicle_name']}: an apogee of "
-        f"{next(v for k, v in data['kpis'] if k == 'Apogee AGL')} at a peak speed of "
-        f"{next(v for k, v in data['kpis'] if k == 'Max speed')} (Mach {next(v for k, v in data['kpis'] if k == 'Max Mach')}), "
-        f"with a minimum static margin of {data['vehicle']['min_margin_cal']:.2f} cal through the ascent. "
-        f"Generated {data['generated_at']}, app version {data['app_commit_hash']}, author: {data['author']}.",
-        styles["BodyText"],
-    ))
-    story.append(Spacer(1, 8))
-
-    card_row = []
-    for label, value in data["kpi_cards"]:
-        cell = Table([[Paragraph(f"<font color='white'>{label}</font>", ParagraphStyle(name="CardLabel", fontSize=8, alignment=1))],
-                      [Paragraph(f"<b>{value}</b>", ParagraphStyle(name="CardValue", fontSize=14, alignment=1, textColor=colors.HexColor(INK)))]],
-                     colWidths=[1.3 * inch])
-        cell.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (0, 0), colors.HexColor(WINE)),
-            ("BACKGROUND", (0, 1), (0, 1), colors.HexColor(LIGHT_GREY)),
-            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor(GOLD)),
-            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        card_row.append(cell)
-    story.append(Table([card_row], colWidths=[1.35 * inch] * 4))
-    story.append(PageBreak())
-
-    toc = TableOfContents()
-    toc.levelStyles = [
-        ParagraphStyle(name="TOC1", fontSize=11, leftIndent=10, spaceBefore=4),
-        ParagraphStyle(name="TOC2", fontSize=9, leftIndent=20),
-    ]
-    story.append(Paragraph("Table of contents", styles["Heading1"]))
-    story.append(toc)
-    story.append(PageBreak())
-
-    fig_no = [0]
-
-    def h1(number, title):
-        story.append(Paragraph(f"{number}. {title.upper()}", styles["H1Numbered"]))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor(WINE), spaceAfter=8))
-
-    def h2(text):
-        story.append(Paragraph(text, styles["H2Numbered"]))
-
-    def para(text):
-        story.append(Paragraph(text, styles["BodyText"]))
-        story.append(Spacer(1, 4))
-
-    def figure(path, caption, width=5.5, height_ratio=0.55):
-        if not path:
-            return None
-        fig_no[0] += 1
-        story.append(Image(path, width=width * inch, height=width * inch * height_ratio))
-        story.append(Paragraph(f"<b>Figure {fig_no[0]}.</b> {caption}", styles["FigureCaption"]))
-        return fig_no[0]
-
-    def side_by_side(left_flowables, right_flowables, left_w=3.35, right_w=3.35):
-        story.append(Table([[left_flowables, right_flowables]], colWidths=[left_w * inch, right_w * inch],
-                            style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])))
-
-    # 1. Deliverables and setup
-    h1(1, "Deliverables and setup")
-    para(_prose_deliverables(data))
-    kpi_rows = [["Metric", "Value"]] + [[k, v] for k, v in data["kpis"]]
-    t = Table(kpi_rows, colWidths=[2.5 * inch, 3 * inch])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 9)]))
-    story.append(t)
-    story.append(PageBreak())
-
-    # 2. Vehicle
-    h1(2, "Vehicle configuration and mass properties")
-    v = data["vehicle"]
-    fn = figure(v["side_profile_path"], "Vehicle side profile with CG/CP and static margin.", width=5.5, height_ratio=0.4)
-    para(_prose_vehicle(data, fn))
-    left_rows = [["Parameter", "Value"]] + [
-        [label, value] for label, value in [
-            ("Length", f"{v['length_cm']:.1f} cm"), ("Diameter", f"{v['diameter_cm']:.1f} cm"),
-            ("Reference area", f"{v['reference_area_m2']:.5f} m2"),
-            ("Dry mass", f"{v['dry_mass_kg']:.3f} kg"), ("Dry CG", f"{v['dry_cg_m']:.3f} m from nose"),
-            ("Static margin range", f"{v['min_margin_cal']:.2f} - {v['max_margin_cal']:.2f} cal"),
-            ("Stable (1.5-4 cal)", "YES" if v["is_stable"] else "NO"),
-        ]
-    ]
-    left_table = Table(left_rows, colWidths=[1.7 * inch, 1.65 * inch])
-    left_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-    if v["parachutes"]:
-        right_rows = [["Parachute", "Diam (m)", "Cd"]] + [[n, f"{d:.2f}", f"{c:.2f}" if c is not None else "auto"] for n, d, a, c in v["parachutes"]]
-        right_table = Table(right_rows, colWidths=[1.5 * inch, 0.9 * inch, 0.9 * inch])
-        right_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        side_by_side([left_table], [right_table])
-    else:
-        story.append(left_table)
-    if v["mass_plot_path"]:
-        figure(v["mass_plot_path"], "Total mass (rocket + motor) vs. time.")
-    story.append(PageBreak())
-
-    # 3. Propulsion
-    h1(3, "Propulsion")
-    pr = data["propulsion"]
-    fn = figure(pr["thrust_plot_path"], "Thrust curve used for this simulation.")
-    para(_prose_propulsion(data, fn))
-    rows = [["Parameter", "Value"]] + [
-        [label, value] for label, value in [
-            ("Motor", f"{pr['designation']} ({pr['manufacturer']})"),
-            ("Total impulse", f"{pr['total_impulse_Ns']:.1f} N*s"),
-            ("Average / peak thrust", f"{pr['avg_thrust_N']:.1f} N / {pr['peak_thrust_N']:.1f} N"),
-            ("Burn time", f"{pr['burn_time_s']:.2f} s"),
-            ("Propellant / dry / total mass", f"{pr['propellant_mass_kg']:.3f} / {pr['dry_mass_kg']:.3f} / {pr['total_mass_kg']:.3f} kg"),
-        ]
-    ]
-    t = Table(rows, colWidths=[2.5 * inch, 3 * inch])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 9)]))
-    story.append(t)
-    story.append(PageBreak())
-
-    # 4. Trajectory
-    h1(4, "Trajectory (nominal and ballistic)")
-    first = True
-    for key, title, path in data["trajectory_plots"]:
-        if first:
-            fn = figure(path, "Ascent trajectory - see the flight-case comparison in Section 8 for ballistic vs. nominal.")
-            para(_prose_trajectory(data, fn))
-            first = False
-        else:
-            h2(title)
-            story.append(Image(path, width=5.5 * inch, height=5.5 * inch * 0.55))
-            story.append(Spacer(1, 6))
-    story.append(PageBreak())
-
-    # 5. Aerodynamics
-    h1(5, "Aerodynamics")
-    ae = data["aero"]
-    fn = figure(ae["cd_plot_path"], "Drag coefficient vs. Mach (curve actually used).", width=5.5, height_ratio=0.6)
-    para(_prose_aero(data, fn))
-    for key, title, path in ae["extra_plots"]:
-        h2(title)
-        story.append(Image(path, width=5.5 * inch, height=5.5 * inch * 0.55))
-        story.append(Spacer(1, 6))
-    story.append(PageBreak())
-
-    # 6. Stability
-    h1(6, "Stability")
-    margin_path = next((p for k, t, p in data["stability_plots"] if k == "static_margin"), None)
-    fn = figure(margin_path, "Static margin vs. time, with the RCSM's 1.5-4.0 cal allowed band shaded (FLT 4.3.5/4.3.6).")
-    para(_prose_stability(data, fn))
-    for key, title, path in data["stability_plots"]:
-        if key == "static_margin":
-            continue
-        h2(title)
-        story.append(Image(path, width=5.5 * inch, height=5.5 * inch * 0.55))
-        story.append(Spacer(1, 6))
-    if data["barrowman"]:
-        bw = data["barrowman"]
-        h2("6.1 Independent hand stability check (Barrowman method)")
-        para(bw["method"])
-        rows = [["Component", "CN-alpha", "CP (m from nose)"],
-                ["Nose", f"{bw['nose_cn_alpha']:.2f}", f"{bw['nose_cp_m']:.3f}"],
-                ["Fins (total)", f"{bw['fins_cn_alpha']:.2f}", f"{bw['fins_cp_m']:.3f}"],
-                ["Combined (hand calc)", f"{bw['cn_alpha_total']:.2f}", f"{bw['cp_m']:.3f}"]]
-        if bw.get("rocketpy_cp_m") is not None:
-            rows.append(["RocketPy (t=0)", "-", f"{bw['rocketpy_cp_m']:.3f}"])
-        t = Table(rows, colWidths=[2 * inch, 1.5 * inch, 1.7 * inch])
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 9)]))
-        story.append(t)
-    story.append(PageBreak())
-
-    # 7. Recovery
-    h1(7, "Recovery and landing footprint")
-    rec = data["recovery"]
-    if rec["rows"]:
-        rows = [["Chute", "Diam (m)", "Area (m2)", "Cd*S", "Deploy (s)", "Sim (m/s)", "Hand-calc (m/s)"]]
-        for r in rec["rows"]:
-            rows.append([r.name, f"{r.diameter_m:.2f}", f"{r.area_m2:.3f}", f"{r.cd_s_m2:.3f}", f"{r.deploy_time_s:.1f}", f"{r.descent_rate_sim_ms:.1f}", f"{r.hand_terminal_velocity_at_ground_ms:.1f}"])
-        t = Table(rows, colWidths=[1.3 * inch] + [0.75 * inch] * 6)
-        t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-        story.append(t)
-    fn = figure(rec["descent_plot_path"], "Descent velocity after apogee.")
-    para(_prose_recovery(data, fn))
-    story.append(PageBreak())
-
-    # 8. Flight cases
-    h1(8, "Flight cases (RCSM)")
-    rows = [["Case", "Apogee AGL (m)", "Max speed (m/s)", "Rail exit (m/s)", "Note"]]
-    for name, apogee, max_speed, rail_exit, note in data["cases"]["rows"]:
-        rows.append([name, f"{apogee:.1f}" if apogee is not None else "-", f"{max_speed:.1f}" if max_speed is not None else "-", f"{rail_exit:.1f}" if rail_exit is not None else "-", note or ""])
-    t = Table(rows, colWidths=[1.1 * inch, 1.1 * inch, 1.1 * inch, 1.0 * inch, 1.7 * inch])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-    story.append(t)
-    figure(data["cases"]["altitude_overlay_path"], "Altitude comparison across the required flight cases.")
-    story.append(PageBreak())
-
-    # 9. Monte Carlo
-    h1(9, "Monte Carlo dispersion")
-    mc = data["monte_carlo"]
-    para(_prose_monte_carlo(data))
-    if mc is not None:
-        if mc["low_n_warning"]:
-            para(f"<font color='#B36B00'>N = {mc['n_requested']} - not statistically meaningful (fewer than 100 samples).</font>")
-        hist_fig = figure(mc["histogram_path"], "Apogee distribution across Monte Carlo trajectories.", width=5, height_ratio=0.58)
-        ellipse_fig = figure(mc["ellipse_path"], "Landing dispersion footprint (1/2/3-sigma).", width=4, height_ratio=1.0)
-        if mc["uncertainties"]:
-            rows = [["Uncertainty", "Std dev", "Source"]] + [[n, f"{s:.4g}", src] for n, s, src in mc["uncertainties"]]
-            t = Table(rows, colWidths=[1.5 * inch, 0.8 * inch, 3.2 * inch])
-            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-            story.append(t)
-    story.append(PageBreak())
-
-    # 10. Flight-test correlation
-    h1(10, "Flight-test correlation")
-    para(_prose_flight_test_correlation(data))
-    story.append(PageBreak())
-
-    # 11. Discussion and conclusions
-    h1(11, "Discussion and conclusions")
-    h2("11.1 Discussion")
-    para(data["report_text"]["discussion"])
-    h2("11.2 Conclusions")
-    para(data["report_text"]["conclusions"])
-    story.append(PageBreak())
-
-    # 12. Files delivered
-    h1(12, "Files delivered")
-    rows = [["Item", "Detail"]] + [[label, value] for label, value in data["delivered_files"]]
-    t = Table(rows, colWidths=[2.2 * inch, 3.3 * inch])
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
-    story.append(t)
-
-    h1(13, "Assumptions and data sources")
-    for a in data["assumptions"]:
-        para("- " + a)
-
-    if data["validation"] or data["compliance_rows"]:
-        story.append(PageBreak())
-        story.append(Paragraph("APPENDIX", styles["H1Numbered"]))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor(WINE), spaceAfter=8))
-        if data["compliance_rows"]:
-            h2("A.1 RCSM compliance table (Nominal case)")
-            rows = [["Rule", "Check", "Status", "Detail"]] + [[str(c) for c in row[:4]] for row in data["compliance_rows"]]
-            t = Table(rows, colWidths=[0.9 * inch, 1.6 * inch, 0.7 * inch, 2.3 * inch])
-            t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREY)), ("GRID", (0, 0), (-1, -1), 0.5, colors.grey), ("FONTSIZE", (0, 0), (-1, -1), 7)]))
-            story.append(t)
-            story.append(Spacer(1, 10))
-        if data["validation"]:
-            h2("A.2 Model validation vs. real PROMETEO flights")
-            para("This is the SIMULATION MODEL's own track record against 2 real flights of a different vehicle (PROMETEO) - not specific to the vehicle in this report. Included as evidence of how much to trust this app's predictions in general.")
-            for line in _validation_paragraphs(data["validation"]):
-                para("- " + line)
-
-    doc.multiBuild(story, canvasmaker=_NumberedCanvas(None, footer_left=footer_left))
-    return output_path
+def generate_docx(output_path, data):
+    """See bup_rocketpy/report_docx.py - a real Word document (Heading
+    styles, a genuine TOC field, bordered tables, header/footer, yellow
+    [EDIT: ...] marks at the few spots meant for a human to customize)."""
+    from bup_rocketpy import report_docx
+    return report_docx.generate_docx(output_path, data)

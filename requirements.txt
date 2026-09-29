@@ -10,5 +10,5 @@ nicegui==3.17.1
 openpyxl>=3.1
 simplekml>=1.3
 python-docx==1.2.0
-reportlab==5.0.1
 pypdf==6.19.0
+jinja2>=3.1
