@@ -61,7 +61,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
             include_recovery=include_recovery,
             mission_id_template=mission_id_template,
         )
-        with open(os.path.join(staging_dir, filename), "w") as f:
+        with open(os.path.join(staging_dir, filename), "w", encoding="utf-8") as f:
             f.write(source)
 
     readme = f"""LASC submission package - Mission {mission_id}
@@ -77,7 +77,7 @@ Contents:
 
 {_validation_status_line()}
 """
-    with open(os.path.join(staging_dir, "README.txt"), "w") as f:
+    with open(os.path.join(staging_dir, "README.txt"), "w", encoding="utf-8") as f:
         f.write(readme)
 
     if os.path.exists(output_zip_path):

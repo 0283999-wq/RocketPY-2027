@@ -204,7 +204,16 @@ def export_openrocket_style_csv(flight, radius_m, output_path, simulation_name="
             return ""
         return f"{v:.6g}"
 
-    with open(output_path, "w", newline="") as f:
+    # 2026-09-30 review, Windows bug 2: without an explicit encoding,
+    # open() on Windows defaults to the system's ANSI codepage (cp1252
+    # for most US/Western-European installs), not UTF-8 - OpenRocket's
+    # own column names contain a zero-width space (U+200B, e.g.
+    # "Stability margin calibers ()"), which cp1252 cannot encode at
+    # all, crashing the export outright with a "'charmap' codec can't
+    # encode character" UnicodeEncodeError. utf-8-sig (UTF-8 + a BOM) rather than plain
+    # utf-8 so Excel - which still guesses ANSI for a BOM-less UTF-8 CSV
+    # and mangles anything non-ASCII - opens this correctly too.
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
         f.write(f"# {simulation_name}\n")
         f.write(f"# {len(rows)} data points written for {len(COLUMN_HEADERS)} variables.\n")
         f.write("#\n")

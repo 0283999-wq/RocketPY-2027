@@ -72,7 +72,7 @@ def _atomic_write_json(path, data):
     d = os.path.dirname(path)
     fd, tmp_path = tempfile.mkstemp(dir=d, prefix=".tmp_", suffix=".json")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, cls=_NumpyJSONEncoder)
         os.replace(tmp_path, path)
     except BaseException:
@@ -224,7 +224,7 @@ def list_runs(repo_root):
         if not os.path.exists(record_path):
             continue
         try:
-            with open(record_path) as f:
+            with open(record_path, encoding="utf-8") as f:
                 records.append(RunRecord(**json.load(f)))
         except (json.JSONDecodeError, TypeError, OSError) as e:
             warnings.append(f"Skipped corrupt run '{run_id}': {e}")
@@ -236,7 +236,7 @@ def get_run(repo_root, run_id):
     if not os.path.exists(record_path):
         return None
     try:
-        with open(record_path) as f:
+        with open(record_path, encoding="utf-8") as f:
             return RunRecord(**json.load(f))
     except (json.JSONDecodeError, TypeError, OSError):
         return None
@@ -372,7 +372,7 @@ def cleanup_corrupt_runs(repo_root):
         if not os.path.isdir(run_dir) or not os.path.exists(record_path):
             continue
         try:
-            with open(record_path) as f:
+            with open(record_path, encoding="utf-8") as f:
                 RunRecord(**json.load(f))
         except (json.JSONDecodeError, TypeError, OSError):
             os.makedirs(corrupt_dir, exist_ok=True)

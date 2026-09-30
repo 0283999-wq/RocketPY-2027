@@ -162,7 +162,7 @@ def _parse_open_meteo_response(data, latitude, longitude, date, source):
 
 
 def load_cached_weather(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return WeatherProfile(**json.load(f))
 
 
@@ -204,7 +204,7 @@ def _fetch(url, latitude, longitude, date, cache_dir, kind, source_label, force_
         ) from exc
 
     profile = _parse_open_meteo_response(data, latitude, longitude, date, source_label)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(asdict(profile), f, indent=2)
     return profile
 
@@ -257,7 +257,7 @@ def fetch_climatology(latitude, longitude, month, day, hour, cache_dir, years=10
     cache_key_date = f"climatology_{month:02d}-{day:02d}_{hour:02d}h"
     path = _cache_path(cache_dir, latitude, longitude, cache_key_date, "climatology")
     if not force_refresh and os.path.exists(path):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             profile = ClimatologyProfile(**json.load(f))
         profile.source = f"{profile.source} (cached {profile.fetched_at_utc})"
         return profile
@@ -305,7 +305,7 @@ def fetch_climatology(latitude, longitude, month, day, hour, cache_dir, years=10
         per_year_speed_ms=speeds, per_year_direction_deg=directions,
         fetched_at_utc=datetime.now(timezone.utc).isoformat(),
     )
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(asdict(profile), f, indent=2)
     return profile
 

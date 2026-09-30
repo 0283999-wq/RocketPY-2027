@@ -112,7 +112,7 @@ def read_thrust_csv(path, time_col="Time (s)", thrust_col="Thrust (N)"):
     """
     import pandas as pd
 
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, encoding="utf-8")
     if time_col not in df.columns or thrust_col not in df.columns:
         # try the OpenRocket comment-header format (see io_utils.load_openrocket_csv
         # in reference/prometeo_mission44 for the pattern this mirrors)

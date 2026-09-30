@@ -142,9 +142,9 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
             os.makedirs(outputs_dir, exist_ok=True)
             power_on_drag_path = os.path.join(outputs_dir, "power_on_drag_from_ork.csv")
             power_off_drag_path = os.path.join(outputs_dir, "power_off_drag_from_ork.csv")
-            with open(power_on_drag_path, "w") as f:
+            with open(power_on_drag_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(f"{m},{c}" for m, c in boost))
-            with open(power_off_drag_path, "w") as f:
+            with open(power_off_drag_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(f"{m},{c}" for m, c in coast))
             source = "the .ork's own stored simulation data (CLAUDE.md Sec 4.2 top preference)"
         else:

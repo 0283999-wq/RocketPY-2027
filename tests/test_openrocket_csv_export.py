@@ -42,7 +42,7 @@ def test_csv_has_58_columns_and_real_event_markers():
     path = os.path.join(OUT_DIR, "flight_data_openrocket_style.csv")
     openrocket_csv_export.export_openrocket_style_csv(flight, radius_m, path, simulation_name="PROMETEO test export")
 
-    with open(path) as f:
+    with open(path, encoding="utf-8-sig") as f:
         lines = f.readlines()
 
     header_line = lines[3]

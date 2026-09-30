@@ -267,7 +267,7 @@ def _appendix_input_data(parsed, load_result, eng_header):
             return None
         import csv
         rows = []
-        with open(path) as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in csv.reader(f):
                 if len(line) >= 2:
                     try:
