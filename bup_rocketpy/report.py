@@ -311,7 +311,17 @@ def _appendix_input_data(parsed, load_result, eng_header):
         "rail_direction_deg": launch.rail_direction_deg if launch else None,
     }
 
-    return {"motor_table": motor_table, "drag_excerpt": drag_excerpt, "parachutes": parachute_rows, "rail_atmosphere": rail_atmosphere}
+    # 2026-09-30 review item 5: component-by-component check, same table
+    # the Rocket page shows - so a judge reading only the report (not
+    # running the app) can still trace a mass/CG disagreement to a
+    # specific component.
+    from bup_rocketpy import translate as _translate
+    component_rows = _translate.component_table(parsed)
+
+    return {
+        "motor_table": motor_table, "drag_excerpt": drag_excerpt, "parachutes": parachute_rows,
+        "rail_atmosphere": rail_atmosphere, "component_rows": component_rows,
+    }
 
 
 _DEFAULT_TEXT_BLOCKS = {
@@ -365,7 +375,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     validation) - both output formats render from the result, they don't
     recompute anything themselves."""
     from bup_rocketpy.gui import rocket_drawing  # pure matplotlib, no nicegui import - safe to use from a report builder
-    from bup_rocketpy import barrowman, competition_profiles
+    from bup_rocketpy import barrowman, competition_profiles, translate
 
     parsed = load_result.parsed_ork
     eng_header = load_result.parsed_eng.header
@@ -390,7 +400,11 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         except Exception:
             cp_m = None
 
-    fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=sim_result.dry_cg_m, cp_m=cp_m, motor_length_m=eng_header.length_mm / 1000.0, static_margin_cal=sim_result.min_static_margin_cal)
+    static_margin_mach0_cal, stability_mach03_cal = translate.drawing_stability_labels(sim_result.flight)
+    fig = rocket_drawing.draw_side_profile(
+        parsed, dry_cg_m=sim_result.dry_cg_m, cp_m=cp_m, motor_length_m=eng_header.length_mm / 1000.0,
+        static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+    )
     side_profile_path = _fresh_path(outputs_dir, "report_side_profile")
     fig.savefig(side_profile_path)
     import matplotlib.pyplot as plt

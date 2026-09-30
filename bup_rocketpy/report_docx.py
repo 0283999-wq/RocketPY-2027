@@ -473,6 +473,28 @@ def generate_docx(output_path, data):
             ("Launch rail", f"{ra['rail_length_m']:.1f} m, {ra['rail_inclination_deg']:.1f} deg from vertical, heading {ra['rail_direction_deg']:.0f} deg" if ra["rail_length_m"] is not None else "-"),
         ])
 
+        if ai.get("component_rows"):
+            _style_heading(doc, "A.5 Component-by-component check", 2)
+            doc.add_paragraph(
+                "Every component the .ork defines, in the order it appears along the airframe (nose to tail) - "
+                "mass uses the exact same per-component logic this app actually flies with, so this can never "
+                "silently disagree with the mass table in Section 2."
+            )
+            ct = doc.add_table(rows=1, cols=6)
+            _set_table_borders(ct)
+            headers = ["Component", "Type", "Position (m)", "Length (m)", "Mass (kg)", "Status"]
+            for i, h in enumerate(headers):
+                ct.rows[0].cells[i].text = h
+            _header_row_bold(ct)
+            for row in ai["component_rows"]:
+                cells = ct.add_row().cells
+                cells[0].text = row.name
+                cells[1].text = row.kind
+                cells[2].text = f"{row.position_m:.3f}" if row.position_m is not None else "n/a"
+                cells[3].text = f"{row.length_m:.3f}" if row.length_m is not None else "n/a"
+                cells[4].text = f"{row.mass_kg:.4f}" if row.mass_kg is not None else "n/a"
+                cells[5].text = f"{row.status} - {row.flag}" if row.flag else row.status
+
     # Appendix B: validation (optional)
     if data["validation"]:
         _style_heading(doc, "Appendix B — Model validation", 1)

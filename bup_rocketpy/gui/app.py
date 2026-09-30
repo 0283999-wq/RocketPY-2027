@@ -403,7 +403,12 @@ def simulate_page():
 
                 ui.label(f"Dry mass/CG used: {sim.dry_mass_kg:.4f} kg / {sim.dry_cg_m:.4f} m from nose ({sim.mass_source})").classes("text-xs text-gray-500")
 
-                fig = rocket_drawing.draw_side_profile(s["load_result"].parsed_ork, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0, static_margin_cal=sim.min_static_margin_cal)
+                from bup_rocketpy.translate import drawing_stability_labels
+                static_margin_mach0_cal, stability_mach03_cal = drawing_stability_labels(sim.flight)
+                fig = rocket_drawing.draw_side_profile(
+                    s["load_result"].parsed_ork, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
+                    static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+                )
                 rocket_png = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_profile")
                 fig.savefig(rocket_png)
                 ui.image(rocket_png).classes("w-full max-w-3xl")

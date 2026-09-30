@@ -609,6 +609,36 @@ PARACHUTE_DEPLOY_EVENT_NOTES = {
 }
 
 
+def drawing_stability_labels(flight):
+    """(static_margin_mach0_cal, stability_mach03_cal) for
+    rocket_drawing.draw_side_profile()'s title, or (None, None) if
+    `flight` is None or either computation fails - a drawing must never
+    crash a page over a label. See stability_margin_at_mach()'s own
+    docstring for why these are two different numbers."""
+    if flight is None:
+        return None, None
+    try:
+        return flight.rocket.static_margin(0), stability_margin_at_mach(flight.rocket, 0.3)
+    except Exception:
+        return None, None
+
+
+def stability_margin_at_mach(rocket, mach, t=0.0):
+    """2026-09-30 review item 5: static margin using CG at time t but CP
+    evaluated at a SPECIFIC Mach number - e.g. OpenRocket's own default
+    "Stability @ Mach 0.3" design-view convention - rather than the
+    rocket's ACTUAL Mach at time t, which is what rocketpy's own
+    rocket.static_margin(t) uses (0, or close to it, at t=0 - a
+    different, also useful number: "static margin (Mach 0)", the real
+    on-the-pad stability). Same nose-frame sign convention as
+    openrocket_comparison.py (this app always builds with
+    coordinate_system_orientation="tail_to_nose" - see this module's own
+    docstring)."""
+    cg = -rocket.center_of_mass(t)
+    cp = -rocket.cp_position(mach)
+    return (cp - cg) / (2 * rocket.radius)
+
+
 def parachute_trigger(chute):
     """Maps an OpenRocket <deployevent> to a rocketpy Parachute trigger.
     Only "altitude" uses the .ork's own deploy_altitude as a live

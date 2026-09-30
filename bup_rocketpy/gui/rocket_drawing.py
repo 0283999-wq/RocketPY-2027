@@ -37,7 +37,8 @@ def _nose_profile_points(nose, n=40):
     return x, y
 
 
-def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, static_margin_cal=None, title=None, dark=False):
+def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, static_margin_cal=None,
+                       static_margin_mach0_cal=None, stability_mach03_cal=None, title=None, dark=False):
     """Returns a matplotlib Figure. All positions in m from nose tip.
 
     `dark` is accepted for backward compatibility but no longer changes
@@ -47,7 +48,20 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
     and a neutral foreground that reads on both theme.py surfaces,
     instead of picking one hardcoded light/dark pair up front - which
     is what actually happened here before (nothing ever passed
-    dark=True, so every drawing silently rendered light-only)."""
+    dark=True, so every drawing silently rendered light-only).
+
+    static_margin_mach0_cal/stability_mach03_cal (2026-09-30 review item
+    5): these are two DIFFERENT numbers a reader must not confuse -
+    static margin at Mach 0 (t=0, on the pad, using the rocket's actual
+    near-zero liftoff Mach) vs. stability at Mach 0.3 (OpenRocket's own
+    default design-view convention, evaluating CP at a FIXED Mach 0.3
+    regardless of the rocket's real speed) - so the title labels each
+    explicitly rather than showing one unlabeled "static margin" that
+    could be either. Computed by the caller (translate.
+    stability_margin_at_mach for the Mach-0.3 one) so this module stays
+    dependency-light (matplotlib only, no rocketpy import). Falls back
+    to the older, single static_margin_cal (unlabeled) when neither is
+    given, for callers that don't have a live rocket object handy."""
     fg = plot_theme.AXIS
     fig, ax = plt.subplots(figsize=(10, 3.2), dpi=130)
     fig.patch.set_alpha(0)
@@ -107,7 +121,12 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
     # motor's own STRUCTURAL placement, unchanged) does not.
     total_length = reported_length_m(parsed) or (parsed.nose.length if parsed.nose else 1.0)
     subtitle = f"Length {total_length*100:.1f} cm, diameter {body_radius*2*100:.1f} cm"
-    if static_margin_cal is not None:
+    if static_margin_mach0_cal is not None or stability_mach03_cal is not None:
+        if static_margin_mach0_cal is not None:
+            subtitle += f", Static margin (Mach 0): {static_margin_mach0_cal:.2f} cal"
+        if stability_mach03_cal is not None:
+            subtitle += f" · Stability @ M0.3: {stability_mach03_cal:.2f} cal"
+    elif static_margin_cal is not None:
         subtitle += f", static margin {static_margin_cal:.2f} cal"
     ax.set_title((title or parsed.name) + "\n" + subtitle, color=fg, fontsize=11)
     ax.set_xlim(-0.05 * total_length, total_length * 1.15)

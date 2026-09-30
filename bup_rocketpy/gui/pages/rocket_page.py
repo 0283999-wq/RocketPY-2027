@@ -5,7 +5,7 @@ import os
 
 from nicegui import ui
 
-from bup_rocketpy import openrocket_comparison
+from bup_rocketpy import openrocket_comparison, translate
 from bup_rocketpy.gui import components, layout, pipeline, rocket_drawing, state
 from bup_rocketpy.ork_reader import reported_length_m
 
@@ -40,6 +40,34 @@ def _openrocket_comparison_card(parsed, sim_result, ork_path):
                     color = "var(--bup-error)" if row.over_threshold else "var(--bup-success)"
                     ui.label(f"{row.pct_diff:+.2f}%").classes("text-sm font-bold").style(f"color: {color}")
                 ui.label(row.note).classes("text-xs").style("color: var(--bup-muted)")
+
+
+def _component_table_card(parsed):
+    """2026-09-30 review item 5: every component in the .ork - name,
+    type, position from nose, length, mass, and whether it's imported/
+    approximated/ignored - so mass/CG disagreements against OpenRocket
+    can be traced to a SPECIFIC component, not just the totals above.
+    translate.component_table() computes mass with the exact same per-
+    component logic the app actually flies with (see its own docstring)."""
+    rows = translate.component_table(parsed)
+    with components.card(classes="w-full mt-4"):
+        ui.label("Component-by-component check").classes("font-bold")
+        ui.label("Every component the .ork defines, in the order it appears along the airframe (nose to tail). Flagged rows need a closer look.").classes("text-sm").style("color: var(--bup-muted)")
+        with ui.grid(columns=6).classes("gap-2 w-full mt-2 items-start"):
+            for header in ["Component", "Type", "Position (m)", "Length (m)", "Mass (kg)", "Status"]:
+                ui.label(header).classes("font-bold text-xs")
+            for row in rows:
+                flagged = bool(row.flag)
+                text_style = "color: var(--bup-error)" if flagged else ""
+                ui.label(row.name).classes("text-sm").style(text_style)
+                ui.label(row.kind).classes("text-sm").style(text_style)
+                ui.label(f"{row.position_m:.3f}" if row.position_m is not None else "n/a").classes("text-sm").style(text_style)
+                ui.label(f"{row.length_m:.3f}" if row.length_m is not None else "n/a").classes("text-sm").style(text_style)
+                ui.label(f"{row.mass_kg:.4f}" if row.mass_kg is not None else "n/a").classes("text-sm").style(text_style)
+                with ui.column().classes("gap-0"):
+                    ui.label(row.status).classes("text-sm font-bold").style(text_style)
+                    if row.flag:
+                        ui.label(row.flag).classes("text-xs").style("color: var(--bup-error)")
 
 
 @ui.page("/rocket")
@@ -95,7 +123,12 @@ def rocket_page():
                 cg = best.mass_est.cg_m
 
         with components.card(classes="w-full"):
-            fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=cg, cp_m=cp_m03, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0, static_margin_cal=margin)
+            from bup_rocketpy.translate import drawing_stability_labels
+            static_margin_mach0_cal, stability_mach03_cal = drawing_stability_labels(s["sim_result"].flight if s["sim_result"] is not None else None)
+            fig = rocket_drawing.draw_side_profile(
+                parsed, dry_cg_m=cg, cp_m=cp_m03, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
+                static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+            )
             path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
             fig.savefig(path)
             ui.image(path).classes("w-full max-w-4xl")
@@ -132,6 +165,8 @@ def rocket_page():
 
         if s["sim_result"] is not None and s["load_result"].ork_path:
             _openrocket_comparison_card(parsed, s["sim_result"], s["load_result"].ork_path)
+
+        _component_table_card(parsed)
 
         # 2026-09-25 review Section 5b: reference area + per-parachute
         # diameter/area/Cd*S - geometry-only, so this works right after

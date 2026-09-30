@@ -504,6 +504,24 @@
     <tr><td>Wind</td><td>{{ "%.1f"|format(ra.wind_speed_ms) if ra.wind_speed_ms is not none else "-" }} m/s from {{ "%.0f"|format(ra.wind_direction_deg) if ra.wind_direction_deg is not none else "-" }}&deg;</td></tr>
     <tr><td>Launch rail</td><td>{{ "%.1f"|format(ra.rail_length_m) if ra.rail_length_m is not none else "-" }} m, {{ "%.1f"|format(ra.rail_inclination_deg) if ra.rail_inclination_deg is not none else "-" }}&deg; from vertical, heading {{ "%.0f"|format(ra.rail_direction_deg) if ra.rail_direction_deg is not none else "-" }}&deg;</td></tr>
   </table>
+
+  {% if ai.component_rows %}
+  <h3 class="subsection">A.5&ensp;Component-by-component check</h3>
+  <p class="small muted">Every component the .ork defines, in the order it appears along the airframe (nose to tail) - mass uses the exact same per-component logic this app actually flies with, so this can never silently disagree with the mass table in Section 2.</p>
+  <table class="compact">
+    <tr><th>Component</th><th>Type</th><th class="num">Position (m)</th><th class="num">Length (m)</th><th class="num">Mass (kg)</th><th>Status</th></tr>
+    {% for row in ai.component_rows %}
+    <tr>
+      <td>{{ row.name }}</td>
+      <td>{{ row.kind }}</td>
+      <td class="num">{{ "%.3f"|format(row.position_m) if row.position_m is not none else "n/a" }}</td>
+      <td class="num">{{ "%.3f"|format(row.length_m) if row.length_m is not none else "n/a" }}</td>
+      <td class="num">{{ "%.4f"|format(row.mass_kg) if row.mass_kg is not none else "n/a" }}</td>
+      <td>{{ row.status }}{% if row.flag %} - <span style="color:{{ ERROR }};">{{ row.flag }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
   {% endif %}
 </div>
 

@@ -88,7 +88,12 @@ def home_page():
         with ui.row().classes("gap-4 w-full items-start flex-wrap"):
             with components.card(classes="flex-1 min-w-[320px]"):
                 ui.label("Vehicle").classes("font-bold")
-                fig = rocket_drawing.draw_side_profile(parsed, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0, static_margin_cal=sim.min_static_margin_cal)
+                from bup_rocketpy.translate import drawing_stability_labels
+                static_margin_mach0_cal, stability_mach03_cal = drawing_stability_labels(sim.flight)
+                fig = rocket_drawing.draw_side_profile(
+                    parsed, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
+                    static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+                )
                 from bup_rocketpy.gui import pipeline
                 png_path = pipeline.fresh_image_path(OUTPUTS_DIR, "home_rocket_profile")
                 fig.savefig(png_path)
