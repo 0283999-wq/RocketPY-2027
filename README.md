@@ -91,10 +91,19 @@ and shows "load files first" until you have.
    `git clone` it) and unzip it anywhere.
 2. Double-click **`start.bat`**.
 
-That's it. First run creates `.venv`, installs `requirements.txt`
-(pinned versions), and installs the Chromium engine the PDF report uses
-(via Playwright) - every run after that just re-checks those are still
-up to date (fast) and opens the app in your browser.
+That's it. First run creates `.venv` and installs `requirements.txt`
+(pinned versions); every run after that just re-checks that's still up
+to date (fast) and opens the app in your browser.
+
+**The PDF report needs a Chromium-based browser** (it renders the report
+exactly the way you'd print a web page) - it uses Microsoft Edge (already
+on your machine, since it ships with Windows) or Google Chrome
+automatically, with no download. Only if neither is found does
+`start.bat` try to download Playwright's own copy of Chromium, which is
+blocked on some networks (university networks in particular - if that
+download hangs or fails, just Ctrl+C past it, or edit `start.bat` isn't
+even necessary: install Edge/Chrome and it's picked up automatically next
+run). The app and the DOCX report both work regardless of any of this.
 
 **Python version: this app is tested on Python 3.11/3.12.** `start.bat`
 prefers Python **3.12** specifically, via the Windows `py` launcher

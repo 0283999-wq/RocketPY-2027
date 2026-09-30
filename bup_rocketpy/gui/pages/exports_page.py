@@ -111,7 +111,13 @@ def exports_page():
                     if fmt == "docx":
                         await run.io_bound(report.generate_docx, path, data)
                     else:
-                        await run.io_bound(report.generate_pdf, path, data)
+                        from bup_rocketpy.browser_launch import NoBrowserFoundError
+                        try:
+                            await run.io_bound(report.generate_pdf, path, data)
+                        except NoBrowserFoundError as e:
+                            report_status.set_text(str(e))
+                            ui.notify(str(e), type="negative", multi_line=True, close_button=True)
+                            return
                     report_status.set_text(f"Report written: {os.path.basename(path)}")
                     report_preview_container.clear()
                     with report_preview_container:

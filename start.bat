@@ -61,12 +61,33 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Checking the PDF report's browser engine is installed...
-.venv\Scripts\python -m playwright install chromium
-if errorlevel 1 (
-    echo Could not install Chromium for Playwright. The app will still run,
-    echo but generating a PDF report will fail until this succeeds - check
-    echo your internet connection and try double-clicking start.bat again.
+REM The PDF report prefers whichever browser is already on this machine
+REM (Microsoft Edge, which ships with Windows, or Google Chrome) - no
+REM download needed for either. Only if NEITHER is found do we try to
+REM download Playwright's own Chromium, since that download is blocked
+REM on some networks (university networks in particular) and there is
+REM no point waiting on it when a perfectly good browser already exists.
+set "HAVE_BROWSER="
+if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "HAVE_BROWSER=1"
+if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "HAVE_BROWSER=1"
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "HAVE_BROWSER=1"
+if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "HAVE_BROWSER=1"
+if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" set "HAVE_BROWSER=1"
+
+if defined HAVE_BROWSER (
+    echo Found Microsoft Edge or Google Chrome - the PDF report will use it, no download needed.
+) else (
+    echo Neither Microsoft Edge nor Google Chrome was found - checking the PDF
+    echo report's fallback browser engine is installed. If this hangs or fails
+    echo ^(common on restrictive networks^), press Ctrl+C: the app still runs
+    echo fine and the DOCX report works regardless - see README.md.
+    .venv\Scripts\python -m playwright install chromium
+    if errorlevel 1 (
+        echo Could not install Chromium for Playwright. The app will still run,
+        echo but generating a PDF report will fail until either this succeeds
+        echo or Microsoft Edge / Google Chrome is installed. The DOCX report
+        echo works regardless.
+    )
 )
 
 :run
