@@ -396,7 +396,13 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     import matplotlib.pyplot as plt
     plt.close(fig)
 
-    motor_dry_mass_kg = eng_header.total_mass_kg - eng_header.propellant_mass_kg
+    # 2026-09-30 review item 2: read the ACTUALLY-FLOWN motor mass off
+    # sim_result (post any "measured motor mass" override), not blindly
+    # re-derived from the .eng header - otherwise the report would show
+    # the .eng's own (possibly wrong) declared mass even when the user
+    # corrected it for the simulation itself.
+    motor_dry_mass_kg = sim_result.motor_dry_kg if sim_result.motor_dry_kg is not None else eng_header.total_mass_kg - eng_header.propellant_mass_kg
+    motor_loaded_mass_kg = sim_result.motor_loaded_kg if sim_result.motor_loaded_kg is not None else eng_header.total_mass_kg
     avg_thrust_N = eng_header.propellant_mass_kg and (load_result.parsed_eng.total_impulse_Ns / load_result.parsed_eng.burn_time_s) or 0.0
 
     trajectory_plots = [(key, title, sim_result.plot_paths.get(key)) for key, title in TRAJECTORY_PLOT_ORDER if sim_result.plot_paths.get(key)]
@@ -539,7 +545,8 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
             "designation": eng_header.designation, "manufacturer": eng_header.manufacturer,
             "total_impulse_Ns": load_result.parsed_eng.total_impulse_Ns, "peak_thrust_N": load_result.parsed_eng.peak_thrust_N,
             "avg_thrust_N": avg_thrust_N, "burn_time_s": load_result.parsed_eng.burn_time_s,
-            "propellant_mass_kg": eng_header.propellant_mass_kg, "total_mass_kg": eng_header.total_mass_kg, "dry_mass_kg": motor_dry_mass_kg,
+            "propellant_mass_kg": eng_header.propellant_mass_kg, "total_mass_kg": motor_loaded_mass_kg, "dry_mass_kg": motor_dry_mass_kg,
+            "mass_source": sim_result.motor_mass_source, "mass_mismatch": load_result.motor_mismatch,
         },
         "aero": {
             "cd_plot_path": sim_result.plot_paths.get("cd_mach"),
@@ -613,13 +620,23 @@ def _prose_vehicle(data, fig_profile):
 
 def _prose_propulsion(data, fig_thrust):
     pr = data["propulsion"]
-    return (
+    text = (
         f"The vehicle is powered by a {pr['designation']} motor ({pr['manufacturer']}), delivering a total "
         f"impulse of {pr['total_impulse_Ns']:.1f} N*s over a {pr['burn_time_s']:.2f} s burn "
         f"(average thrust {pr['avg_thrust_N']:.1f} N, peak {pr['peak_thrust_N']:.1f} N). "
         f"Figure {fig_thrust} shows the thrust curve used for this simulation. Propellant mass is "
-        f"{pr['propellant_mass_kg']:.3f} kg out of a total loaded mass of {pr['total_mass_kg']:.3f} kg."
+        f"{pr['propellant_mass_kg']:.3f} kg out of a total loaded mass of {pr['total_mass_kg']:.3f} kg "
+        f"(source: {pr['mass_source']})."
     )
+    mismatch = pr.get("mass_mismatch")
+    if mismatch is not None and mismatch.over_threshold:
+        text += (
+            f" NOTE: the motor data file (.eng) declares a total loaded mass of {mismatch.eng_total_kg:.3f} kg, "
+            f"which differs from the {mismatch.ork_implied_kg:.3f} kg the design file's own stored simulation used "
+            f"({mismatch.diff_g:+.0f} g, {mismatch.diff_pct:+.1f}%) - see the mass source above for which value this "
+            "simulation actually flew."
+        )
+    return text
 
 
 def _prose_trajectory(data, fig_altitude):

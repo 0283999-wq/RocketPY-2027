@@ -8,6 +8,7 @@ state = {
     "ork_filename": None, "eng_filename": None,  # 2026-09-26 review item E: the user's REAL uploaded filenames, not the tempfile path's own basename
     "load_result": None, "sim_result": None,
     "dry_mass_override": None, "dry_cg_override": None,  # raw manual-override UI fields (None unless the user checked "use manual override")
+    "motor_mass_override": None,  # 2026-09-30 review item 2: "Measured motor mass" (dry+propellant, kg) - None unless the user checked its own override checkbox
     "dry_mass_kg": None, "dry_cg_m": None, "mass_source": "",  # the mass/CG ACTUALLY used by the last successful Simulate (override or geometric estimate) - every other page reads THESE, never the override fields above, so they work on the default no-override path too (2026-09-26 review crash d)
     "dry_i_axial_kgm2": None, "dry_i_transverse_kgm2": None, "inertia_source": "",  # 2026-09-27 review item 1: same rule as above, for inertia - Monte Carlo/RCSM cases/exports must read THESE, not re-derive their own, or they can silently disagree with Simulate's own result for the identical rocket
     "case_results": None,  # dict from rcsm_cases.run_all_cases

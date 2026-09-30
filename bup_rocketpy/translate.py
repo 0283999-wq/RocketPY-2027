@@ -138,6 +138,86 @@ def _geometric_components(parsed):
     return components
 
 
+@dataclass
+class ComponentRow:
+    name: str
+    kind: str
+    position_m: float  # fore end (or point position), m from nose tip; None if not applicable
+    length_m: float  # None if not applicable (point mass, parachute)
+    mass_kg: float  # None if not counted in the dry mass estimate at all
+    status: str  # IMPORTED / APPROXIMATED / IGNORED - same vocabulary as ImportRow
+    flag: str = ""  # non-empty for anything worth a reader's attention (out of bounds, no mass source)
+
+
+def component_table(parsed):
+    """2026-09-30 review item 5: one row per component in the .ork, for
+    the Rocket page and the report appendix - "a table with every
+    component in the .ork (name, type, position from nose, length, mass,
+    and whether it's imported/approximated/ignored)". Mass uses the
+    EXACT SAME per-component geometric/override logic as
+    estimate_dry_mass_and_cg()/_geometric_components() (this function is
+    the same computation, just keeping each component's name/identity
+    instead of collapsing straight to a flat list of tuples) - this
+    table can therefore never silently disagree with the dry mass this
+    app actually flies."""
+    from bup_rocketpy.ork_reader import airframe_length_m, components_outside_airframe
+
+    airframe_end = airframe_length_m(parsed)
+    out_of_bounds = {name for name, _ in components_outside_airframe(parsed)}
+    per_component_override = {
+        o.component: o.override_mass for o in parsed.mass_overrides
+        if o.override_mass is not None and not o.override_subcomponents_mass
+    }
+
+    def make_row(name, kind, position_m, length_m, geometric_mass, has_source):
+        override = per_component_override.get(name)
+        if override is not None:
+            mass, status = override, "IMPORTED"
+        elif has_source and geometric_mass > 0:
+            mass, status = geometric_mass, "APPROXIMATED"
+        else:
+            mass, status = None, "IGNORED"
+        flags = []
+        if name in out_of_bounds:
+            flags.append("position outside modeled airframe")
+        if status == "IGNORED":
+            flags.append("no material density/override in .ork - not counted in dry mass")
+        return ComponentRow(name, kind, position_m, length_m, mass, status, "; ".join(flags))
+
+    rows = []
+    if parsed.nose is not None:
+        n = parsed.nose
+        mass, _, _, _ = _cone_shell_mass_cg(n.length, n.aft_radius or 0.0, n.material_density, n.position_m)
+        rows.append(make_row(n.name, "Nose cone", n.position_m, n.length, mass, n.material_density is not None))
+    for tube in parsed.body_tubes:
+        mass, _, _, _ = _shell_cylinder_mass_cg_inertia(tube.length, tube.radius, tube.thickness, tube.material_density, tube.position_m)
+        rows.append(make_row(tube.name, "Body tube", tube.position_m, tube.length, mass, tube.material_density is not None))
+    for tr in parsed.transitions:
+        r = tr.aft_radius or tr.fore_radius or 0.0
+        mass, _, _, _ = _cone_shell_mass_cg(tr.length, r, tr.material_density, tr.position_m)
+        rows.append(make_row(tr.name, "Transition", tr.position_m, tr.length, mass, tr.material_density is not None))
+    body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
+    for fin in parsed.fins:
+        mass, _, _, _ = _fin_set_mass_cg(fin, body_radius)
+        length = max(fin.root_chord, fin.sweep_length + fin.tip_chord)
+        rows.append(make_row(fin.name, f"Fin set (x{fin.count})", fin.position_m, length, mass, fin.material_density is not None))
+    for pm in parsed.point_masses:
+        rows.append(ComponentRow(
+            pm.name, "Point mass", pm.position_m, None, pm.mass, "IMPORTED",
+            "position outside modeled airframe" if pm.name in out_of_bounds else "",
+        ))
+    for chute in parsed.parachutes:
+        row = make_row(chute.name, "Parachute", chute.position_m, None, 0.0, False)
+        if chute.name in out_of_bounds and "position outside modeled airframe" not in row.flag:
+            row.flag = "; ".join(f for f in (row.flag, "position outside modeled airframe") if f)
+        rows.append(row)
+    for ignored in parsed.import_log:
+        if ignored.status == "IGNORED":
+            rows.append(ComponentRow(ignored.component, "(unhandled tag)", None, None, None, "IGNORED", ignored.detail))
+
+    return sorted(rows, key=lambda r: (r.position_m is None, r.position_m if r.position_m is not None else 0.0))
+
+
 def estimate_dry_mass_and_cg(parsed):
     """Returns MassEstimate for the whole dry (no-motor) airframe.
 
@@ -209,6 +289,48 @@ def estimate_dry_inertia(parsed, dry_mass_estimate):
         i_transverse_total += i_tr + mass * d**2
 
     return i_axial_total, i_transverse_total
+
+
+MOTOR_MASS_MISMATCH_TOLERANCE_PCT = 1.0
+
+
+@dataclass
+class MotorMassMismatch:
+    eng_total_kg: float  # what the .eng header declares (dry + propellant)
+    ork_implied_kg: float  # the .ork's own stored-simulation "Motor mass" at t=0
+    diff_g: float  # eng - ork, grams (positive = .eng is heavier)
+    diff_pct: float  # relative to ork_implied_kg
+
+    @property
+    def over_threshold(self):
+        return abs(self.diff_pct) > MOTOR_MASS_MISMATCH_TOLERANCE_PCT
+
+
+def check_motor_mass_mismatch(eng_header, ork_path):
+    """2026-09-30 review item 2: a real case found the hard way - an
+    .eng declared 15.960 kg total motor mass, but the actual motor (per
+    OpenRocket's own stored simulation, which is what the team actually
+    flew) was 6.25 kg dry + 9.158 kg propellant = 15.406 kg - the app
+    silently flew a rocket ~550 g too heavy with no way to notice short
+    of comparing numbers by hand. The .ork's own stored simulation
+    already records exactly the comparison number needed ("Motor mass"
+    at t=0, i.e. loaded) - ork_reader.parse_stored_simulation_references
+    already extracts it (SimulationReference.motor_mass_t0_kg), this
+    just compares the two and flags anything past
+    MOTOR_MASS_MISMATCH_TOLERANCE_PCT. Returns None if there's no stored
+    simulation to compare against (nothing wrong - just nothing to check)."""
+    from bup_rocketpy.ork_reader import parse_stored_simulation_references
+
+    refs = parse_stored_simulation_references(ork_path)
+    ref = next(iter(refs.values()), None)
+    if ref is None or ref.motor_mass_t0_kg is None:
+        return None
+
+    eng_total = eng_header.total_mass_kg
+    ork_total = ref.motor_mass_t0_kg
+    diff_g = (eng_total - ork_total) * 1000.0
+    diff_pct = (eng_total - ork_total) / ork_total * 100.0 if ork_total else 0.0
+    return MotorMassMismatch(eng_total, ork_total, diff_g, diff_pct)
 
 
 def motor_grain_params(eng_header):

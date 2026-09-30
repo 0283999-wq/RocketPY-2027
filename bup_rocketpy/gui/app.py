@@ -115,6 +115,20 @@ def simulate_page():
                     dry_mass_input.bind_enabled_from(override_checkbox, "value")
                     dry_cg_input.bind_enabled_from(override_checkbox, "value")
 
+                # 2026-09-30 review item 2: a real .eng can simply declare
+                # the wrong motor mass (found via the import-table warning
+                # this same review adds) - this overrides it with a
+                # MEASURED total (dry+propellant, same convention as the
+                # .eng header and the .ork's own stored-sim "Motor mass"
+                # column) while keeping that motor's own thrust curve and
+                # propellant mass exactly as declared.
+                motor_mass_checkbox = ui.checkbox(
+                    "Use measured motor mass (unchecked: use the .eng header's own declared total mass)",
+                    value=False,
+                )
+                motor_mass_input = ui.number(label="Measured motor mass, loaded - dry + propellant (kg)", value=s["motor_mass_override"])
+                motor_mass_input.bind_enabled_from(motor_mass_checkbox, "value")
+
         with components.card(classes="w-full"):
             ui.label("2. Review import").classes("font-bold")
             drag_source_label = ui.label("")
@@ -201,10 +215,14 @@ def simulate_page():
             # own overrides / component-based mass estimate, and raises a
             # clear ValueError (caught below) if even that isn't resolvable
             # - it must never silently simulate with a placeholder 0.
+            if motor_mass_checkbox.value and motor_mass_input.value is None:
+                ui.notify("Measured motor mass is checked but empty.", type="warning")
+                return
             mass_kw = dict(
                 dry_mass_override_kg=dry_mass_input.value if override_checkbox.value else None,
                 dry_cg_override_m=dry_cg_input.value if override_checkbox.value else None,
                 launch_override=s["launch_override"],  # 2026-09-26 review item H (launch-day mode): None unless the Launch Day page cached+applied real weather
+                motor_total_mass_override_kg=motor_mass_input.value if motor_mass_checkbox.value else None,
             )
             progress.props(remove="hidden")
             sim_cancel_button.props(remove="hidden")
@@ -263,6 +281,8 @@ def simulate_page():
             if override_checkbox.value:
                 s["dry_mass_override"] = dry_mass_input.value
                 s["dry_cg_override"] = dry_cg_input.value
+            if motor_mass_checkbox.value:
+                s["motor_mass_override"] = motor_mass_input.value
             try:
                 from bup_rocketpy import run_history
                 import dataclasses as _dc

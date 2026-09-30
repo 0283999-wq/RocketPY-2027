@@ -54,6 +54,7 @@ class LoadResult:
     power_on_drag_path: str
     import_table: list  # list of (component, status, detail) tuples, ready for a UI table
     ork_path: str = None  # 2026-09-27 review item 1a: needed to re-read the .ork's own stored-simulation mass/CG (parse_stored_simulation_references) without a separate path threaded everywhere
+    motor_mismatch: object = None  # translate.MotorMassMismatch or None - 2026-09-30 review item 2, also read by the Rocket page and report (not just the import table)
 
 
 @dataclass
@@ -93,6 +94,12 @@ class SimResult:
     flight: object = None  # 2026-09-27 review item 7: the live rocketpy Flight object itself, for the 3D playback view (gui/flight_playback.py) to sample - NOT JSON-serialized anywhere (run_history.save_run pulls specific numeric fields off THIS object, never the whole SimResult), safe to hold a live object here since run_simulation runs in a thread (run.io_bound), not a separate process
     motor: object = None
     computation_time_s: float = None  # 2026-09-28 review item 4: wall-clock time for the Flight() ODE integration itself - the report's General Information section wants this
+    motor_mass_source: str = ""  # 2026-09-30 review item 2: ".eng header (...)" or "user-entered measured total mass override (...)" - shown next to the mass table so it's never ambiguous which number was actually flown
+    motor_loaded_kg: float = None  # 2026-09-30 review item 3: full mass table - motor total, dry+propellant, as actually built (post any override)
+    motor_propellant_kg: float = None
+    motor_dry_kg: float = None  # casing, no propellant
+    liftoff_mass_kg: float = None  # dry rocket + motor LOADED
+    descent_mass_kg: float = None  # dry rocket + motor DRY (casing) - what the recovery system actually descends under after the propellant is spent
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
@@ -151,15 +158,30 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         import_table.append(("drag curve CSV", "APPROXIMATED", w))
     import_table.extend(translate.parachute_import_notes(parsed_ork))
 
+    # 2026-09-30 review item 2: a real case found an .eng declaring the
+    # motor 550 g heavier than what OpenRocket's own stored simulation
+    # (and the team's actual measured motor) used - flagged here so it
+    # shows up on the SAME import table Diego already reviews before
+    # simulating, not discovered later by comparing numbers by hand.
+    motor_mismatch = translate.check_motor_mass_mismatch(parsed_eng.header, ork_path)
+    if motor_mismatch is not None and motor_mismatch.over_threshold:
+        import_table.append((
+            ".eng motor mass", "APPROXIMATED",
+            f"{motor_mismatch.eng_total_kg:.4f} kg declared in the .eng vs {motor_mismatch.ork_implied_kg:.4f} kg "
+            f"in the .ork's own stored simulation - {motor_mismatch.diff_g:+.0f} g ({motor_mismatch.diff_pct:+.1f}%) "
+            "off. Use the Advanced 'Measured motor mass' override to fly the correct mass while keeping this "
+            "motor's own thrust curve."
+        ))
+
     return LoadResult(
         parsed_ork=parsed_ork, parsed_eng=parsed_eng, eng_path=eng_path,
         drag_curve_source=source,
         power_off_drag_path=power_off_drag_path, power_on_drag_path=power_on_drag_path,
-        import_table=import_table, ork_path=ork_path,
+        import_table=import_table, ork_path=ork_path, motor_mismatch=motor_mismatch,
     )
 
 
-def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None):
+def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_override_m=None, launch_override=None, motor_total_mass_override_kg=None):
     """Runs the flight and produces everything the UI needs to display,
     all pre-computed and written to disk - the UI layer just points
     ui.image/ui.table at these paths, no plotting logic lives there.
@@ -169,7 +191,17 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     dataclasses.replace(parsed.launch, wind_average_ms=..., wind_direction_deg=...)
     with real forecast/cached weather for launch day. None (the default)
     keeps the .ork's own recorded conditions, so every existing caller is
-    unaffected."""
+    unaffected.
+
+    motor_total_mass_override_kg: 2026-09-30 review item 2's "Measured
+    motor mass" advanced override - the actual measured motor mass,
+    LOADED (dry + propellant), same convention as the .eng header's own
+    total_mass_kg and the .ork's stored-sim "Motor mass" column. The
+    .eng's own thrust curve and declared propellant mass are kept
+    unchanged - only the dry (casing) mass build_motor() uses is
+    replaced, by subtracting the .eng's own propellant mass from this
+    total (propellant mass is derived from the thrust curve/header, not
+    what was found to be wrong in the real case that prompted this)."""
     os.makedirs(outputs_dir, exist_ok=True)
     parsed = load_result.parsed_ork
     launch = launch_override if launch_override is not None else parsed.launch
@@ -203,9 +235,17 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     from bup_rocketpy.curve_utils import curve_max_x
     drag_curve_max_mach = max((m for m in (curve_max_x(power_off), curve_max_x(power_on)) if m is not None), default=None)
 
+    eng_header = load_result.parsed_eng.header
+    if motor_total_mass_override_kg is not None:
+        motor_dry_override_kg = motor_total_mass_override_kg - eng_header.propellant_mass_kg
+        motor_mass_source = f"user-entered measured total mass override ({motor_total_mass_override_kg:.4f} kg loaded)"
+    else:
+        motor_dry_override_kg = None
+        motor_mass_source = f".eng header ({eng_header.total_mass_kg:.4f} kg loaded)"
+
     if dry_mass_override_kg is not None and dry_cg_override_m is not None:
         mass_est = translate.MassEstimate(dry_mass_override_kg, dry_cg_override_m, "user-entered override (LoadResult UI field)")
-        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
+        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path, dry_mass_override_kg=motor_dry_override_kg)
         i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
         inertia_source = "geometric estimate (mass/CG were manually overridden, so inertia is re-estimated for that override's shape)"
     else:
@@ -220,6 +260,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         i_axial, i_transverse, inertia_source = best.i_axial_kgm2, best.i_transverse_kgm2, best.inertia_source
         if mass_est.mass_kg <= 0 or mass_est.cg_m is None:
             raise ValueError(f"cannot simulate: {mass_est.source}. Enter a manual dry mass + CG override, or complete the .ork's overrides in OpenRocket.")
+        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path, dry_mass_override_kg=motor_dry_override_kg)
         motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
 
     radius_m = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
@@ -399,4 +440,10 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         mach_extrapolated=mach_extrapolated,
         flight=flight,
         motor=motor,
+        motor_mass_source=motor_mass_source,
+        motor_loaded_kg=motor.dry_mass + motor.propellant_initial_mass,
+        motor_propellant_kg=motor.propellant_initial_mass,
+        motor_dry_kg=motor.dry_mass,
+        liftoff_mass_kg=mass_est.mass_kg + motor.dry_mass + motor.propellant_initial_mass,
+        descent_mass_kg=mass_est.mass_kg + motor.dry_mass,
     )

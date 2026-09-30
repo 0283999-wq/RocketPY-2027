@@ -53,6 +53,20 @@ def rocket_page():
         parsed = s["load_result"].parsed_ork
         components.page_header(parsed.name, "Side profile, dimensions and recovery configuration for the loaded vehicle.")
 
+        # 2026-09-30 review item 2: a real .eng can simply declare the
+        # wrong motor mass - shown here too, not just buried in the Load
+        # step's import table, since this is exactly the page someone
+        # checks mass/CG on.
+        mismatch = s["load_result"].motor_mismatch
+        if mismatch is not None and mismatch.over_threshold:
+            with components.card(classes="w-full mt-2").style("border-left: 4px solid var(--bup-error)"):
+                ui.label("Motor mass mismatch").classes("font-bold").style("color: var(--bup-error)")
+                ui.label(
+                    f".eng declares {mismatch.eng_total_kg:.4f} kg (loaded) vs {mismatch.ork_implied_kg:.4f} kg in the "
+                    f".ork's own stored simulation - {mismatch.diff_g:+.0f} g ({mismatch.diff_pct:+.1f}%). Use the "
+                    "Simulate page's Advanced 'Measured motor mass' override to fly the correct mass."
+                ).classes("text-sm")
+
         # Same loaded object as every other page (crash e fix, 2026-09-26
         # review) - dry CG comes from the last Simulate's actually-used
         # value (override or geometric estimate), never the raw manual
