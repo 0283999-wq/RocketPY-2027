@@ -642,6 +642,19 @@ class SimulationReference:
     cp_at_mach_0_3_m: float = None  # 2026-09-28 review item 2: "CP location" from the recorded datapoint whose "Mach number" is closest to 0.3 - OpenRocket's own design-view stability readout uses Mach 0.3 as its default reference Mach (CLAUDE.md's own "Stability @ M 0.3" convention), which isn't separately persisted in the file, so this is the closest available real number: an ACTUAL simulated aerodynamic state, not an interpolation/guess.
     cp_at_mach_0_3_actual_mach: float = None  # the nearest row's real Mach (for the UI to show "closest recorded point: Mach X, not exactly 0.300")
     reference_length_is_max_diameter: bool = False  # True only when the .ork declares <referencetype>maximum</referencetype> - otherwise reference_length_m is NOT necessarily the max diameter and must not be shown as one
+    # 2026-09-30 review item 7: the atmosphere OpenRocket's own stored
+    # simulation actually used at t=0 (liftoff) - a real case found this
+    # differs from what this app's standard-atmosphere model computes at
+    # the same elevation, enough to shift the reported Mach number
+    # (0.984 vs. 0.960) even when the simulated SPEED agreed closely
+    # (321.5 vs. 322 m/s) - i.e. a different assumed temperature, not a
+    # wrong speed prediction. All raw SI units straight from the
+    # databranch (Kelvin, Pa, m/s, radians).
+    air_temp_k_t0: float = None
+    air_pressure_pa_t0: float = None
+    wind_speed_ms_t0: float = None
+    wind_direction_rad_t0: float = None
+    speed_of_sound_ms_t0: float = None
 
 
 def parse_stored_simulation_references(path):
@@ -738,6 +751,11 @@ def parse_stored_simulation_references(path):
             cp_at_mach_0_3_m=cp_at_m03,
             cp_at_mach_0_3_actual_mach=actual_mach,
             reference_length_is_max_diameter=reference_length_is_max_diameter,
+            air_temp_k_t0=val(t0, "Air temperature"),
+            air_pressure_pa_t0=val(t0, "Air pressure"),
+            wind_speed_ms_t0=val(t0, "Wind velocity"),
+            wind_direction_rad_t0=val(t0, "Wind direction"),
+            speed_of_sound_ms_t0=val(t0, "Speed of sound"),
         )
     return out
 

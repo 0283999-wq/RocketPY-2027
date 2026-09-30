@@ -103,7 +103,29 @@ def compare_to_openrocket(parsed, sim_result, ork_path):
     )
     our_stability_m03 = (our_cp_m03 - our_cg_t0) / (2 * radius) if our_cp_m03 is not None and our_cg_t0 is not None else None
 
-    rows = [
+    # 2026-09-30 review item 7: a real case found our simulated SPEED
+    # matching OpenRocket closely (321.5 vs. 322 m/s) but the reported
+    # MACH not (0.984 vs. 0.960) - traced to a different assumed
+    # temperature (our standard-atmosphere speed of sound ~327 m/s vs.
+    # OpenRocket's own recorded ~335 m/s at the same elevation). Shown
+    # here so a mismatch is visible up front, not chased down by hand.
+    env = sim_result.flight.env
+    atmosphere_rows = []
+    if ref.air_temp_k_t0 is not None:
+        our_temp_k = env.temperature(env.elevation)
+        our_pressure_pa = env.pressure(env.elevation)
+        our_wind_ms = env.wind_speed(env.elevation)
+        atmosphere_rows = [
+            ComparisonRow("Elevation (site)", env.elevation, parsed.launch.altitude_m if parsed.launch else None, "m", 0,
+                           "From the .ork's own launch conditions - used by default (this app never substitutes a different elevation)."),
+            ComparisonRow("Temperature (t=0)", our_temp_k, ref.air_temp_k_t0, "K", 1,
+                           f"Ours: standard atmosphere (ISA) at this elevation ({our_temp_k - 273.15:.1f} degC) vs. OpenRocket's own stored value ({ref.air_temp_k_t0 - 273.15:.1f} degC), which may reflect a custom/measured atmosphere instead - a gap here explains a Mach-number mismatch even when speed itself agrees."),
+            ComparisonRow("Pressure (t=0)", our_pressure_pa / 100.0, ref.air_pressure_pa_t0 / 100.0, "hPa", 1),
+            ComparisonRow("Wind speed (t=0)", our_wind_ms, ref.wind_speed_ms_t0, "m/s", 2,
+                           "Ours is the .ork's own CONFIGURED average wind (used by default). OpenRocket's own stored value is what it happened to SAMPLE at t=0 in that one run - it applies random wind variation around the average by default, so some difference here is normal/expected, not necessarily a mismatch."),
+        ]
+
+    rows = atmosphere_rows + [
         ComparisonRow("Overall length", reported_length_m(parsed), None, "m", 3,
                        "Includes swept fin tip overhang past the tail. Not stored in the design file (OpenRocket computes this live in its own UI, never persists it) - read it off OpenRocket's own panel to compare by hand."),
         ComparisonRow("Max diameter", 2 * radius, ref_max_diameter, "m", 3,
