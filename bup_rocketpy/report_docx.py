@@ -247,6 +247,12 @@ def generate_docx(output_path, data):
         ("Static margin range (ascent min.)", f"{v['min_margin_cal']:.2f} - {v['max_margin_cal']:.2f} cal"),
         ("Stable (FLT 4.3.5/4.3.6, 1.5-4 cal)", "YES" if v["is_stable"] else "NO"),
     ])
+    _style_heading(doc, "2.0 Mass breakdown", 2)
+    kv_table([
+        ("Dry rocket (no motor)", f"{v['dry_mass_kg']:.3f} kg"), ("Motor, loaded (dry + propellant)", f"{v['motor_loaded_kg']:.3f} kg"),
+        ("Motor propellant", f"{v['motor_propellant_kg']:.3f} kg"), ("Motor dry (casing)", f"{v['motor_dry_kg']:.3f} kg"),
+        ("Liftoff mass", f"{v['liftoff_mass_kg']:.3f} kg"), ("Descent mass (dry rocket + spent motor casing)", f"{v['descent_mass_kg']:.3f} kg"),
+    ])
     if v["parachutes"]:
         pt = doc.add_table(rows=1, cols=4)
         _set_table_borders(pt)

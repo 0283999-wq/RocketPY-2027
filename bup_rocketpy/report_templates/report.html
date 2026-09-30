@@ -180,6 +180,12 @@
     <tr><td>Static margin range (ascent)</td><td class="num">{{ "%.2f"|format(data.vehicle.min_margin_cal) }} - {{ "%.2f"|format(data.vehicle.max_margin_cal) }} cal</td>
         <td>Stable (FLT 4.3.5/4.3.6)</td><td>{% if data.vehicle.is_stable %}<span class="chip chip-pass">YES</span>{% else %}<span class="chip chip-fail">NO</span>{% endif %}</td></tr>
   </table>
+  <h3 class="subsection">2.0&ensp;Mass breakdown</h3>
+  <table class="compact">
+    <tr><td>Dry rocket (no motor)</td><td class="num">{{ "%.3f"|format(data.vehicle.dry_mass_kg) }} kg</td><td>Motor, loaded (dry + propellant)</td><td class="num">{{ "%.3f"|format(data.vehicle.motor_loaded_kg) }} kg</td></tr>
+    <tr><td>Motor propellant</td><td class="num">{{ "%.3f"|format(data.vehicle.motor_propellant_kg) }} kg</td><td>Motor dry (casing)</td><td class="num">{{ "%.3f"|format(data.vehicle.motor_dry_kg) }} kg</td></tr>
+    <tr><td>Liftoff mass</td><td class="num">{{ "%.3f"|format(data.vehicle.liftoff_mass_kg) }} kg</td><td>Descent mass (dry rocket + spent motor casing)</td><td class="num">{{ "%.3f"|format(data.vehicle.descent_mass_kg) }} kg</td></tr>
+  </table>
   {% if data.vehicle.parachutes %}
   <h3 class="subsection">2.1&ensp;Parachutes</h3>
   <table class="compact">

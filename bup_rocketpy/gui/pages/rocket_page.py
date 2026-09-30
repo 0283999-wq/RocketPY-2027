@@ -110,6 +110,26 @@ def rocket_page():
             components.kpi_card("Static margin (ascent min.)", f"{margin:.2f} cal" if margin is not None else "run Simulate first", "", status=("good" if margin and 1.5 <= margin <= 4.0 else "neutral"), stagger_index=3)
             components.kpi_card("Reference area", f"{math.pi * body_radius**2:.5f}", "m2", status="neutral", stagger_index=4)
 
+        # 2026-09-30 review item 3: full mass table, visible everywhere -
+        # this page didn't show dry mass at all before, only CG.
+        if s["sim_result"] is not None:
+            sim = s["sim_result"]
+            with components.card(classes="w-full mt-2"):
+                ui.label("Mass breakdown").classes("font-bold")
+                with ui.grid(columns=3).classes("gap-2 w-full max-w-2xl mt-1"):
+                    for label, value in [
+                        ("Dry rocket (no motor)", sim.dry_mass_kg),
+                        ("Motor, loaded (dry + propellant)", sim.motor_loaded_kg),
+                        ("Motor propellant", sim.motor_propellant_kg),
+                        ("Motor dry (casing)", sim.motor_dry_kg),
+                        ("Liftoff mass", sim.liftoff_mass_kg),
+                        ("Descent mass (dry rocket + spent motor casing)", sim.descent_mass_kg),
+                    ]:
+                        with ui.column().classes("gap-0"):
+                            ui.label(label).classes("text-xs").style("color: var(--bup-muted)")
+                            ui.label(f"{value:.3f} kg" if value is not None else "n/a").classes("text-sm font-bold")
+                ui.label(f"Motor mass source: {sim.motor_mass_source}").classes("text-xs mt-1").style("color: var(--bup-muted)")
+
         if s["sim_result"] is not None and s["load_result"].ork_path:
             _openrocket_comparison_card(parsed, s["sim_result"], s["load_result"].ork_path)
 

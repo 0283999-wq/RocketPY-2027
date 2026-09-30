@@ -342,6 +342,25 @@ def simulate_page():
                         components.kpi_card(label, None, unit, caption=caption, status="neutral", countup_target=target, decimals=decimals, stagger_index=kpi_i)
                         kpi_i += 1
 
+                # 2026-09-30 review item 3: a full mass breakdown, visible
+                # everywhere a rocket's numbers are shown (Rocket page,
+                # here, and the report) - not just the dry/liftoff figures
+                # that happened to already exist somewhere on each page.
+                ui.label("Mass breakdown").classes("text-lg font-bold mt-4")
+                with ui.grid(columns=3).classes("gap-2 w-full max-w-2xl"):
+                    for label, value in [
+                        ("Dry rocket (no motor)", sim.dry_mass_kg),
+                        ("Motor, loaded (dry + propellant)", sim.motor_loaded_kg),
+                        ("Motor propellant", sim.motor_propellant_kg),
+                        ("Motor dry (casing)", sim.motor_dry_kg),
+                        ("Liftoff mass", sim.liftoff_mass_kg),
+                        ("Descent mass (dry rocket + spent motor casing)", sim.descent_mass_kg),
+                    ]:
+                        with ui.column().classes("gap-0"):
+                            ui.label(label).classes("text-xs").style("color: var(--bup-muted)")
+                            ui.label(f"{value:.3f} kg" if value is not None else "n/a").classes("text-sm font-bold")
+                ui.label(f"Motor mass source: {sim.motor_mass_source}").classes("text-xs mt-1").style("color: var(--bup-muted)")
+
                 if sim.recovery_rows:
                     ui.label("Recovery panel").classes("text-lg font-bold mt-4")
                     ui.label("Hand-calc: v = sqrt(2*m*g / (rho*Cd*S)), m = descent mass (dry rocket + spent motor casing), rho at deployment altitude and at ground level - an independent cross-check of the simulated descent rate, not a replacement for it.").classes("text-xs text-gray-500")
