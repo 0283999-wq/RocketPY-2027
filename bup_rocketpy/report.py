@@ -371,10 +371,10 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     eng_header = load_result.parsed_eng.header
     launch = parsed.launch
 
-    from bup_rocketpy.ork_reader import airframe_length_m
+    from bup_rocketpy.ork_reader import reported_length_m
 
     body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
-    total_length_m = airframe_length_m(parsed)
+    total_length_m = reported_length_m(parsed)  # 2026-09-30 review item 4: includes swept fin tip overhang
 
     try:
         profile = competition_profiles.get_profile(competition_profile_key)

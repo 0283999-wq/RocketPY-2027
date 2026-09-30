@@ -7,7 +7,7 @@ from nicegui import ui
 
 from bup_rocketpy import openrocket_comparison
 from bup_rocketpy.gui import components, layout, pipeline, rocket_drawing, state
-from bup_rocketpy.ork_reader import airframe_length_m
+from bup_rocketpy.ork_reader import reported_length_m
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -101,7 +101,7 @@ def rocket_page():
             ui.image(path).classes("w-full max-w-4xl")
 
         body_radius = next((t.radius for t in parsed.body_tubes if t.radius), 0.05)
-        total_length = airframe_length_m(parsed)
+        total_length = reported_length_m(parsed)  # 2026-09-30 review item 4: includes swept fin tip overhang
         import math
         with ui.grid(columns=4).classes("gap-3 w-full"):
             components.kpi_card("Length", f"{total_length*100:.1f}", "cm", status="neutral", stagger_index=0)

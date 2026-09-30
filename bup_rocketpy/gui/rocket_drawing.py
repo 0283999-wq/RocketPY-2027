@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from bup_rocketpy.gui import plot_theme, theme
-from bup_rocketpy.ork_reader import airframe_length_m
+from bup_rocketpy.ork_reader import airframe_length_m, reported_length_m
 
 matplotlib.use("Agg")
 
@@ -101,7 +101,11 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
         ax.axvline(cp_m, color=theme.GOLD, linestyle="--", linewidth=1.5)
         ax.annotate(f"CP {cp_m*100:.1f} cm", (cp_m, -body_radius * 2.0), color=theme.GOLD, fontsize=9, ha="center", fontweight="bold")
 
-    total_length = airframe_length_m(parsed) or (parsed.nose.length if parsed.nose else 1.0)
+    # 2026-09-30 review item 4: the DISPLAYED length (subtitle + canvas
+    # bounds, so an overhanging fin tip is never clipped) includes swept
+    # fin tip overhang - airframe_length_m() alone (used above for the
+    # motor's own STRUCTURAL placement, unchanged) does not.
+    total_length = reported_length_m(parsed) or (parsed.nose.length if parsed.nose else 1.0)
     subtitle = f"Length {total_length*100:.1f} cm, diameter {body_radius*2*100:.1f} cm"
     if static_margin_cal is not None:
         subtitle += f", static margin {static_margin_cal:.2f} cal"

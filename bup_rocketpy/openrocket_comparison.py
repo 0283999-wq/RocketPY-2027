@@ -66,7 +66,7 @@ def compare_to_openrocket(parsed, sim_result, ork_path):
     design nobody has simulated in OpenRocket yet - an expected, common
     case, not an error). sim_result: pipeline.SimResult from a completed
     Simulate run on THIS SAME .ork (needs sim_result.flight/.motor)."""
-    from bup_rocketpy.ork_reader import airframe_length_m, parse_stored_simulation_references
+    from bup_rocketpy.ork_reader import parse_stored_simulation_references, reported_length_m
 
     refs = parse_stored_simulation_references(ork_path)
     ref = next(iter(refs.values()), None)  # same "first stored sim" convention translate.estimate_best_dry_mass_cg_inertia already uses
@@ -104,8 +104,8 @@ def compare_to_openrocket(parsed, sim_result, ork_path):
     our_stability_m03 = (our_cp_m03 - our_cg_t0) / (2 * radius) if our_cp_m03 is not None and our_cg_t0 is not None else None
 
     rows = [
-        ComparisonRow("Overall length", airframe_length_m(parsed), None, "m", 3,
-                       "Not stored in the design file (OpenRocket computes this live in its own UI, never persists it) - read it off OpenRocket's own panel to compare by hand."),
+        ComparisonRow("Overall length", reported_length_m(parsed), None, "m", 3,
+                       "Includes swept fin tip overhang past the tail. Not stored in the design file (OpenRocket computes this live in its own UI, never persists it) - read it off OpenRocket's own panel to compare by hand."),
         ComparisonRow("Max diameter", 2 * radius, ref_max_diameter, "m", 3,
                        "" if ref_max_diameter is not None else "The design file's reference length isn't declared as the rocket's maximum diameter (<referencetype> is not \"maximum\") - not shown as a diameter."),
         ComparisonRow("Mass without motor", our_dry_mass, ref_dry_mass, "kg", 4),

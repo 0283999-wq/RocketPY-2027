@@ -879,24 +879,44 @@ def airframe_length_m(parsed):
 def fin_envelope_end_m(parsed):
     """2026-09-28 review item 2: the aft-most point of any fin's SWEPT
     TIP (root_position + max(root_chord, sweep_length + tip_chord)) -
-    can extend past airframe_length_m() for a swept-back fin (Major
-    Tom's own fins: root trailing edge lands exactly at the airframe's
-    aft end, but the swept tip trailing edge reaches ~4.5 cm further
-    back). Kept SEPARATE from airframe_length_m() rather than folded
-    into it: airframe_length_m() is also used to place the motor
+    can extend past airframe_length_m() for a swept-back fin (a fin
+    whose root trailing edge lands at the airframe's own aft end, but
+    whose swept tip trailing edge reaches further back still). Kept
+    SEPARATE from airframe_length_m() rather than folded into it:
+    airframe_length_m() is also used to place the motor
     (translate.build_rocket/derive_dry_mass_and_inertia_from_with_motor
     assume the motor sits at the STRUCTURAL airframe's own aft end,
-    which the fin surface's extent has no bearing on) and, empirically
-    checked against Diego's own OpenRocket-reported Major Tom length,
-    folding fin overhang into it made that comparison WORSE (198 cm vs.
-    OpenRocket's 193 cm, instead of airframe_length_m()'s own 193.5 cm)
-    - OpenRocket's own "Length" figure evidently does NOT count fin
-    overhang either. This function exists for the rocket drawing and
-    the comparison card's own "full vehicle envelope" context only."""
+    which the fin surface's extent has no bearing on - a swept fin
+    overhanging the tail doesn't move where the motor mount is).
+
+    2026-09-30 review item 4 correction: an earlier version of this
+    docstring reported that folding fin overhang into the DISPLAYED
+    "Overall length" made a real comparison against OpenRocket WORSE,
+    based on one specific design's numbers at the time. Diego's own
+    explicit, current instruction is unambiguous - "Overall length = the
+    most-aft point of ANY component, including swept fin tips that
+    overhang the tail" - and a separate real case now shows the
+    opposite: OpenRocket's own reported length (194 cm) matches
+    reported_length_m() below (which includes this function), not
+    airframe_length_m() alone (189.5 cm). Whether fin overhang belongs
+    in OpenRocket's own "Length" figure evidently depends on the
+    specific fin geometry/OpenRocket version; per Diego's instruction,
+    it is now ALWAYS included in what this app reports and displays as
+    the vehicle's overall length - see reported_length_m()."""
     return max(
         (f.position_m + max(f.root_chord, f.sweep_length + f.tip_chord) for f in parsed.fins),
         default=0.0,
     )
+
+
+def reported_length_m(parsed):
+    """2026-09-30 review item 4: the vehicle's overall length as shown to
+    a reader (Rocket page, OpenRocket comparison card, report) - the
+    most-aft point of ANY component, including swept fin tip overhang
+    (see fin_envelope_end_m()'s docstring for why this differs from
+    airframe_length_m(), which stays structural-only for motor
+    placement/bounds-checking and must NOT be changed to this)."""
+    return max(airframe_length_m(parsed), fin_envelope_end_m(parsed))
 
 
 def components_outside_airframe(parsed):
