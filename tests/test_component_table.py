@@ -3,8 +3,20 @@
 imported/approximated/ignored). Flag anything ignored or with a
 position outside its parent." Locks in translate.component_table()
 against PROMETEO's own real, messy geometry (point masses, a parachute
-with a mass override, and several IGNORED structural tags), and that it
-reaches both the report and the drawing's stability labels.
+with a mass override, and several structural tags), and that it reaches
+both the report and the drawing's stability labels.
+
+2026-09-30 review (2nd pass): a user screenshot showed real aluminum
+centering rings/an inner tube marked "IGNORED... negligible mass" on
+this exact table, despite OpenRocket itself computing a real, nonzero
+mass for them (density x geometry) - not negligible at all for a metal
+part. ork_reader.py's innertube/centeringring/launchlug/tubefin/
+tubecoupler branches now compute that same density x hollow-cylinder-
+volume mass (mirroring the bulkhead branch's own pre-existing pattern)
+instead of unconditionally giving up, so PROMETEO's own 3 centering
+rings and inner tube no longer fall into the generic "(unhandled tag)"
+IGNORED bucket below - locked in by
+test_centering_rings_and_inner_tube_get_a_real_computed_mass.
 """
 import os
 import sys
@@ -32,11 +44,33 @@ def test_component_table_covers_every_real_component_kind():
     assert "Point mass" in kinds
     assert "Parachute" in kinds
     assert any(k.startswith("Fin set") for k in kinds)
-    assert "(unhandled tag)" in kinds, "PROMETEO's own .ork has centering rings/inner tubes that are IGNORED for mass - must still show up, flagged"
 
     # rows must be in nose-to-tail order (ignored/no-position rows last)
     positioned = [r for r in rows if r.position_m is not None]
     assert positioned == sorted(positioned, key=lambda r: r.position_m)
+
+
+def test_centering_rings_and_inner_tube_get_a_real_computed_mass():
+    """A user's real .ork showed this exact case: aluminum centering
+    rings and an inner tube marked "IGNORED... negligible mass" even
+    though they have a real <material density=...> and enough geometry
+    (outer/inner radius, length) for OpenRocket's own UI to compute a
+    real mass from - an aluminum ring is not negligible. PROMETEO's own
+    .ork has this exact shape: 3 <centeringring>s with <outerradius>
+    "auto" (sized to fit the parent body tube's inside - the common
+    case) and one <innertube> with explicit numeric geometry."""
+    parsed = read_ork(ORK_PATH)
+    rows = translate.component_table(parsed)
+    by_name = {r.name: r for r in rows}
+
+    for ring_name in ("Anillo aletas 1", "Anillo aletas 2", "Anillo aletas 4"):
+        row = by_name[ring_name]
+        assert row.status != "IGNORED", f"{ring_name} should have a real computed mass, not be ignored as negligible"
+        assert row.mass_kg is not None and row.mass_kg > 0.001, f"{ring_name}: expected a real aluminum-ring mass, got {row.mass_kg}"
+
+    # No structural tag should fall into the generic IGNORED bucket for
+    # this file any more - everything here has real material+geometry.
+    assert "(unhandled tag)" not in {r.kind for r in rows}, "a component that should now compute a real mass fell back to IGNORED - check its geometry/material resolution"
 
 
 def test_component_table_mass_matches_the_dry_mass_estimate_it_feeds():

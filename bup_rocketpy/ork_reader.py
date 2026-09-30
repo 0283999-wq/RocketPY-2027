@@ -232,6 +232,25 @@ def _material_density(elem):
         return None
 
 
+def _hollow_cylinder_mass(outer_r, inner_r, length, density):
+    """2026-09-30 review: a real .ork's <innertube>/<centeringring>/
+    <launchlug>/<tubefin>/<tubecoupler> almost always has a real
+    <material density=...> plus enough geometry to compute its mass
+    exactly like OpenRocket's own UI does (density x hollow-cylinder
+    volume) - these are NOT negligible in a real rocket (e.g. an
+    aluminum centering ring easily weighs tens of grams), so silently
+    treating every one as zero-mass ("IGNORED... negligible") when no
+    <overridemass> happens to be set was undercounting dry mass. Mirrors
+    the bulkhead branch's own "prefer override, else density x volume,
+    else give up" pattern. Returns None (not computable) if any input is
+    missing or the geometry doesn't make sense (inner >= outer)."""
+    if outer_r is None or inner_r is None or length is None or density is None:
+        return None
+    if inner_r >= outer_r or outer_r <= 0 or length <= 0:
+        return None
+    return math.pi * (outer_r**2 - inner_r**2) * length * density
+
+
 def load_ork(path):
     """Returns the root <openrocket> XML Element, transparently unwrapping
     the zip container when present."""
@@ -358,7 +377,12 @@ def parse_rocket(root):
             fore, aft = cursor_m, cursor_m + length
             cursor_m = aft
             _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
-            _parse_subcomponents_of(comp, fore, aft, parsed, log)
+            # 2026-09-30 review: this tube's own inner radius, so a
+            # <centeringring>/<innertube>/... inside it whose own
+            # <outerradius> is "auto" (very common - sized to snugly fit
+            # the parent's inside) can still get a real computed mass.
+            bodytube_inner_radius_m = (radius - thickness) if radius is not None and thickness is not None else radius
+            _parse_subcomponents_of(comp, fore, aft, parsed, log, parent_inner_radius_m=bodytube_inner_radius_m)
 
         elif tag == "transition":
             length = _child_text_num(comp, "length", 0.0)
@@ -445,7 +469,14 @@ def _apply_overrides(elem, cname, parsed, log, component_fore_m=0.0):
     return mass_val
 
 
-def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, log):
+def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, log, parent_inner_radius_m=None):
+    """parent_inner_radius_m (2026-09-30 review): the enclosing tube's own
+    INNER radius, when known - a <centeringring>'s <outerradius> is very
+    commonly "auto" with no resolved value (sized to snugly fit the
+    parent tube's inside), which _hollow_cylinder_mass can't use on its
+    own. Falling back to this lets that still-common case get a real
+    APPROXIMATED mass instead of silently IGNORED. None (the default)
+    when the parent's own radius/thickness aren't both resolvable."""
     sub = _find(parent_elem, "subcomponents")
     if sub is None:
         return
@@ -493,12 +524,36 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             length = _child_text_num(comp, "length", 0.0)
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
             override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
-            if override_mass:
+            # 2026-09-30 review: these are real aluminum/plywood/fiberglass
+            # parts with a real <material density=...> and enough geometry
+            # to compute their mass exactly like OpenRocket's own UI does
+            # (density x hollow-cylinder volume) - NOT negligible in a real
+            # rocket. <outerradius> is very commonly "auto" (sized to fit
+            # snugly inside the parent tube) with no resolved value of its
+            # own, so parent_inner_radius_m is the fallback for that case.
+            outer_r = _child_text_num(comp, "outerradius")
+            if outer_r is None:
+                outer_r = parent_inner_radius_m
+            inner_r = _child_text_num(comp, "innerradius")
+            thickness = _child_text_num(comp, "thickness")
+            if inner_r is None and outer_r is not None and thickness is not None:
+                inner_r = outer_r - thickness
+            density = _material_density(comp)
+            own_inner_radius_m = inner_r if inner_r is not None else outer_r
+            computed_mass = _hollow_cylinder_mass(outer_r, inner_r, length, density)
+            # override_mass is not None (not a truthy check): an
+            # <overridemass>0.0</overridemass> is a real, deliberate
+            # override (the designer typed 0) that must not silently fall
+            # through to the density-based estimate below.
+            if override_mass is not None:
                 parsed.point_masses.append(PointMass(name=cname, mass=override_mass, position_m=fore + length / 2.0))
                 log.append(ImportRow(cname, "IMPORTED", f"mass={override_mass:.4f} kg (measured override on this <{tag}>) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            elif computed_mass is not None:
+                parsed.point_masses.append(PointMass(name=cname, mass=computed_mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "APPROXIMATED", f"mass={computed_mass:.4f} kg (hollow cylinder: outer_r={outer_r:.4f}, inner_r={inner_r:.4f}, length={length:.4f}, density={density}) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
             else:
-                log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass (no override present) - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
-            _parse_subcomponents_of(comp, fore, fore + length, parsed, log)
+                log.append(ImportRow(cname, "IGNORED", f"<{tag}> radius/thickness/material were not resolvable ('auto' with no parent tube to infer from, or no material) - cannot estimate mass, add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            _parse_subcomponents_of(comp, fore, fore + length, parsed, log, parent_inner_radius_m=own_inner_radius_m)
             prev_aft = fore + length
 
         elif tag == "shockcord":
@@ -584,12 +639,30 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             length = _child_text_num(comp, "length", 0.0)
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, length, prev_aft, log, cname)
             override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
-            if override_mass:
+            # 2026-09-30 review: same hollow-cylinder density x volume
+            # fallback as the innertube/centeringring branch above - a
+            # tube coupler is a real part (often plywood/fiberglass) with
+            # its own <material>, not automatically negligible just
+            # because this .ork happens to have no <overridemass> on it.
+            outer_r = _child_text_num(comp, "outerradius")
+            if outer_r is None:
+                outer_r = parent_inner_radius_m
+            inner_r = _child_text_num(comp, "innerradius")
+            thickness = _child_text_num(comp, "thickness")
+            if inner_r is None and outer_r is not None and thickness is not None:
+                inner_r = outer_r - thickness
+            density = _material_density(comp)
+            own_inner_radius_m = inner_r if inner_r is not None else outer_r
+            computed_mass = _hollow_cylinder_mass(outer_r, inner_r, length, density)
+            if override_mass is not None:
                 parsed.point_masses.append(PointMass(name=cname, mass=override_mass, position_m=fore + length / 2.0))
                 log.append(ImportRow(cname, "IMPORTED", f"mass={override_mass:.4f} kg (measured override on this <{tag}>) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            elif computed_mass is not None:
+                parsed.point_masses.append(PointMass(name=cname, mass=computed_mass, position_m=fore + length / 2.0))
+                log.append(ImportRow(cname, "APPROXIMATED", f"mass={computed_mass:.4f} kg (hollow cylinder: outer_r={outer_r:.4f}, inner_r={inner_r:.4f}, length={length:.4f}, density={density}) @ {fore + length/2.0:.4f} m. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
             else:
-                log.append(ImportRow(cname, "IGNORED", f"<{tag}> itself is a structural/mounting part with negligible or hard-to-isolate mass (no override present) - not added as a point mass; add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
-            _parse_subcomponents_of(comp, fore, fore + length, parsed, log)
+                log.append(ImportRow(cname, "IGNORED", f"<{tag}> radius/thickness/material were not resolvable ('auto' with no parent tube to infer from, or no material) - cannot estimate mass, add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
+            _parse_subcomponents_of(comp, fore, fore + length, parsed, log, parent_inner_radius_m=own_inner_radius_m)
             prev_aft = fore + length
 
         else:
