@@ -95,6 +95,23 @@ def montecarlo_page():
                     components.kpi_card("90% interval low", None, "m", status="neutral", countup_target=result.apogee_p05, decimals=1, stagger_index=1)
                     components.kpi_card("90% interval high", None, "m", status="neutral", countup_target=result.apogee_p95, decimals=1, stagger_index=2)
 
+                # 2026-09-30 review item 1: "Done: 0 completed, 300
+                # excluded" with no visible cause - exclusion_by_type/
+                # first_traceback (bup_rocketpy/monte_carlo.py) exist
+                # specifically so this can answer "why" instead of just
+                # "how many", especially for a Windows-only failure mode
+                # this project's own (Linux) test runs never hit.
+                if result.n_excluded:
+                    with components.card(classes="w-full mt-2 border-l-4").style("border-left-color: var(--bup-warning)"):
+                        ui.label(f"{result.n_excluded} of {result.n_completed + result.n_excluded} samples excluded").classes("font-bold").style("color: var(--bup-warning)")
+                        if result.exclusion_by_type:
+                            ui.label("By error type: " + ", ".join(f"{name} x{count}" for name, count in sorted(result.exclusion_by_type.items(), key=lambda kv: -kv[1]))).classes("text-sm mt-1")
+                        if result.first_traceback:
+                            with ui.expansion("First failure - full traceback (also printed to the server console)").classes("w-full mt-1"):
+                                ui.label(result.first_traceback).classes("text-xs font-mono whitespace-pre-wrap")
+                        if result.n_completed == 0:
+                            ui.label("Every sample failed the same way - this is almost certainly a real bug (a missing dependency, an environment difference, ...), not a few unlucky unstable flights. Check the traceback above before trusting any number below.").classes("text-sm mt-1").style("color: var(--bup-error)")
+
                 fig, ax = plt.subplots(figsize=(6, 3.5))
                 ax.hist(result.apogee_samples, bins=min(20, max(5, result.n_completed // 3)), color="#8A1538", alpha=0.75)
                 ax.axvline(result.apogee_mean, color="#B79357", linestyle="--", label="mean")
@@ -268,6 +285,13 @@ def montecarlo_page():
                     include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,
                     inclination_deg=rail_inclination_input.value, heading_deg=rail_heading_input.value,
                     on_sample_complete=on_sample_complete, trajectory_points=25,
+                    # 2026-09-30 review item 1: the SAME motor dry mass
+                    # Simulate actually flew (.eng header, or the
+                    # "Measured motor mass" override if one is set) -
+                    # without this every sample silently re-derived the
+                    # motor from the raw .eng header alone, dropping any
+                    # override.
+                    motor_dry_override_kg=s["sim_result"].motor_dry_kg,
                 )
             finally:
                 mc_progress["done"] = True

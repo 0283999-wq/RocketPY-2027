@@ -482,5 +482,21 @@ def main():
     ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port, reconnect_timeout=30.0)
 
 
-if __name__ in ("__main__", "__mp_main__"):
+# 2026-09-30 review item 1: NOT "__mp_main__" (nicegui's own quickstart
+# template's default guard, kept here since the original commit). This
+# app's own Monte Carlo/drag-comparison code (bup_rocketpy/monte_carlo.py)
+# starts its own ProcessPoolExecutor pool DIRECTLY (not through nicegui's
+# run.cpu_bound), and start.bat launches this module with `python -m`, so
+# on Windows (spawn is its only multiprocessing start method) EVERY worker
+# process re-imports this exact module with __name__ forced to
+# "__mp_main__" as part of Python's own spawn bootstrap - unavoidable,
+# not a bug. Matching that value here would re-run main() (importing
+# every GUI/report/rocketpy page module, then calling ui.run()) inside
+# EVERY Monte Carlo worker, on top of the actual simulation work it's
+# there to do. nicegui's own ui.run() already no-ops when
+# multiprocessing.current_process().name != "MainProcess" (see
+# nicegui/ui_run.py), so this was never needed to stop a second web
+# server from starting - only "__main__" (the literal `python -m
+# bup_rocketpy.gui.app` entry point) should ever call main().
+if __name__ == "__main__":
     main()

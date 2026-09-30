@@ -10,8 +10,24 @@ default uncertainties, each carrying its source (CLAUDE.md Sec 6 Phase 4:
 import concurrent.futures
 import math
 import os
+import sys
+import traceback
+from collections import Counter
 from dataclasses import dataclass, field
 
+# 2026-09-30 review item 1 (Windows Monte Carlo bug): don't rely on some
+# OTHER module (a GUI page, the report, ...) having already forced a
+# headless matplotlib backend before this module's own `from rocketpy
+# import ...` pulls in rocketpy's plotting submodules. On Linux with
+# ProcessPoolExecutor's default "fork" start method a worker inherits
+# the parent's already-configured backend either way, so this was never
+# visible in this project's own (Linux) test runs - but a "spawn"
+# worker (Windows' only option) starts with a blank slate and picks
+# matplotlib's normal GUI-backend auto-detection, which can raise (no
+# Tk/Qt in a bare venv) or hang trying to open a window with no display
+# loop pumping it. Every worker must be headless-safe on its own.
+import matplotlib
+matplotlib.use("Agg")
 import numpy as np
 from rocketpy import Flight, StochasticEnvironment, StochasticFlight, StochasticNoseCone, StochasticParachute, StochasticRocket, StochasticSolidMotor, StochasticTrapezoidalFins
 
@@ -58,6 +74,17 @@ class MonteCarloResult:
     impact_y_samples: list
     filename: str
     exclusion_reasons: list = field(default_factory=list)
+    # 2026-09-30 review item 1: "Done: 0 completed, 300 excluded" with no
+    # visible cause (the old exclusion_reasons list was collected but
+    # never actually shown anywhere in the UI). exclusion_by_type lets a
+    # results page answer "why" at a glance (e.g. "ImportError: 250,
+    # TimeoutError: 50") instead of only a raw count; first_traceback is
+    # the FULL traceback text (not just "TypeName: message") of the very
+    # first sample that failed, captured once so one real failure is
+    # fully diagnosable without flooding the run with hundreds of near-
+    # identical tracebacks.
+    exclusion_by_type: dict = field(default_factory=dict)
+    first_traceback: str = ""
     cancelled: bool = False  # True if cancel_check() stopped the run early (n_completed+n_excluded < requested N)
 
 
@@ -106,7 +133,7 @@ def _seeded_rng(seed):
         np.random.default_rng = real_default_rng
 
 
-def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed, inclination_deg=None, heading_deg=None, trajectory_points=0):
+def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seed, inclination_deg=None, heading_deg=None, trajectory_points=0, motor_dry_override_kg=None):
     """Builds ONE stochastic sample and flies it. Module-level (not a
     closure) and takes only plain/picklable arguments (dataclasses,
     dicts, floats, strings) so it can be sent to a separate OS process -
@@ -129,13 +156,24 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
     on launch day (e.g. into the current wind), overriding the value
     stored in the .ork's saved simulation. None (the default) keeps the
     .ork's own value, so every existing caller/test is unaffected.
+
+    motor_dry_override_kg (2026-09-30 review item 1): the SAME motor dry
+    mass Simulate actually flew (SimResult.motor_dry_kg - the .eng
+    header value, or the "Measured motor mass" override if the operator
+    set one). Without this, every Monte Carlo/drag-comparison sample
+    silently rebuilt the motor from the raw .eng header alone, quietly
+    dropping a measured-mass override that was very much "configured"
+    (the operator typed it in and Simulate used it) - not a Windows-
+    specific bug on its own, but exactly the "parent-only config that
+    never reaches the worker" failure class this review's Monte Carlo
+    investigation was looking for, so fixed alongside it.
     """
     from bup_rocketpy import translate
 
     nominal_inclination = inclination_deg if inclination_deg is not None else parsed.launch.inclination_deg
     nominal_heading = heading_deg if heading_deg is not None else parsed.launch.rail_direction_deg
 
-    motor = translate.build_motor(parsed_eng, eng_path)
+    motor = translate.build_motor(parsed_eng, eng_path, dry_mass_override_kg=motor_dry_override_kg)
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_monte_carlo")
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off_drag, power_on_drag=power_on_drag, include_recovery=include_recovery)
     env = translate.build_environment(parsed.launch)
@@ -274,7 +312,7 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
     return apogee_agl, None, None, trajectory
 
 
-def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None, inclination_deg=None, heading_deg=None, on_sample_complete=None, trajectory_points=0):
+def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir, include_recovery=True, progress_callback=None, seed=None, cancel_check=None, max_workers=None, inclination_deg=None, heading_deg=None, on_sample_complete=None, trajectory_points=0, motor_dry_override_kg=None):
     """Runs N stochastic flights IN PARALLEL across OS processes (one
     Flight() simulation doesn't parallelize internally, but N of them are
     embarrassingly parallel - CLAUDE.md never asked for this, added
@@ -318,7 +356,12 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     whole batch. trajectory_points>0 asks each worker to also return a
     small decimated (x, y, z-AGL) polyline for exactly this purpose;
     leave it 0 (the default) to skip that extra pickled payload when
-    nothing is watching for it (e.g. every existing caller/test)."""
+    nothing is watching for it (e.g. every existing caller/test).
+
+    motor_dry_override_kg (2026-09-30 review item 1): see
+    _run_one_mc_sample's own docstring - pass sim_result.motor_dry_kg so
+    every sample flies the SAME motor mass Simulate itself used, instead
+    of silently re-deriving it from the raw .eng header alone."""
     os.makedirs(output_dir, exist_ok=True)
     u = {x.name: x for x in uncertainties if x.enabled}
 
@@ -346,6 +389,8 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     impact_y_by_index = [None] * n_simulations
     excluded_indices = set()
     exclusion_reasons = []
+    exclusion_by_type = Counter()
+    first_traceback = ""
     n_workers = max_workers or os.cpu_count() or 1
     completed = 0
     cancelled = False
@@ -353,7 +398,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_workers)
     try:
         futures = {
-            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i], inclination_deg, heading_deg, trajectory_points): i
+            executor.submit(_run_one_mc_sample, parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, u, include_recovery, sample_seeds[i], inclination_deg, heading_deg, trajectory_points, motor_dry_override_kg): i
             for i in range(n_simulations)
         }
         for future in concurrent.futures.as_completed(futures):
@@ -367,8 +412,25 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
                     impact_y_by_index[i] = y_impact
             except Exception as exc:  # a degenerate/unstable tail sample - exclude it, don't kill the batch
                 excluded_indices.add(i)
+                exclusion_by_type[type(exc).__name__] += 1
                 if len(exclusion_reasons) < 10:
                     exclusion_reasons.append(f"sample {i}: {type(exc).__name__}: {exc}")
+                if not first_traceback:
+                    # 2026-09-30 review item 1: "no traceback is printed
+                    # anywhere, so the errors are being swallowed" - a
+                    # ProcessPoolExecutor future's exception already
+                    # carries the WORKER's own traceback text chained on
+                    # via concurrent.futures.process's own
+                    # _ExceptionWithTraceback/_RemoteTraceback wrapping
+                    # (stdlib since Python 3.4, survives the pickle
+                    # across the process boundary) - format_exception
+                    # below renders that chain, not just this frame's
+                    # local "at future.result()" call site. Only the
+                    # FIRST failure's full text is kept/printed: with up
+                    # to a few hundred samples, near-identical repeats
+                    # would just be noise once the real cause is known.
+                    first_traceback = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                    print(f"[Monte Carlo] sample {i} failed - first failure of this run, full traceback:\n{first_traceback}", file=sys.stderr)
             completed += 1
             if progress_callback:
                 progress_callback(completed, n_simulations)
@@ -406,6 +468,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     return MonteCarloResult(
         n_completed=len(apogees), n_excluded=n_excluded, apogee_samples=apogees, apogee_mean=mean, apogee_p05=p05, apogee_p95=p95,
         impact_x_samples=impact_xs, impact_y_samples=impact_ys, filename=mc_filename, exclusion_reasons=exclusion_reasons,
+        exclusion_by_type=dict(exclusion_by_type), first_traceback=first_traceback,
         cancelled=cancelled,
     )
 
