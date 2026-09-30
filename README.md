@@ -53,6 +53,15 @@ and shows "load files first" until you have.
 - **Run the tests before changing anything**: `.venv\Scripts\python -m pytest tests\ -q`
   (or `.venv/bin/python -m pytest tests/ -q` outside Windows). One test
   is a real headless-Chromium run and is slower (~20s) than the rest.
+- **This project is developed on Linux and Diego runs it on Windows -
+  those aren't the same environment for multiprocessing (Monte Carlo's
+  worker pool) or file encoding (CSV/JSON export)**, and a passing suite
+  here does not guarantee a passing run there (see two real bugs this
+  caused, git log --grep 'Windows [Bb]ug'). Before pushing anything that
+  touches file I/O or the Monte Carlo/drag-comparison worker pool, run
+  `scripts/test_windows_emulation.sh` - forces the same multiprocessing
+  start method ("spawn") and a non-UTF-8 default file encoding Windows
+  is stuck with.
 - **Never present a number from this app as validated without checking
   the Validation page first** (`CLAUDE.md` Rule 3, `bup_rocketpy/
   validation.py`) - it computes the V1/V2 flight-data checks live and

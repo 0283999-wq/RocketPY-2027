@@ -52,7 +52,22 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a("source, drag curve source) are on this app's Validation page.")
     a('"""')
     a("import os")
+    a("import sys")
     a("from rocketpy import Environment, SolidMotor, Rocket, Flight")
+    a("")
+    # 2026-09-30 review item 3 (found running the full suite under a
+    # Windows-like non-UTF-8 default encoding): flight.info() below
+    # prints Greek letters (e.g. phi for diameter) - on a real Windows
+    # console (cp1252 or another non-UTF-8 codepage, the common case
+    # unless the user opted into "Use Unicode UTF-8 for worldwide
+    # language support") this raises UnicodeEncodeError and crashes the
+    # standalone script outright, which is exactly the CRS 10.1.5
+    # "a RocketPy team member or LASC staff can run it on their own
+    # machine" scenario this file exists for. reconfigure() is a no-op
+    # (silently ignored) on a stdout that doesn't support it (rare, e.g.
+    # some captured/piped streams), so this is safe everywhere.
+    a("if hasattr(sys.stdout, 'reconfigure'):")
+    a("    sys.stdout.reconfigure(encoding='utf-8')")
     a("")
     a("HERE = os.path.dirname(os.path.abspath(__file__))")
     a("")

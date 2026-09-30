@@ -89,13 +89,23 @@ def test_exported_scripts_match_the_apps_own_apogee_in_a_clean_venv():
             include_recovery=include_recovery,
         )
         script_path = os.path.join(OUT_DIR, filename)
-        with open(script_path, "w") as f:
+        with open(script_path, "w", encoding="utf-8") as f:
             f.write(source)
 
         assert filename == f"Mission44_{case_name}_RocketPy_v1.py", "CRS 10.1.6 naming: Mission[ID]_[Case]_RocketPy_v[N]"
         assert "bup_rocketpy" not in source, "exported script must NOT import this repo - CRS 10.1.5 needs it runnable standalone"
 
-        proc = subprocess.run([clean_python, script_path], capture_output=True, text=True, timeout=120, cwd=OUT_DIR)
+        # encoding="utf-8" (not text=True's own locale-guessing default):
+        # flight.info() legitimately prints non-ASCII (Greek phi for
+        # diameter) - case_export.py's own sys.stdout.reconfigure(
+        # encoding='utf-8') makes the CHILD emit real UTF-8 bytes
+        # regardless of the console codepage (2026-09-30 review item 3),
+        # so this harness must decode them as UTF-8 too, not guess from
+        # ITS OWN locale (which, under Windows emulation - see
+        # scripts/test_windows_emulation.sh - would try 'ascii' here and
+        # crash on those exact same bytes one level up, one non-UTF-8-
+        # encoding bug hiding right behind the one just fixed).
+        proc = subprocess.run([clean_python, script_path], capture_output=True, text=True, encoding="utf-8", timeout=120, cwd=OUT_DIR)
         print(f"\n=== {filename} (clean venv) ===")
         print(proc.stdout[-1500:])
         if proc.returncode != 0:

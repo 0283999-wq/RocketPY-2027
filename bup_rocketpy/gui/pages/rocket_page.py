@@ -87,7 +87,15 @@ def rocket_page():
         # checks mass/CG on.
         mismatch = s["load_result"].motor_mismatch
         if mismatch is not None and mismatch.over_threshold:
-            with components.card(classes="w-full mt-2").style("border-left: 4px solid var(--bup-error)"):
+            # components.card() is a @contextlib.contextmanager, so it
+            # returns a plain _GeneratorContextManager - NOT a chainable
+            # nicegui element - `.style()` can't be called on the `with`
+            # expression itself (AttributeError, found 2026-09-30 running
+            # the full suite: this silently 500'd the whole Rocket page
+            # for any .ork with a real motor mass mismatch, e.g.
+            # PROMETEO's own default path). Style the yielded `c` instead.
+            with components.card(classes="w-full mt-2") as c:
+                c.style("border-left: 4px solid var(--bup-error)")
                 ui.label("Motor mass mismatch").classes("font-bold").style("color: var(--bup-error)")
                 ui.label(
                     f".eng declares {mismatch.eng_total_kg:.4f} kg (loaded) vs {mismatch.ork_implied_kg:.4f} kg in the "

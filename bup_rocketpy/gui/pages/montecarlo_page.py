@@ -102,7 +102,13 @@ def montecarlo_page():
                 # "how many", especially for a Windows-only failure mode
                 # this project's own (Linux) test runs never hit.
                 if result.n_excluded:
-                    with components.card(classes="w-full mt-2 border-l-4").style("border-left-color: var(--bup-warning)"):
+                    # components.card() is a @contextlib.contextmanager -
+                    # .style() isn't chainable on the `with` expression
+                    # itself (AttributeError - see rocket_page.py's own
+                    # motor-mismatch card for the real crash this exact
+                    # pattern caused). Style the yielded `c` instead.
+                    with components.card(classes="w-full mt-2 border-l-4") as c:
+                        c.style("border-left-color: var(--bup-warning)")
                         ui.label(f"{result.n_excluded} of {result.n_completed + result.n_excluded} samples excluded").classes("font-bold").style("color: var(--bup-warning)")
                         if result.exclusion_by_type:
                             ui.label("By error type: " + ", ".join(f"{name} x{count}" for name, count in sorted(result.exclusion_by_type.items(), key=lambda kv: -kv[1]))).classes("text-sm mt-1")
