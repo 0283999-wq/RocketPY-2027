@@ -363,7 +363,11 @@ def simulate_page():
 
                 if sim.recovery_rows:
                     ui.label("Recovery panel").classes("text-lg font-bold mt-4")
-                    ui.label("Hand-calc: v = sqrt(2*m*g / (rho*Cd*S)), m = descent mass (dry rocket + spent motor casing), rho at deployment altitude and at ground level - an independent cross-check of the simulated descent rate, not a replacement for it.").classes("text-xs text-gray-500")
+                    # 2026-09-30 review item 6: the descent mass the hand-
+                    # calc below actually uses, shown as a real number next
+                    # to it - not just named in the caption's own prose.
+                    ui.label(f"Descent mass (dry rocket + spent motor casing): {sim.descent_mass_kg:.3f} kg (= {sim.dry_mass_kg:.3f} kg dry rocket + {sim.motor_dry_kg:.3f} kg spent motor casing)").classes("text-sm font-bold")
+                    ui.label("Hand-calc: v = sqrt(2*m*g / (rho*Cd*S)), m = descent mass above, rho at deployment altitude and at ground level - an independent cross-check of the simulated descent rate, not a replacement for it.").classes("text-xs text-gray-500")
                     ui.table(
                         columns=[
                             {"name": "name", "label": "Parachute", "field": "name"},

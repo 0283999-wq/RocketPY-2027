@@ -37,6 +37,16 @@ def test_report_data_carries_the_full_mass_breakdown():
     assert abs(v["descent_mass_kg"] - (v["dry_mass_kg"] + v["motor_dry_kg"])) < 1e-9
 
 
+def test_recovery_prose_states_descent_mass_not_liftoff_mass():
+    """2026-09-30 review item 6: the recovery section must show the mass
+    the hand-calc descent rate actually uses (descent mass), not silently
+    leave a reader to assume liftoff mass."""
+    data, sim = _build_data()
+    text = report._prose_recovery(data, "16")
+    assert f"{sim.descent_mass_kg:.3f} kg" in text
+    assert f"{sim.liftoff_mass_kg:.3f} kg" not in text
+
+
 def test_docx_report_contains_mass_breakdown_table():
     data, sim = _build_data()
     path = report.generate_docx(os.path.join(OUT_DIR, "report.docx"), data)

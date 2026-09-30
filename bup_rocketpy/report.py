@@ -570,6 +570,12 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         "recovery": {
             "rows": sim_result.recovery_rows,
             "descent_plot_path": sim_result.plot_paths.get("descent_velocity"),
+            # 2026-09-30 review item 6: the mass the hand-calc descent
+            # rate in "rows" above actually uses, shown as a real number,
+            # not just named in the surrounding prose.
+            "descent_mass_kg": sim_result.descent_mass_kg,
+            "dry_mass_kg": sim_result.dry_mass_kg,
+            "motor_dry_kg": sim_result.motor_dry_kg,
         },
         "cases": {"rows": case_rows, "altitude_overlay_path": case_altitude_plot},
         "monte_carlo": mc_block,
@@ -704,7 +710,9 @@ def _prose_recovery(data, fig_descent):
         f"The recovery system uses {len(rec['rows'])} parachute(s): {names}. "
         f"Figure {fig_descent} shows the descent rate after apogee; the simulated descent rates are compared "
         f"against a hand-calculated terminal velocity for each stage in the table above, as a cross-check on "
-        f"the parachute Cd*S values used."
+        f"the parachute Cd*S values used. Both use the vehicle's descent mass of {rec['descent_mass_kg']:.3f} kg "
+        f"({rec['dry_mass_kg']:.3f} kg dry rocket + {rec['motor_dry_kg']:.3f} kg spent motor casing), not the "
+        f"liftoff mass - the propellant has already been consumed by this point in the flight."
     )
 
 
