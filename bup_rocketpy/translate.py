@@ -679,6 +679,32 @@ def parachute_import_notes(parsed):
         _, warning = parachute_trigger(chute)
         if warning:
             rows.append((f"{chute.name} (deployment)", "APPROXIMATED", warning))
+
+    # 2026-10-05 review: a real case - two parachutes both ended up with
+    # deploy_event "never" (common after an OpenRocket edit, e.g. adding
+    # a second chute without configuring its trigger), so both fell back
+    # to "apogee" with the same deploy_delay. rocketpy then tries to
+    # start two flight phases at the EXACT same instant ("Trying to add
+    # flight phase starting together with the one preceding it... may be
+    # caused by multiple parachutes being triggered simultaneously"),
+    # and the resulting duplicate timestamp later divides by zero inside
+    # rocketpy's own cubic-spline fitting ("invalid value encountered in
+    # divide" in mathutils/_calc/_fitting.py) when it tries to fit a
+    # curve through two solution points at identical t - this is what
+    # actually produced the "array must not contain infs or NaNs" crash.
+    # build_rocket() nudges the SECOND (and later) chute's lag by a tiny
+    # epsilon so this never crashes the solver - but a silent nudge would
+    # hide what's very likely a real design mistake (two parachutes meant
+    # to deploy at different altitudes/times), so it's surfaced here too.
+    seen = {}
+    for chute in parsed.parachutes:
+        trigger, _ = parachute_trigger(chute)
+        key = (trigger, chute.deploy_delay or 0.0)
+        if key in seen:
+            rows.append((f"{chute.name} (deployment)", "APPROXIMATED",
+                         f"deploys at the SAME trigger ({trigger}) and delay as '{seen[key]}' - rocketpy will fire them within microseconds of each other (nudged apart internally so it doesn't crash the solver). If this isn't a 2-stage design where that's intentional, check this parachute's deployment settings in OpenRocket - a real dual-deploy rocket usually has the drogue at apogee and the main lower down, not both at the same trigger."))
+        else:
+            seen[key] = chute.name
     return rows
 
 
@@ -817,6 +843,86 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
         )
 
     if include_recovery:
+        # 2026-10-05 review: two parachutes that resolve to the SAME
+        # (trigger, lag) - e.g. both have deploy_event "never" and both
+        # default to apogee-triggered (parachute_trigger's own fallback),
+        # a real case after an OpenRocket edit that added a second chute
+        # without configuring its trigger - make rocketpy start two
+        # flight phases at the EXACT same instant. rocketpy itself warns
+        # ("Trying to add flight phase starting together with the one
+        # preceding it... multiple parachutes being triggered
+        # simultaneously") but still produces a duplicate timestamp in
+        # the flight solution, which later divides by zero inside its own
+        # cubic-spline fitting (mathutils/_calc/_fitting.py) the first
+        # time anything tries to interpolate through that data - the
+        # actual cause of a downstream "array must not contain infs or
+        # NaNs" crash. Nudging each duplicate's lag by a tiny, physically
+        # meaningless epsilon (same "duplicate x-value" fix curve_utils.
+        # dedupe_sort_curve already applies to drag curves elsewhere in
+        # this codebase) keeps every flight-phase start time unique
+        # without changing when anything visibly deploys. The real
+        # mistake, if there is one, is still surfaced to the user by
+        # parachute_import_notes() above - this only stops it from
+        # crashing the solver.
+        #
+        # Two things had to be true before this stopped crashing:
+        # 1. The nudge has to be bigger than it looks like it needs to
+        #    be: a microsecond-scale epsilon (1e-6s) still crashed in
+        #    testing - rocketpy's OWN internal self-heal for an exact
+        #    collision (it also nudges by +1e-7s when it detects two
+        #    phases at identical t) fires FIRST, landing the two phases
+        #    a fraction of a microsecond apart - too close for the
+        #    adaptive-step solver's own floating-point time grid to keep
+        #    distinct, so two SAMPLED solution points still round to the
+        #    identical float and the same divide-by-zero happens one
+        #    step later. 0.01s matches each parachute's own
+        #    sampling_rate=100 Hz trigger-check interval (see
+        #    rocket.add_parachute below) - deploying one check cycle
+        #    later than it otherwise would have is already the real
+        #    discretization granularity of an altimeter-triggered chute.
+        # 2. ALL colliding occurrences need nudging, not just the 2nd
+        #    one onward: an apogee-triggered chute with lag=0 (the
+        #    common, un-nudged case) ALREADY coincides with rocketpy's
+        #    own internal ascent-to-descent phase marker, which it
+        #    always inserts at apogee regardless of parachutes - that
+        #    single collision self-heals fine on its own (confirmed:
+        #    PROMETEO's own real single-parachute case hits it on every
+        #    run and never crashes), but adding a SECOND colliding
+        #    parachute on top of it overwhelms rocketpy's own recursive
+        #    self-heal and leaves an exact duplicate timestamp in the
+        #    raw solution array anyway. So once ANY duplicate is found,
+        #    every occurrence of that (trigger, lag) - including the
+        #    first - gets pulled off the collision point, not just the
+        #    ones found after it.
+        trigger_lag_counts = {}
+        for chute in parsed.parachutes:
+            if chute.cd is None:
+                continue
+            trigger, _ = parachute_trigger(chute)
+            keys = [(trigger, chute.deploy_delay or 0.0)]
+            if chute.is_reefed and chute.reefed_cd is not None and chute.reefed_diameter_m is not None and chute.cutter_altitude_m is not None:
+                keys = [(trigger, chute.deploy_delay or 0.0), (chute.cutter_altitude_m, chute.cutter_delay_s or 0.0)]
+            for key in keys:
+                trigger_lag_counts[key] = trigger_lag_counts.get(key, 0) + 1
+
+        seen_trigger_lag = {}
+
+        def _dedupe_lag(trigger, lag):
+            lag = lag or 0.0
+            key = (trigger, lag)
+            if trigger_lag_counts.get(key, 0) < 2:
+                return lag  # no collision for this key at all - leave it exactly as configured
+            count = seen_trigger_lag.get(key, 0)
+            seen_trigger_lag[key] = count + 1
+            # NOT a clean multiple of 0.01: each parachute's own
+            # sampling_rate=100 Hz trigger check ALSO lands on a 0.01s
+            # grid, so a lag of exactly 0.01/0.02/... can land the new
+            # trigger time back on that same grid and reproduce a
+            # different collision (confirmed empirically - 0.01 alone
+            # still crashed). 0.0137 keeps the "about one check cycle"
+            # scale without aligning with it.
+            return lag + (count + 1) * 0.0137
+
         for chute in parsed.parachutes:
             if chute.cd is None:
                 continue  # can't add a parachute rocketpy can simulate without a Cd - already flagged in the import log
@@ -834,9 +940,9 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
                 # own deployment altitude/apogee, so the two fire in the
                 # correct order automatically, with no shared state needed.
                 reefed_cd_s = chute.reefed_cd * math.pi * (chute.reefed_diameter_m / 2.0) ** 2
-                rocket.add_parachute(name=f"{chute.name} (reefed)", cd_s=reefed_cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay, radius=chute.reefed_diameter_m / 2.0, drag_coefficient=chute.reefed_cd)
+                rocket.add_parachute(name=f"{chute.name} (reefed)", cd_s=reefed_cd_s, trigger=trigger, sampling_rate=100, lag=_dedupe_lag(trigger, chute.deploy_delay), radius=chute.reefed_diameter_m / 2.0, drag_coefficient=chute.reefed_cd)
                 full_cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-                rocket.add_parachute(name=f"{chute.name} (full)", cd_s=full_cd_s, trigger=chute.cutter_altitude_m, sampling_rate=100, lag=chute.cutter_delay_s, radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
+                rocket.add_parachute(name=f"{chute.name} (full)", cd_s=full_cd_s, trigger=chute.cutter_altitude_m, sampling_rate=100, lag=_dedupe_lag(chute.cutter_altitude_m, chute.cutter_delay_s), radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
                 continue
             cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
             # radius/drag_coefficient: rocketpy's Parachute stores these
@@ -846,7 +952,7 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
             # inspects it later (e.g. bup_rocketpy.recovery's panel),
             # instead of having to back-derive an approximate diameter
             # from cd_s alone.
-            rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay, radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
+            rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=_dedupe_lag(trigger, chute.deploy_delay), radius=chute.diameter / 2.0, drag_coefficient=chute.cd)
     # include_recovery=False is CRS 10.1.11's Ballistic case: no recovery
     # deployment at all, rocket free-falls under drag alone to ground impact.
 
