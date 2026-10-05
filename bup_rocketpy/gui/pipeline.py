@@ -461,3 +461,80 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         liftoff_mass_kg=mass_est.mass_kg + motor.dry_mass + motor.propellant_initial_mass,
         descent_mass_kg=mass_est.mass_kg + motor.dry_mass,
     )
+
+
+@dataclass
+class SimulationComparisonRow:
+    """One row of compare_all_simulations()'s per-site table - the
+    numbers a reviewer would otherwise have to click through each
+    stored simulation one at a time to collect."""
+    name: str
+    success: bool
+    error: str = None
+    altitude_m: float = None
+    latitude: float = None
+    longitude: float = None
+    apogee_agl_m: float = None
+    max_speed_ms: float = None
+    max_mach: float = None
+    max_acceleration_ms2: float = None
+    rail_exit_velocity_ms: float = None
+    min_static_margin_cal: float = None
+    is_stable: bool = None
+
+
+def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, dry_mass_override_kg=None, dry_cg_override_m=None, motor_total_mass_override_kg=None, progress_callback=None):
+    """2026-10-05 review (2nd pass): "add the option to simulate ALL
+    locations and parameters" - a .ork can hold several/many stored
+    simulations (Major Tom's has 12, one per site/mission), and a
+    reviewer comparing them currently has to switch the simulation
+    picker and re-run Simulate once per site by hand. Runs the SAME
+    load_files()+run_simulation() pipeline Simulate itself uses - not a
+    separate "lite" re-implementation - once per stored simulation name,
+    so this can never silently disagree with what clicking Simulate for
+    any ONE of these sites would show. Each site's own mass/CG estimate
+    is independently derived (OpenRocket's own per-simulation computed
+    mass when available, same priority order as a normal Simulate run),
+    not forced to share one number across sites.
+
+    dry_mass_override_kg/dry_cg_override_m/motor_total_mass_override_kg:
+    the SAME manual overrides the Simulate page's own Advanced section
+    would apply, carried through identically to every site (a measured
+    motor mass or a manual dry mass/CG doesn't change per launch site).
+
+    progress_callback(i, n, name): called after each site finishes (i =
+    how many have completed so far, 1-indexed; name = that site's own
+    name) - same "a background run should report progress" convention
+    monte_carlo.run_monte_carlo's own progress_callback uses.
+
+    Returns a list of SimulationComparisonRow, one per stored
+    simulation, in file order. A site whose Simulate run fails (e.g. a
+    component resolved outside the airframe for THAT site's conditions)
+    gets success=False + the error message rather than aborting the
+    whole comparison - one bad site shouldn't hide results for every
+    other one."""
+    names = list_simulation_names(ork_path)
+    rows = []
+    for i, name in enumerate(names, start=1):
+        try:
+            lr = load_files(ork_path, eng_path, power_off_drag_path, power_on_drag_path, outputs_dir=outputs_dir, simulation_name=name)
+            sim = run_simulation(
+                lr, outputs_dir,
+                dry_mass_override_kg=dry_mass_override_kg, dry_cg_override_m=dry_cg_override_m,
+                motor_total_mass_override_kg=motor_total_mass_override_kg,
+            )
+            launch = lr.parsed_ork.launch
+            rows.append(SimulationComparisonRow(
+                name=name, success=True,
+                altitude_m=launch.altitude_m if launch else None,
+                latitude=launch.latitude if launch else None,
+                longitude=launch.longitude if launch else None,
+                apogee_agl_m=sim.apogee_agl_m, max_speed_ms=sim.max_speed_ms, max_mach=sim.max_mach,
+                max_acceleration_ms2=sim.max_acceleration_ms2, rail_exit_velocity_ms=sim.rail_exit_velocity_ms,
+                min_static_margin_cal=sim.min_static_margin_cal, is_stable=sim.is_stable,
+            ))
+        except Exception as e:  # one bad site must not take down the whole comparison
+            rows.append(SimulationComparisonRow(name=name, success=False, error=str(e)))
+        if progress_callback:
+            progress_callback(i, len(names), name)
+    return rows

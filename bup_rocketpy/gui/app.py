@@ -138,6 +138,67 @@ def simulate_page():
 
                     ui.select(names, value=s["selected_simulation_name"], on_change=_on_select).classes("w-full max-w-md")
 
+                    # 2026-10-05 review (2nd pass): "add the option to
+                    # simulate ALL locations and parameters" - runs
+                    # pipeline.compare_all_simulations (the SAME load_
+                    # files()+run_simulation() pipeline Simulate itself
+                    # uses, once per stored simulation) so a reviewer
+                    # doesn't have to switch sites and re-click Simulate
+                    # by hand for each one. Reuses whatever manual
+                    # overrides are currently set in Advanced below -
+                    # those apply to every site the same way a single
+                    # Simulate run would.
+                    compare_all_button = components.button(f"Compare all {len(names)} stored simulations", kind="secondary", icon="compare_arrows")
+                    compare_all_progress = ui.label("").classes("text-sm").style("color: var(--bup-muted)")
+                    compare_all_results = ui.column().classes("w-full")
+
+                    async def do_compare_all():
+                        if not s["ork_path"] or not s["eng_path"]:
+                            ui.notify("Upload both a .ork and a .eng file first.", type="warning")
+                            return
+                        compare_all_button.props("hidden")
+                        compare_all_results.clear()
+
+                        def on_progress(i, n, name):
+                            compare_all_progress.set_text(f"Simulating {i}/{n}: {name}...")
+
+                        rows = await run.io_bound(
+                            pipeline.compare_all_simulations,
+                            s["ork_path"], s["eng_path"],
+                            power_off_drag_path=s["drag_off_path"], power_on_drag_path=s["drag_on_path"],
+                            outputs_dir=OUTPUTS_DIR,
+                            dry_mass_override_kg=dry_mass_input.value if override_checkbox.value else None,
+                            dry_cg_override_m=dry_cg_input.value if override_checkbox.value else None,
+                            motor_total_mass_override_kg=motor_mass_input.value if motor_mass_checkbox.value else None,
+                            progress_callback=on_progress,
+                        )
+                        compare_all_progress.set_text(f"Done: {len(rows)} simulations.")
+                        compare_all_button.props(remove="hidden")
+                        with compare_all_results:
+                            components.data_table(
+                                columns=[
+                                    {"name": "name", "label": "Simulation", "field": "name"},
+                                    {"name": "site", "label": "Site (m MSL)", "field": "site"},
+                                    {"name": "apogee", "label": "Apogee AGL (m)", "field": "apogee"},
+                                    {"name": "max_speed", "label": "Max speed (m/s)", "field": "max_speed"},
+                                    {"name": "max_mach", "label": "Max Mach", "field": "max_mach"},
+                                    {"name": "margin", "label": "Min static margin (cal)", "field": "margin"},
+                                    {"name": "stable", "label": "Stable?", "field": "stable"},
+                                ],
+                                rows=[{
+                                    "name": r.name,
+                                    "site": f"{r.altitude_m:.0f}" if r.success and r.altitude_m is not None else "n/a",
+                                    "apogee": f"{r.apogee_agl_m:.1f}" if r.success else f"FAILED: {r.error}",
+                                    "max_speed": f"{r.max_speed_ms:.1f}" if r.success else "",
+                                    "max_mach": f"{r.max_mach:.3f}" if r.success else "",
+                                    "margin": f"{r.min_static_margin_cal:.2f}" if r.success else "",
+                                    "stable": ("YES" if r.is_stable else "NO") if r.success else "",
+                                } for r in rows],
+                            )
+                        ui.notify(f"Compared {len(rows)} simulations - pick one above to Simulate/Monte Carlo/RCSM Cases it individually.", type="positive")
+
+                    compare_all_button.on_click(do_compare_all)
+
             _render_sim_selector()  # re-shows the picker on a page revisit after an .ork is already loaded (e.g. navigating back from another page)
 
             with ui.expansion("Advanced: manual Cd CSVs and mass/CG override").classes("w-full"):
