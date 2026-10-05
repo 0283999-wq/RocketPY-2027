@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from bup_rocketpy import translate
 from bup_rocketpy.motor_reader import read_eng
-from bup_rocketpy.ork_reader import components_outside_airframe, extract_drag_curves_from_stored_sim, read_ork
+from bup_rocketpy.ork_reader import components_outside_airframe, extract_drag_curves_from_stored_sim, list_simulation_names, read_ork
 
 # 2026-09-26 review item 2: the wall-clock backstop app.py's do_simulate
 # races Simulate against - see its own comment for why this can only
@@ -55,6 +55,8 @@ class LoadResult:
     import_table: list  # list of (component, status, detail) tuples, ready for a UI table
     ork_path: str = None  # 2026-09-27 review item 1a: needed to re-read the .ork's own stored-simulation mass/CG (parse_stored_simulation_references) without a separate path threaded everywhere
     motor_mismatch: object = None  # translate.MotorMassMismatch or None - 2026-09-30 review item 2, also read by the Rocket page and report (not just the import table)
+    simulation_name: str = None  # 2026-10-05 review: which of the .ork's stored simulations (e.g. Pachuca/LASC/IREC) this load used - None means "the first one in the file" (the original, unchanged default). Threaded into every other "which stored sim" lookup (motor mass mismatch, drag curve, best mass/CG estimate, OpenRocket comparison) so they can never silently disagree about which site/mission this load represents.
+    available_simulation_names: list = field(default_factory=list)  # every stored simulation name in the .ork, in file order - lets the Simulate page offer a picker when there's more than one
 
 
 @dataclass
@@ -102,13 +104,25 @@ class SimResult:
     descent_mass_kg: float = None  # dry rocket + motor DRY (casing) - what the recovery system actually descends under after the propellant is spent
 
 
-def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None):
+def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, simulation_name=None):
     """Parses the .ork + .eng, and resolves a drag curve per CLAUDE.md Sec
     4.2's preference order: (1) explicit CSV paths if the caller supplied
     them, (2) the .ork's own stored simulation data, (3) placeholder with a
     loud warning. RocketSerializer cross-check (Sec 4.2 point 3) is not
-    implemented - out of scope for tonight, needs Java/the OpenRocket jar."""
-    parsed_ork = read_ork(ork_path)
+    implemented - out of scope for tonight, needs Java/the OpenRocket jar.
+
+    simulation_name (2026-10-05 review): "I have a set of places (LASC,
+    IREC, Pachuca...) - I want a button that shows up when I load the
+    files" - a real .ork commonly holds several stored simulations (one
+    per site/mission; Major Tom's has 12). Picks which one supplies the
+    launch conditions (site, rail, wind), drag curve and best-available
+    mass/CG/inertia estimate - every one of those would otherwise
+    silently default to the first simulation in the file. None (the
+    default) keeps that original behavior, so loading with no selection
+    is unchanged. See ork_reader.list_simulation_names() to list what a
+    given .ork actually has."""
+    parsed_ork = read_ork(ork_path, simulation_name=simulation_name)
+    available_simulation_names = list_simulation_names(ork_path)
     parsed_eng = read_eng(eng_path)
 
     curve_warnings = []
@@ -137,7 +151,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
                 if n:
                     curve_warnings.append(f"{label}: {n} duplicate/out-of-order Mach value(s) fixed (see curve_utils.dedupe_sort_curve).")
     else:
-        boost, coast = extract_drag_curves_from_stored_sim(ork_path)
+        boost, coast = extract_drag_curves_from_stored_sim(ork_path, sim_name=simulation_name)
         if boost and coast and outputs_dir:
             os.makedirs(outputs_dir, exist_ok=True)
             power_on_drag_path = os.path.join(outputs_dir, "power_on_drag_from_ork.csv")
@@ -163,7 +177,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
     # (and the team's actual measured motor) used - flagged here so it
     # shows up on the SAME import table Diego already reviews before
     # simulating, not discovered later by comparing numbers by hand.
-    motor_mismatch = translate.check_motor_mass_mismatch(parsed_eng.header, ork_path)
+    motor_mismatch = translate.check_motor_mass_mismatch(parsed_eng.header, ork_path, simulation_name=simulation_name)
     if motor_mismatch is not None and motor_mismatch.over_threshold:
         import_table.append((
             ".eng motor mass", "APPROXIMATED",
@@ -178,6 +192,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         drag_curve_source=source,
         power_off_drag_path=power_off_drag_path, power_on_drag_path=power_on_drag_path,
         import_table=import_table, ork_path=ork_path, motor_mismatch=motor_mismatch,
+        simulation_name=simulation_name, available_simulation_names=available_simulation_names,
     )
 
 
@@ -255,13 +270,12 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         # is available - see translate.estimate_best_dry_mass_cg_inertia's
         # own docstring for why (it directly targets the real Major Tom
         # mass/CG mismatch Diego reported).
-        best = translate.estimate_best_dry_mass_cg_inertia(parsed, load_result.parsed_eng, load_result.eng_path, ork_path=load_result.ork_path)
+        best = translate.estimate_best_dry_mass_cg_inertia(parsed, load_result.parsed_eng, load_result.eng_path, ork_path=load_result.ork_path, simulation_name=load_result.simulation_name)
         mass_est = best.mass_est
         i_axial, i_transverse, inertia_source = best.i_axial_kgm2, best.i_transverse_kgm2, best.inertia_source
         if mass_est.mass_kg <= 0 or mass_est.cg_m is None:
             raise ValueError(f"cannot simulate: {mass_est.source}. Enter a manual dry mass + CG override, or complete the .ork's overrides in OpenRocket.")
         motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path, dry_mass_override_kg=motor_dry_override_kg)
-        motor = translate.build_motor(load_result.parsed_eng, load_result.eng_path)
 
     radius_m = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
     rocket = translate.build_rocket(parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag=power_off, power_on_drag=power_on)

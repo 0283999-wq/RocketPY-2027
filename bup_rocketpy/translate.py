@@ -306,7 +306,7 @@ class MotorMassMismatch:
         return abs(self.diff_pct) > MOTOR_MASS_MISMATCH_TOLERANCE_PCT
 
 
-def check_motor_mass_mismatch(eng_header, ork_path):
+def check_motor_mass_mismatch(eng_header, ork_path, simulation_name=None):
     """2026-09-30 review item 2: a real case found the hard way - an
     .eng declared 15.960 kg total motor mass, but the actual motor (per
     OpenRocket's own stored simulation, which is what the team actually
@@ -318,11 +318,16 @@ def check_motor_mass_mismatch(eng_header, ork_path):
     already extracts it (SimulationReference.motor_mass_t0_kg), this
     just compares the two and flags anything past
     MOTOR_MASS_MISMATCH_TOLERANCE_PCT. Returns None if there's no stored
-    simulation to compare against (nothing wrong - just nothing to check)."""
-    from bup_rocketpy.ork_reader import parse_stored_simulation_references
+    simulation to compare against (nothing wrong - just nothing to check).
+
+    simulation_name (2026-10-05 review): check against THIS stored
+    simulation specifically (one of several, e.g. a .ork with Pachuca/
+    LASC/IREC sims) - None (the default) keeps comparing against the
+    first one in the file, unchanged for every existing caller."""
+    from bup_rocketpy.ork_reader import parse_stored_simulation_references, pick_simulation_reference
 
     refs = parse_stored_simulation_references(ork_path)
-    ref = next(iter(refs.values()), None)
+    ref = pick_simulation_reference(refs, simulation_name)
     if ref is None or ref.motor_mass_t0_kg is None:
         return None
 
@@ -486,7 +491,7 @@ class BestMassEstimate:
     inertia_source: str
 
 
-def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=None, total_mass_override_kg=None):
+def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=None, total_mass_override_kg=None, simulation_name=None):
     """2026-09-27 review item 1a: picks the BEST available dry mass/CG/
     inertia source, in priority order:
 
@@ -524,21 +529,24 @@ def estimate_best_dry_mass_cg_inertia(parsed, parsed_eng, eng_path, ork_path=Non
     written to fix - see bup_rocketpy/validation.py's compute_v2()).
 
     Returns a BestMassEstimate. Never raises for a missing stored sim -
-    that's an expected, common case (falls through to step 3)."""
-    from bup_rocketpy.ork_reader import airframe_length_m, parse_stored_simulation_references
+    that's an expected, common case (falls through to step 3).
+
+    simulation_name (2026-10-05 review): use THIS stored simulation's
+    own t=0 mass/CG/inertia - a .ork can (and PROMETEO's does) hold more
+    than one (e.g. Pachuca/LASC/IREC sites), and read_ork() now lets the
+    caller pick which one is "the loaded rocket" for everything else
+    (launch conditions, drag curve, this estimate) to stay consistent
+    with. None (the default) keeps the original "first stored
+    simulation in the file" fallback, unchanged for every existing
+    caller."""
+    from bup_rocketpy.ork_reader import airframe_length_m, parse_stored_simulation_references, pick_simulation_reference
 
     override_est = estimate_dry_mass_and_cg(parsed)
     has_mass_override = override_est.source.startswith("mass: override")
 
     if not has_mass_override and ork_path:
         refs = parse_stored_simulation_references(ork_path)
-        # Same convention read_ork() itself uses for launch conditions:
-        # the FIRST stored simulation in the file, not a specific name -
-        # a .ork can (and PROMETEO's does) hold more than one, and there
-        # is no general way to know which one the operator considers
-        # authoritative without asking; using the first is at least
-        # deterministic and documented, same as launch conditions already are.
-        ref = next(iter(refs.values()), None)
+        ref = pick_simulation_reference(refs, simulation_name)
         if ref is not None and ref.mass_with_motor_t0_kg and ref.motor_mass_t0_kg and ref.cg_with_motor_t0_m is not None:
             motor = build_motor(parsed_eng, eng_path)
             total_mass_kg = total_mass_override_kg if total_mass_override_kg is not None else ref.mass_with_motor_t0_kg

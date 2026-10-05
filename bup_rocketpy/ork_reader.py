@@ -669,11 +669,53 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             log.append(ImportRow(cname, "IGNORED", f"unhandled nested tag <{tag}>"))
 
 
-def parse_launch_conditions(root):
+def list_simulation_names(path):
+    """2026-10-05 review: "I have a set of places (LASC, IREC, Pachuca...),
+    I want a button that shows up when I load the files" - a real rocket's
+    .ork commonly holds MANY stored <simulation>s (Major Tom's has 12),
+    one per site/mission the team modeled, each with its own <conditions>
+    (rail, site lat/lon/altitude, wind). Until now this reader always
+    silently used the FIRST one (parse_launch_conditions's own prior
+    default) - this lists every stored simulation's name, in file order,
+    so the UI can offer a choice instead. Cheap regex scan (same pattern
+    parse_stored_simulation_references already uses for the full
+    per-simulation flight data) - no need to parse every <datapoint> just
+    to read names."""
+    import re
+
+    with open(path, "rb") as f:
+        head = f.read(2)
+    if head == b"PK":
+        with zipfile.ZipFile(path) as z:
+            inner_name = next((n for n in z.namelist() if n.endswith(".ork") or n == "rocket.ork"), None)
+            data = z.read(inner_name).decode("utf-8")
+    else:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            data = f.read()
+    return re.findall(r"<simulation[^>]*>\s*<name>([^<]+)</name>", data)
+
+
+def parse_launch_conditions(root, simulation_name=None):
+    """simulation_name (2026-10-05 review): pick the <simulation> whose
+    <name> matches, instead of always the first one in the file - see
+    list_simulation_names's own docstring for why. None (the default)
+    keeps the original "first simulation in the file" behavior, so every
+    existing caller is unaffected. Falls back to the first simulation if
+    no name is given or no match is found (e.g. a stale name from a since-
+    re-exported .ork) rather than silently returning no launch conditions
+    at all."""
     sims = _find(root, "simulations")
     if sims is None:
         return None
-    sim = _find(sims, "simulation")
+    sim = None
+    if simulation_name is not None:
+        for candidate in _findall(sims, "simulation"):
+            name_elem = _find(candidate, "name")
+            if name_elem is not None and name_elem.text == simulation_name:
+                sim = candidate
+                break
+    if sim is None:
+        sim = _find(sims, "simulation")
     if sim is None:
         return None
     cond = _find(sim, "conditions")
@@ -728,6 +770,20 @@ class SimulationReference:
     wind_speed_ms_t0: float = None
     wind_direction_rad_t0: float = None
     speed_of_sound_ms_t0: float = None
+
+
+def pick_simulation_reference(refs, simulation_name=None):
+    """refs: {name: SimulationReference} from
+    parse_stored_simulation_references(). Picks the named one when
+    present, else the first (dict insertion order = file order) - the
+    "first stored sim" fallback every caller used before 2026-10-05's
+    per-simulation selection feature, now shared in one place so
+    check_motor_mass_mismatch/estimate_best_dry_mass_cg_inertia/
+    compare_to_openrocket can't silently disagree about which stored
+    simulation they're each comparing against."""
+    if simulation_name is not None and simulation_name in refs:
+        return refs[simulation_name]
+    return next(iter(refs.values()), None)
 
 
 def parse_stored_simulation_references(path):
@@ -924,16 +980,23 @@ def extract_drag_curves_from_stored_sim(path, sim_name=None, aoa_limit_deg=2.0, 
     return bin_avg(boost), bin_avg(coast)
 
 
-def read_ork(path):
+def read_ork(path, simulation_name=None):
     """Top-level entry point: load + parse geometry + parse launch
-    conditions (from the first stored simulation), all in one call."""
+    conditions, all in one call. simulation_name (2026-10-05 review):
+    which stored <simulation>'s <conditions> to use as this rocket's
+    launch site/rail (site lat/lon/altitude, wind, rail angle) - a real
+    .ork commonly has several (one per launch site/mission), e.g. Major
+    Tom's 12. None (the default) keeps the original behavior: the first
+    stored simulation in the file, unchanged for every existing caller.
+    See list_simulation_names() to list what's available."""
     root = load_ork(path)
     parsed = parse_rocket(root)
-    parsed.launch = parse_launch_conditions(root)
+    parsed.launch = parse_launch_conditions(root, simulation_name=simulation_name)
     if parsed.launch is None:
         parsed.import_log.append(ImportRow("launch conditions", "IGNORED", "no <simulations><simulation><conditions> found in this file - rail/site must be supplied separately"))
     else:
-        parsed.import_log.append(ImportRow("launch conditions", "IMPORTED", f"rail={parsed.launch.rail_length_m} m, rod_angle={parsed.launch.rail_angle_from_vertical_deg} deg from vertical, alt={parsed.launch.altitude_m} m"))
+        used_note = f" (from stored simulation {simulation_name!r})" if simulation_name is not None else ""
+        parsed.import_log.append(ImportRow("launch conditions", "IMPORTED", f"rail={parsed.launch.rail_length_m} m, rod_angle={parsed.launch.rail_angle_from_vertical_deg} deg from vertical, alt={parsed.launch.altitude_m} m{used_note}"))
 
     for name, pos in components_outside_airframe(parsed):
         airframe_end_m = airframe_length_m(parsed)

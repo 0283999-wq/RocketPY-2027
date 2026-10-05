@@ -60,16 +60,23 @@ def _nose_frame(rocketpy_value):
     return -rocketpy_value if rocketpy_value is not None else None
 
 
-def compare_to_openrocket(parsed, sim_result, ork_path):
+def compare_to_openrocket(parsed, sim_result, ork_path, simulation_name=None):
     """Returns (sim_name, [ComparisonRow, ...]), or (None, None) if the
     .ork has no stored simulation to compare against (a geometry-only
     design nobody has simulated in OpenRocket yet - an expected, common
     case, not an error). sim_result: pipeline.SimResult from a completed
-    Simulate run on THIS SAME .ork (needs sim_result.flight/.motor)."""
-    from bup_rocketpy.ork_reader import parse_stored_simulation_references, reported_length_m
+    Simulate run on THIS SAME .ork (needs sim_result.flight/.motor).
+
+    simulation_name (2026-10-05 review): compare against THIS stored
+    simulation - a .ork can hold several (e.g. Pachuca/LASC/IREC sites).
+    Pass the SAME name used to load the rocket (LoadResult.
+    simulation_name) so this card never compares against a different
+    site's numbers than the ones actually flown. None (the default)
+    keeps the original "first stored simulation in the file" fallback."""
+    from bup_rocketpy.ork_reader import parse_stored_simulation_references, pick_simulation_reference, reported_length_m
 
     refs = parse_stored_simulation_references(ork_path)
-    ref = next(iter(refs.values()), None)  # same "first stored sim" convention translate.estimate_best_dry_mass_cg_inertia already uses
+    ref = pick_simulation_reference(refs, simulation_name)
     if ref is None or ref.mass_with_motor_t0_kg is None:
         return None, None
 

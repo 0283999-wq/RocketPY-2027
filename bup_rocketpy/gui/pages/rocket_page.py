@@ -13,13 +13,19 @@ s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
 
 
-def _openrocket_comparison_card(parsed, sim_result, ork_path):
+def _openrocket_comparison_card(parsed, sim_result, ork_path, simulation_name=None):
     """2026-09-28 review item 2: side-by-side ours-vs-OpenRocket, sourced
     entirely from the .ork's own stored simulation - see
     bup_rocketpy/openrocket_comparison.py's module docstring for why
     each row is computed the way it is (coordinate frame, which numbers
-    aren't available from the file at all, the CP-tolerance rationale)."""
-    sim_name, rows = openrocket_comparison.compare_to_openrocket(parsed, sim_result, ork_path)
+    aren't available from the file at all, the CP-tolerance rationale).
+
+    simulation_name (2026-10-05 review): compare against the SAME stored
+    simulation this rocket was loaded with (LoadResult.simulation_name) -
+    a .ork can hold several (e.g. Pachuca/LASC/IREC), and comparing
+    against a different one than what was actually loaded would be
+    confusing at best."""
+    sim_name, rows = openrocket_comparison.compare_to_openrocket(parsed, sim_result, ork_path, simulation_name=simulation_name)
     with components.card(classes="w-full mt-4"):
         ui.label("OpenRocket comparison").classes("font-bold")
         if rows is None:
@@ -126,7 +132,7 @@ def rocket_page():
             # (2026-09-27 review item 1a), so this preview never shows a
             # different CG than what Simulate will actually use.
             from bup_rocketpy import translate
-            best = translate.estimate_best_dry_mass_cg_inertia(parsed, s["load_result"].parsed_eng, s["load_result"].eng_path, ork_path=s["load_result"].ork_path)
+            best = translate.estimate_best_dry_mass_cg_inertia(parsed, s["load_result"].parsed_eng, s["load_result"].eng_path, ork_path=s["load_result"].ork_path, simulation_name=s["load_result"].simulation_name)
             if best.mass_est.cg_m is not None:
                 cg = best.mass_est.cg_m
 
@@ -172,7 +178,7 @@ def rocket_page():
                 ui.label(f"Motor mass source: {sim.motor_mass_source}").classes("text-xs mt-1").style("color: var(--bup-muted)")
 
         if s["sim_result"] is not None and s["load_result"].ork_path:
-            _openrocket_comparison_card(parsed, s["sim_result"], s["load_result"].ork_path)
+            _openrocket_comparison_card(parsed, s["sim_result"], s["load_result"].ork_path, simulation_name=s["load_result"].simulation_name)
 
         _component_table_card(parsed)
 

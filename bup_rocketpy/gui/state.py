@@ -7,6 +7,7 @@ state = {
     "ork_path": None, "eng_path": None, "drag_off_path": None, "drag_on_path": None,
     "ork_filename": None, "eng_filename": None,  # 2026-09-26 review item E: the user's REAL uploaded filenames, not the tempfile path's own basename
     "load_result": None, "sim_result": None,
+    "available_simulation_names": [], "selected_simulation_name": None,  # 2026-10-05 review: a .ork can hold several stored simulations (one per site/mission, e.g. Pachuca/LASC/IREC) - which one supplies launch conditions/drag curve/mass-CG reference. None means "the first one in the file" (unchanged default).
     "dry_mass_override": None, "dry_cg_override": None,  # raw manual-override UI fields (None unless the user checked "use manual override")
     "motor_mass_override": None,  # 2026-09-30 review item 2: "Measured motor mass" (dry+propellant, kg) - None unless the user checked its own override checkbox
     "dry_mass_kg": None, "dry_cg_m": None, "mass_source": "",  # the mass/CG ACTUALLY used by the last successful Simulate (override or geometric estimate) - every other page reads THESE, never the override fields above, so they work on the default no-override path too (2026-09-26 review crash d)

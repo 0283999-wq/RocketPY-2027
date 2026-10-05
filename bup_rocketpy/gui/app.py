@@ -85,7 +85,23 @@ def simulate_page():
                 async def on_ork_upload(e):
                     s["ork_path"], name = await _save_upload(e, ".ork")
                     s["ork_filename"] = name  # 2026-09-26 review item E: the REAL uploaded name - ork_path is this app's own tempfile path, previously the only thing kept
-                    ui.notify(f"Loaded {name}")
+                    # 2026-10-05 review: "I have a set of places (LASC,
+                    # IREC, Pachuca...) - a button that shows up when I
+                    # load the files" - a real .ork commonly holds several
+                    # stored simulations (one per site/mission; Major
+                    # Tom's has 12), each with its own launch conditions.
+                    # read_ork() used to always silently use the first one
+                    # - this lets the operator pick, for fast
+                    # site-to-site comparison without the full Launch Day
+                    # real-weather flow.
+                    from bup_rocketpy import ork_reader
+                    sim_names = ork_reader.list_simulation_names(s["ork_path"])
+                    s["available_simulation_names"] = sim_names
+                    if s["selected_simulation_name"] not in sim_names:
+                        s["selected_simulation_name"] = sim_names[0] if sim_names else None
+                    _render_sim_selector()
+                    extra = f" - {len(sim_names)} stored simulations found, pick one below" if len(sim_names) > 1 else ""
+                    ui.notify(f"Loaded {name}{extra}")
                 components.dropzone(".ork file", on_ork_upload, accept=".ork")
 
                 async def on_eng_upload(e):
@@ -93,6 +109,23 @@ def simulate_page():
                     s["eng_filename"] = name
                     ui.notify(f"Loaded {name}")
                 components.dropzone(".eng file", on_eng_upload, accept=".eng")
+
+            sim_selector_container = ui.column().classes("w-full")
+
+            def _render_sim_selector():
+                sim_selector_container.clear()
+                names = s["available_simulation_names"]
+                if len(names) <= 1:
+                    return  # the common case (one sim, or none) - nothing to choose, no extra UI clutter
+                with sim_selector_container:
+                    ui.label("This .ork has multiple stored simulations - pick which one supplies the launch site/conditions (and is checked against on the Rocket page):").classes("text-sm").style("color: var(--bup-muted)")
+
+                    def _on_select(e):
+                        s["selected_simulation_name"] = e.value
+
+                    ui.select(names, value=s["selected_simulation_name"], on_change=_on_select).classes("w-full max-w-md")
+
+            _render_sim_selector()  # re-shows the picker on a page revisit after an .ork is already loaded (e.g. navigating back from another page)
 
             with ui.expansion("Advanced: manual Cd CSVs and mass/CG override").classes("w-full"):
                 with ui.row():
@@ -131,6 +164,7 @@ def simulate_page():
 
         with components.card(classes="w-full"):
             ui.label("2. Review import").classes("font-bold")
+            simulation_name_label = ui.label("")
             drag_source_label = ui.label("")
             import_table_container = ui.column().classes("w-full")
 
@@ -161,7 +195,7 @@ def simulate_page():
             result = pipeline.load_files(
                 s["ork_path"], s["eng_path"],
                 power_off_drag_path=s["drag_off_path"], power_on_drag_path=s["drag_on_path"],
-                outputs_dir=OUTPUTS_DIR,
+                outputs_dir=OUTPUTS_DIR, simulation_name=s["selected_simulation_name"],
             )
             s["load_result"] = result
             s["vehicle_name"] = result.parsed_ork.name
@@ -174,6 +208,12 @@ def simulate_page():
             for key in ("sim_result", "dry_mass_kg", "dry_cg_m", "mass_source", "case_results", "compliance_rows", "mc_result", "mc_uncertainties", "weathercocking_result"):
                 s[key] = None
             results_container.clear()
+            if result.simulation_name is not None:
+                simulation_name_label.set_text(f"Launch conditions, drag curve and mass/CG reference from stored simulation: \"{result.simulation_name}\"")
+            elif len(result.available_simulation_names) > 1:
+                simulation_name_label.set_text(f"Using the first stored simulation (\"{result.available_simulation_names[0]}\") - pick a different one above and click Load files again to switch.")
+            else:
+                simulation_name_label.set_text("")
             drag_source_label.set_text(f"Drag curve source: {result.drag_curve_source}")
             import_table_container.clear()
             with import_table_container:
