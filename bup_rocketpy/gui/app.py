@@ -482,6 +482,23 @@ def simulate_page():
                     # to it - not just named in the caption's own prose.
                     ui.label(f"Descent mass (dry rocket + spent motor casing): {sim.descent_mass_kg:.3f} kg (= {sim.dry_mass_kg:.3f} kg dry rocket + {sim.motor_dry_kg:.3f} kg spent motor casing)").classes("text-sm font-bold")
                     ui.label("Hand-calc: v = sqrt(2*m*g / (rho*Cd*S)), m = descent mass above, rho at deployment altitude and at ground level - an independent cross-check of the simulated descent rate, not a replacement for it.").classes("text-xs text-gray-500")
+                    # 2026-10-06 review: a real case - two parachutes both
+                    # triggered seconds apart, so the first one's own Cd*S
+                    # was overwritten (not added to) by the second before
+                    # it did anything - see recovery.OVERWRITTEN_THRESHOLD_S's
+                    # own comment. Surfaced here, not buried in the table
+                    # below, since it changes how to READ that table.
+                    for r in sim.recovery_rows:
+                        if r.note:
+                            # components.card() is a @contextlib.contextmanager -
+                            # .style() isn't chainable on the `with` expression
+                            # itself (AttributeError - a real crash this exact
+                            # pattern caused twice before, 2026-09-30/2026-10-05
+                            # reviews). Style the yielded `c` instead.
+                            with components.card(classes="w-full mt-2") as c:
+                                c.style("border-left: 4px solid var(--bup-warning)")
+                                ui.label(f"\"{r.name}\" row below is misleading").classes("font-bold").style("color: var(--bup-warning)")
+                                ui.label(r.note).classes("text-sm")
                     ui.table(
                         columns=[
                             {"name": "name", "label": "Parachute", "field": "name"},

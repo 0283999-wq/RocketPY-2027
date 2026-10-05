@@ -13,6 +13,26 @@ from dataclasses import dataclass, field
 
 G0 = 9.80665
 
+# 2026-10-06 review: a real case - two parachutes (a real second
+# OpenRocket-authored component, plus a separately reefed-marked one)
+# both triggered near apogee, ~10ms apart. rocketpy's own Parachute
+# physics tracks exactly ONE "currently active" canopy's Cd*S at a time
+# (a single self.parachute_cd_s attribute on the Flight object,
+# overwritten by setattr() every time ANY parachute's trigger fires -
+# verified against rocketpy/simulation/flight.py's own u_dot_parachute)
+# - it does NOT sum multiple simultaneously-open canopies. So the FIRST
+# parachute to trigger here got its own Cd*S completely REPLACED 10ms
+# later when the second one triggered, before it had any real chance to
+# slow the rocket down at all - its own row below still shows a near-
+# free-fall descent rate, which reads as "it's not applying/doing
+# nothing", not because the simulation skipped it, but because rocketpy
+# genuinely discarded its contribution the instant the next trigger
+# fired. This is the SAME mechanism a normal drogue-then-main dual-
+# deploy relies on (main correctly replacing drogue once it opens) -
+# it only becomes misleading when two parachutes that were both meant
+# to matter end up open at (near) the same moment.
+OVERWRITTEN_THRESHOLD_S = 1.0
+
 
 @dataclass
 class ParachutePanelRow:
@@ -28,6 +48,7 @@ class ParachutePanelRow:
     hand_terminal_velocity_at_ground_ms: float
     diff_pct_at_deploy_alt: float  # (sim - hand) / hand * 100, at deployment-altitude density
     diff_pct_at_ground: float
+    note: str = ""  # 2026-10-06 review: see OVERWRITTEN_THRESHOLD_S below
 
 
 def _hand_terminal_velocity(mass_kg, air_density_kgm3, cd_s_m2):
@@ -58,8 +79,26 @@ def recovery_panel(flight, env, descent_mass_kg):
 
     rows = []
     for i, (t_deploy, chute) in enumerate(events):
-        t_sample = events[i + 1][0] - 0.05 if i + 1 < len(events) else flight.t_final - 0.05
+        next_t = events[i + 1][0] if i + 1 < len(events) else None
+        t_sample = next_t - 0.05 if next_t is not None else flight.t_final - 0.05
         t_sample = max(t_sample, t_deploy + 0.01)
+        note = ""
+        this_name = getattr(chute, "name", "")
+        next_name = getattr(events[i + 1][1], "name", "the next parachute") if next_t is not None else ""
+        # The reefed stage being replaced by ITS OWN "(full)" counterpart
+        # a few seconds later is the INTENDED, correct mechanism (one
+        # physical canopy changing size via a line cutter) - not two
+        # independent parachutes losing each other's contribution. Only
+        # flag a genuinely unrelated pair.
+        is_own_reefed_to_full_pair = this_name.endswith(" (reefed)") and next_name == this_name[: -len(" (reefed)")] + " (full)"
+        if next_t is not None and (next_t - t_deploy) < OVERWRITTEN_THRESHOLD_S and not is_own_reefed_to_full_pair:
+            note = (
+                f"'{next_name}' triggered only {next_t - t_deploy:.2f}s later - rocketpy tracks ONE active "
+                f"canopy's Cd*S at a time, so '{next_name}' REPLACED (not added to) this one's drag from "
+                f"{next_t:.2f}s onward. The descent rate below reflects almost no time under THIS canopy "
+                f"alone - if both were meant to contribute, model them as one canopy that changes size "
+                f"(the Rocket page's 'Reefed with line cutter' feature) instead of two separate parachutes."
+            )
         vx, vy, vz = flight.vx(t_sample), flight.vy(t_sample), flight.vz(t_sample)
         descent_rate_sim = math.sqrt(vx**2 + vy**2 + vz**2)
 
@@ -92,5 +131,6 @@ def recovery_panel(flight, env, descent_mass_kg):
             hand_terminal_velocity_at_ground_ms=hand_v_ground,
             diff_pct_at_deploy_alt=(descent_rate_sim - hand_v_deploy) / hand_v_deploy * 100 if hand_v_deploy else float("nan"),
             diff_pct_at_ground=(descent_rate_sim - hand_v_ground) / hand_v_ground * 100 if hand_v_ground else float("nan"),
+            note=note,
         ))
     return rows

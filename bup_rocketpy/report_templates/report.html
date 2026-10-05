@@ -331,6 +331,11 @@
     </tr>
     {% endfor %}
   </table>
+  {% for r in data.recovery.rows %}
+  {% if r.note %}
+  <p class="small" style="color: {{ ERROR }};"><b>"{{ r.name }}" row above is misleading:</b> {{ r.note }}</p>
+  {% endif %}
+  {% endfor %}
   {% endif %}
   {% if data.recovery.descent_plot_path %}
   <div class="figure avoid-break">

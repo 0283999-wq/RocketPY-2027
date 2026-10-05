@@ -359,6 +359,12 @@ def generate_docx(output_path, data):
             row = rt.add_row().cells
             row[0].text, row[1].text, row[2].text, row[3].text = r.name, f"{r.diameter_m:.2f}", f"{r.area_m2:.3f}", f"{r.cd_s_m2:.3f}"
             row[4].text, row[5].text, row[6].text = f"{r.deploy_time_s:.1f}", f"{r.descent_rate_sim_ms:.1f}", f"{r.hand_terminal_velocity_at_ground_ms:.1f}"
+        for r in rec["rows"]:
+            if r.note:
+                p = doc.add_paragraph()
+                run = p.add_run(f'"{r.name}" row above is misleading: {r.note}')
+                run.font.size = Pt(8)
+                run.font.color.rgb = RGBColor(0xB3, 0x26, 0x1E)
     fn = figure(rec["descent_plot_path"], "Descent velocity after apogee.")
     doc.add_paragraph(report_module._prose_recovery(data, fn or "?"))
 
