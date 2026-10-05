@@ -122,6 +122,19 @@ def simulate_page():
 
                     def _on_select(e):
                         s["selected_simulation_name"] = e.value
+                        # 2026-10-05 review (2nd pass): a real report - picking
+                        # a different simulation here had no visible effect
+                        # because the selection only took effect on the NEXT
+                        # "Load files" click, and switching the dropdown after
+                        # already loading once looks like it should apply
+                        # immediately. If files are already loaded, re-run the
+                        # load right now so every other page (Monte Carlo,
+                        # RCSM Cases, Rocket, the report - they all read
+                        # s["load_result"].parsed_ork.launch, set here) picks
+                        # up the new site without a separate manual step.
+                        if s["load_result"] is not None:
+                            do_load()
+                            ui.notify(f"Switched to \"{e.value}\" - reloaded. Re-run Simulate/Monte Carlo/RCSM Cases to use it.", type="info")
 
                     ui.select(names, value=s["selected_simulation_name"], on_change=_on_select).classes("w-full max-w-md")
 
