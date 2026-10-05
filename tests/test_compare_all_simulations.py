@@ -66,9 +66,35 @@ def test_manual_overrides_carry_through_to_every_site():
     assert abs(rows[0].apogee_agl_m - rows[1].apogee_agl_m) < 5.0
 
 
+def test_export_comparison_csv_writes_every_row_including_a_failed_one():
+    """"now that i simulated the 12 parameters how do i export them?"
+    (2026-10 review) - the compare-all table had no download. One real
+    site plus one forced-failure site (same technique as the failing-
+    site test above), so the CSV must carry both outcomes."""
+    os.makedirs(OUT_DIR, exist_ok=True)
+    rows = pipeline.compare_all_simulations(ORK_PATH, ENG_PATH, outputs_dir=OUT_DIR)
+    failing_rows = pipeline.compare_all_simulations(ORK_PATH, ENG_PATH, outputs_dir=OUT_DIR, dry_mass_override_kg=-1.0, dry_cg_override_m=0.5)
+    mixed = [rows[0], failing_rows[1]]
+
+    csv_path = os.path.join(OUT_DIR, "compare_all_simulations.csv")
+    pipeline.export_comparison_csv(mixed, csv_path)
+    assert os.path.exists(csv_path)
+
+    with open(csv_path, encoding="utf-8-sig") as f:
+        text = f.read()
+    lines = text.strip().split("\n")
+    assert len(lines) == 3, f"expected 1 header + 2 rows, got {len(lines)}: {lines}"
+    assert lines[0].split(",")[0] == "name"
+    assert "Ballistic Brasil" in lines[1]
+    assert str(rows[0].apogee_agl_m) in lines[1]
+    assert "brasil 2026" in lines[2]
+    assert "False" in lines[2]  # the forced-failure row's success column
+
+
 if __name__ == "__main__":
     test_compares_every_stored_simulation_with_real_numbers()
     test_progress_callback_fires_once_per_site_in_order()
     test_a_failing_site_does_not_take_down_the_whole_comparison()
     test_manual_overrides_carry_through_to_every_site()
+    test_export_comparison_csv_writes_every_row_including_a_failed_one()
     print("\nCOMPARE ALL SIMULATIONS: OK")

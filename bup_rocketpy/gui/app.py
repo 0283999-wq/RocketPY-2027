@@ -175,6 +175,9 @@ def simulate_page():
                         compare_all_progress.set_text(f"Done: {len(rows)} simulations.")
                         compare_all_button.props(remove="hidden")
                         with compare_all_results:
+                            csv_path = os.path.join(OUTPUTS_DIR, "compare_all_simulations.csv")
+                            pipeline.export_comparison_csv(rows, csv_path)
+                            ui.link("Download CSV (all rows above)", f"/outputs/{os.path.basename(csv_path)}").classes("mb-2")
                             components.data_table(
                                 columns=[
                                     {"name": "name", "label": "Simulation", "field": "name"},

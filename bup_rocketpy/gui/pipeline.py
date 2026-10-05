@@ -483,6 +483,31 @@ class SimulationComparisonRow:
     is_stable: bool = None
 
 
+def export_comparison_csv(rows, csv_path):
+    """Writes compare_all_simulations()'s rows to a CSV - "now that i
+    simulated the 12 parameters how do i export them?" (2026-10 review):
+    the compare-all table had no download, only an on-screen preview.
+    utf-8-sig (not plain utf-8) so Excel on Windows - Diego's machine -
+    detects the encoding correctly instead of mangling it, same fix as
+    the other Windows cp1252 crash this app already had to work around.
+    """
+    import csv
+    fieldnames = ["name", "success", "error", "site_altitude_m_msl", "latitude", "longitude",
+                  "apogee_agl_m", "max_speed_ms", "max_mach", "max_acceleration_ms2",
+                  "rail_exit_velocity_ms", "min_static_margin_cal", "is_stable"]
+    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        for r in rows:
+            writer.writerow([
+                r.name, r.success, r.error or "",
+                r.altitude_m, r.latitude, r.longitude,
+                r.apogee_agl_m, r.max_speed_ms, r.max_mach, r.max_acceleration_ms2,
+                r.rail_exit_velocity_ms, r.min_static_margin_cal, r.is_stable,
+            ])
+    return csv_path
+
+
 def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, dry_mass_override_kg=None, dry_cg_override_m=None, motor_total_mass_override_kg=None, progress_callback=None):
     """2026-10-05 review (2nd pass): "add the option to simulate ALL
     locations and parameters" - a .ork can hold several/many stored
