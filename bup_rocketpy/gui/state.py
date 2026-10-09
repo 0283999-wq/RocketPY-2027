@@ -21,4 +21,18 @@ state = {
     "weather_profile": None, "launch_override": None,  # 2026-09-26 review item H - cached real-weather + the LaunchConditions override built from it
     "report_text": {},  # 2026-09-27 review item 6: editable report blocks (introduction/objectives/discussion/conclusions/team) - empty values fall back to report.py's auto-generated defaults, never blank
     "current_run_id": None,  # the History run_id THIS session's last Simulate saved to, or reopened from - lets the Exports page patch report_text/author into that same run instead of minting a new one
+    # 2026-10-09 review item 8: RKT 1.1.2 used to hardcode payload_mass_kg=1.0
+    # regardless of the loaded rocket - these let the operator pick which
+    # point-mass components ARE the payload (checkboxes on the RCSM Cases
+    # page) or type the payload mass directly; reset to empty on every new
+    # .ork load (do_load()) since a different rocket has different
+    # components/payload, matching every other per-rocket field above.
+    "payload_component_names": [],  # names of parsed.point_masses the operator has checked as "this is payload"
+    "payload_mass_override_kg": None,  # typed directly - takes priority over the checkbox total when set
+    # STR 6.3.2 flutter - a default shear modulus (editable, source shown)
+    # feeds translate.check_drag... no, flutter.hand_calc_flutter_velocity;
+    # a manual external-tool result (ANSYS/AEROLAB/etc, with its own source
+    # label) always takes priority over the hand formula when given.
+    "flutter_shear_modulus_pa": None, "flutter_shear_modulus_source": None,
+    "flutter_manual_override_ms": None, "flutter_manual_override_source": None,
 }

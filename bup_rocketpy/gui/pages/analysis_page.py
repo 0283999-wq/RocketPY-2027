@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from nicegui import ui
 
 from bup_rocketpy.gui import components, layout, plot_theme, state
-from bup_rocketpy import analysis, monte_carlo, translate
+from bup_rocketpy import analysis, translate
 
 matplotlib.use("Agg")
 s = state.state
@@ -75,54 +75,14 @@ def analysis_page():
                 components.button("Run weathercocking sweep", kind="primary", icon="tune", on_click=run_weathercocking)
 
             with components.card(classes="flex-1 min-w-[380px]"):
-                ui.label("Drag comparison").classes("font-bold")
-                ui.label("Compare two Cd-curve pairs with common random numbers (same seed), so the apogee difference isolates the drag change from sampling noise.").classes("text-sm").style("color: var(--bup-muted)")
-                with ui.row():
-                    off_b = ui.upload(label="power_off_drag.csv, option B", auto_upload=True)
-                    on_b = ui.upload(label="power_on_drag.csv, option B", auto_upload=True)
-                n_input = ui.number(label="N simulations", value=30)
-                drag_container = ui.column().classes("w-full mt-2")
-                drag_state = {"off_b": None, "on_b": None}
-
-                async def _save(e, suffix, key):
-                    import tempfile
-                    fd, path = tempfile.mkstemp(suffix=suffix)
-                    os.close(fd)
-                    await e.file.save(path)
-                    drag_state[key] = path
-                    ui.notify(f"Loaded option B: {e.file.name}")
-
-                off_b.on_upload(lambda e: _save(e, ".csv", "off_b"))
-                on_b.on_upload(lambda e: _save(e, ".csv", "on_b"))
-
-                def run_drag_comparison():
-                    if not drag_state["off_b"] or not drag_state["on_b"]:
-                        ui.notify("Upload both CSVs for option B first.", type="warning")
-                        return
-                    parsed = s["load_result"].parsed_ork
-                    mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI")
-                    # 2026-09-27 review item 1: same rocket as Simulate's own
-                    # Nominal result - use its actually-used inertia, not a fresh
-                    # geometric re-derivation, or the two drag curves being
-                    # compared would each fly a subtly different rocket.
-                    i_ax, i_tr = (s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]) if s["dry_i_axial_kgm2"] is not None else translate.estimate_dry_inertia(parsed, mass_est)
-                    radius = next(t.radius for t in parsed.body_tubes if t.radius)
-                    uncertainties = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
-                    result = analysis.drag_comparison(
-                        parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                        (s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path),
-                        (drag_state["off_b"], drag_state["on_b"]),
-                        s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
-                        uncertainties, int(n_input.value), os.path.join(OUTPUTS_DIR, "drag_comparison"), seed=42,
-                    )
-                    drag_container.clear()
-                    with drag_container:
-                        significant = result.difference_ci_90[0] > 0 or result.difference_ci_90[1] < 0
-                        ui.label(f"Difference (B - A): {result.mean_difference_m:+.1f} m, 90% CI [{result.difference_ci_90[0]:+.1f}, {result.difference_ci_90[1]:+.1f}] m").classes("font-bold")
-                        components.status_chip(
-                            "The difference is REAL (CI excludes zero)." if significant else "The difference is NOT statistically significant at this N (CI includes zero) - run more samples.",
-                            "success" if significant else "warning",
-                        )
-                    components.finish_motion()
-
-                components.button("Run drag comparison", kind="primary", icon="compare_arrows", on_click=run_drag_comparison)
+                ui.label("Comparing two designs?").classes("font-bold")
+                # 2026-10-09 review item 13: "this replaces the confusing
+                # drag-comparison card" - that card only ever varied the Cd
+                # curve for the ONE already-loaded rocket (asking for "power_
+                # off_drag.csv, option B" with no explanation of what to put
+                # there, per item 9's own complaint); the real question
+                # ("should I fly fin set A or B") needs two FULL designs
+                # (different mass/CP/everything), not just two Cd files for
+                # the same one - see /compare-designs.
+                ui.label("The old drag-comparison card (two Cd CSVs for the SAME loaded rocket) moved to its own page, which compares two FULL .ork designs side by side - apogee, stability, flutter, Cd overlay, and a Monte Carlo verdict with common random numbers.").classes("text-sm").style("color: var(--bup-muted)")
+                components.button("Go to Compare Designs", kind="primary", icon="compare_arrows", on_click=lambda: ui.navigate.to("/compare-designs"))

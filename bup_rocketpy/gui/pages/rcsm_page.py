@@ -4,7 +4,7 @@ import os
 from nicegui import ui
 
 from bup_rocketpy.gui import components, layout, state
-from bup_rocketpy import competition_profiles, rcsm, rcsm_cases
+from bup_rocketpy import competition_profiles, flutter, rcsm, rcsm_cases
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
@@ -27,11 +27,67 @@ def rcsm_case_page():
         ui.label("The checks below are always RCSM Ed.7 Rev.1 (the only ruleset this app implements) - for a non-LASC profile they're a reference only, not a verified pass/fail for that competition.").classes("text-xs").style("color: var(--bup-muted)")
 
         category_select = ui.select(CATEGORY_OPTIONS, value="1km_solid", label="RCSM category").classes("w-64")
+
+        # 2026-10-09 review item 8: RKT 1.1.2 used to hardcode
+        # payload_mass_kg=1.0 for every rocket - let the operator pick
+        # which point-mass components in the .ork ARE the payload, or
+        # type the mass directly (which always wins when non-empty).
+        parsed = s["load_result"].parsed_ork
+        with components.card(classes="w-full mt-2"):
+            ui.label("RKT 1.1.2 payload mass").classes("font-bold")
+            if parsed.point_masses:
+                ui.label("Check which of this rocket's point-mass components are the competition payload:").classes("text-sm").style("color: var(--bup-muted)")
+                payload_checks = {}
+                with ui.row().classes("flex-wrap gap-3"):
+                    for pm in parsed.point_masses:
+                        checked = pm.name in s["payload_component_names"] or "payload" in pm.name.lower() or "carga" in pm.name.lower()
+                        cb = ui.checkbox(f"{pm.name} ({pm.mass*1000:.0f} g)", value=checked)
+                        payload_checks[pm.name] = cb
+
+                def _sync_payload_checks():
+                    s["payload_component_names"] = [name for name, cb in payload_checks.items() if cb.value]
+                for cb in payload_checks.values():
+                    cb.on_value_change(lambda _: _sync_payload_checks())
+                _sync_payload_checks()  # pre-seed from the default-checked boxes above, not just on the next click
+            else:
+                ui.label("No point-mass components found in this .ork to pick from - type the payload mass directly below.").classes("text-sm").style("color: var(--bup-muted)")
+            payload_override_input = ui.number(label="Or type the payload mass directly (kg) - wins over the checkboxes above when set", value=s["payload_mass_override_kg"])
+
+        # STR 6.3.2 fin flutter - hand formula by default (editable shear
+        # modulus + its source), or a real external-tool result that
+        # always takes priority when given.
+        with components.card(classes="w-full mt-2"):
+            ui.label("STR 6.3.2 fin flutter velocity").classes("font-bold")
+            ui.label("Hand formula (NACA TN 4197 approximation) by default - a screening estimate, not a substitute for a real structural analysis on a flight-critical vehicle.").classes("text-sm").style("color: var(--bup-muted)")
+            with ui.row().classes("items-end gap-3"):
+                material_select = ui.select(
+                    list(flutter.COMMON_SHEAR_MODULI_PA.keys()), label="Fin material (shear modulus source)",
+                    value=s["flutter_shear_modulus_source"] if s["flutter_shear_modulus_source"] in flutter.COMMON_SHEAR_MODULI_PA else "G10/G12 fiberglass (typical)",
+                ).classes("w-72")
+                shear_modulus_input = ui.number(label="Shear modulus G (Pa)", value=s["flutter_shear_modulus_pa"] or flutter.COMMON_SHEAR_MODULI_PA[material_select.value]).classes("w-48")
+
+                def _material_changed(e):
+                    shear_modulus_input.value = flutter.COMMON_SHEAR_MODULI_PA[e.value]
+                material_select.on_value_change(_material_changed)
+            with ui.row().classes("items-end gap-3"):
+                flutter_override_input = ui.number(label="Or type a flutter velocity from an external tool (m/s) - always wins when set", value=s["flutter_manual_override_ms"]).classes("w-80")
+                flutter_override_source_input = ui.input(label="Source (e.g. 'ANSYS run 2026-10-01', 'AEROLAB')", value=s["flutter_manual_override_source"] or "").classes("w-80")
+
         components.button("Run all 4 cases", kind="primary", icon="play_arrow", on_click=lambda: run_cases())
         results_container = ui.column().classes("w-full mt-4")
 
         def run_cases():
-            parsed = s["load_result"].parsed_ork
+            s["payload_mass_override_kg"] = payload_override_input.value
+            s["flutter_shear_modulus_pa"] = shear_modulus_input.value
+            s["flutter_shear_modulus_source"] = material_select.value
+            s["flutter_manual_override_ms"] = flutter_override_input.value
+            s["flutter_manual_override_source"] = flutter_override_source_input.value
+
+            payload_mass_kg = (
+                payload_override_input.value if payload_override_input.value
+                else sum(pm.mass for pm in parsed.point_masses if pm.name in s["payload_component_names"])
+            )
+
             results = rcsm_cases.run_all_cases(
                 parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                 s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
@@ -42,7 +98,18 @@ def rcsm_case_page():
 
             category = rcsm.CATEGORIES[category_select.value]
             nominal = results["Nominal"]
-            compliance_rows = rcsm.check_compliance(category, nominal.flight, nominal.flight.rocket, payload_mass_kg=1.0) if nominal.flight else []
+            flutter_result = None
+            if nominal.flight is not None:
+                env = nominal.flight.env
+                flutter_result = flutter.worst_case_flutter(
+                    parsed, env.speed_of_sound(env.elevation), env.pressure(env.elevation),
+                    shear_modulus_pa=shear_modulus_input.value, shear_modulus_source=material_select.value,
+                    manual_override_ms=flutter_override_input.value or None, manual_override_source=flutter_override_source_input.value or None,
+                )
+            compliance_rows = rcsm.check_compliance(
+                category, nominal.flight, nominal.flight.rocket, payload_mass_kg=payload_mass_kg,
+                fin_flutter_velocity=flutter_result.flutter_velocity_ms if flutter_result else None,
+            ) if nominal.flight else []
             s["compliance_rows"] = compliance_rows
 
             results_container.clear()
@@ -71,4 +138,11 @@ def rcsm_case_page():
                                 ui.label(f"{rule} - {check}").classes("text-sm font-medium")
                                 ui.label(detail).classes("text-xs").style("color: var(--bup-muted)")
                             components.status_chip(status, kind if kind != "neutral" else "neutral")
+                    if flutter_result is not None:
+                        ui.label(
+                            f"Flutter velocity used above: {flutter_result.flutter_velocity_ms:.1f} m/s "
+                            f"({flutter_result.source}" +
+                            (f", G={flutter_result.shear_modulus_pa/1e9:.2f} GPa ({flutter_result.shear_modulus_source})" if flutter_result.shear_modulus_pa else "") +
+                            ")"
+                        ).classes("text-xs mt-2").style("color: var(--bup-muted)")
             components.finish_motion()

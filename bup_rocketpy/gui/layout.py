@@ -17,6 +17,7 @@ PAGES = [
     ("/rocket", "architecture", "Rocket"),
     ("/montecarlo", "scatter_plot", "Monte Carlo"),
     ("/rcsm", "checklist", "RCSM Cases"),
+    ("/compare-designs", "compare_arrows", "Compare Designs"),
     ("/analysis", "insights", "Analysis"),
     ("/history", "history", "History"),
     ("/exports", "download", "Exports"),

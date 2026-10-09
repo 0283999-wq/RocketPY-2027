@@ -172,7 +172,7 @@ def check_compliance(category, flight, rocket, payload_mass_kg, fin_flutter_velo
         else:
             rows.append(("STR 6.3.2", "Fin flutter velocity >= 1.5x max speed", "FAIL", f"{margin:.2f}x"))
     else:
-        rows.append(("STR 6.3.2", "Fin flutter velocity >= 1.5x max speed", "WARN", "flutter velocity not computed - pass fin_flutter_velocity"))
+        rows.append(("STR 6.3.2", "Fin flutter velocity >= 1.5x max speed", "WARN", "flutter velocity not computed for this rocket (no fins parsed, or no shear modulus available) - see bup_rocketpy.flutter"))
 
     return rows
 

@@ -295,8 +295,9 @@ def simulate_page():
             # case results next to the new rocket's geometry until the user
             # re-ran Simulate, a subtler recurrence of crash (e) found via
             # the Section 4 e2e test's second-.ork screenshot.
-            for key in ("sim_result", "dry_mass_kg", "dry_cg_m", "mass_source", "case_results", "compliance_rows", "mc_result", "mc_uncertainties", "weathercocking_result"):
+            for key in ("sim_result", "dry_mass_kg", "dry_cg_m", "mass_source", "case_results", "compliance_rows", "mc_result", "mc_uncertainties", "weathercocking_result", "payload_mass_override_kg", "flutter_manual_override_ms", "flutter_manual_override_source"):
                 s[key] = None
+            s["payload_component_names"] = []  # 2026-10-09 review item 8: a different rocket has different components - never carry over the previous one's payload checkboxes
             results_container.clear()
             if result.simulation_name is not None:
                 simulation_name_label.set_text(f"Launch conditions, drag curve and mass/CG reference from stored simulation: \"{result.simulation_name}\"")
@@ -626,7 +627,7 @@ def main():
     # rebind that name, so every `await run.io_bound(...)` call in this
     # module would fail with "'function' object has no attribute
     # 'io_bound'" - found exactly this way, 2026-09-26 review.
-    from bup_rocketpy.gui.pages import analysis_page, design_system_page, exports_page, history_page, home_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
+    from bup_rocketpy.gui.pages import analysis_page, compare_designs_page, design_system_page, exports_page, history_page, home_page, launchday_page, montecarlo_page, rcsm_page, rocket_page, validation_page  # noqa: F401
 
     port = int(os.environ.get("BUP_ROCKETPY_PORT", "8080"))
     show = os.environ.get("BUP_ROCKETPY_SHOW", "1") != "0"
