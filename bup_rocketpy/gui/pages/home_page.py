@@ -61,7 +61,7 @@ def home_page():
         from bup_rocketpy import competition_profiles
         profile = competition_profiles.get_profile(s["competition_profile"])
 
-        components.page_header(parsed.name, f"{motor_name} - {profile.display_name}", action_label="Simulate", action_icon="rocket_launch", on_action=lambda: ui.navigate.to("/simulate"))
+        components.page_header(s["load_result"].display_name or parsed.name, f"{motor_name} - {profile.display_name}", action_label="Simulate", action_icon="rocket_launch", on_action=lambda: ui.navigate.to("/simulate"))
 
         with ui.row().classes("gap-2 flex-wrap"):
             components.status_chip(motor_name, "neutral")

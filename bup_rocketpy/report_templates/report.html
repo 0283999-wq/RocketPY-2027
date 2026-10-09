@@ -136,6 +136,9 @@
       </table>
     </div>
   </div>
+  {% if data.general_info.cd_curve_stale %}
+  <div class="callout callout-warn"><b>Cd curve may be outdated.</b> {{ data.general_info.cd_curve_freshness_note }}</div>
+  {% endif %}
   {% if data.general_info.integrator %}
   <div class="avoid-break">
     <h3 class="subsection">1.3&ensp;Simulation parameters</h3>

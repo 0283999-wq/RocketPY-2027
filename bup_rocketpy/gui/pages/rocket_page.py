@@ -85,7 +85,7 @@ def rocket_page():
             return
 
         parsed = s["load_result"].parsed_ork
-        components.page_header(parsed.name, "Side profile, dimensions and recovery configuration for the loaded vehicle.")
+        components.page_header(s["load_result"].display_name or parsed.name, "Side profile, dimensions and recovery configuration for the loaded vehicle.")
 
         # 2026-09-30 review item 2: a real .eng can simply declare the
         # wrong motor mass - shown here too, not just buried in the Load

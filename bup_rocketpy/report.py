@@ -191,11 +191,20 @@ def _general_info_block(load_result, sim_result, app_commit_hash):
         "cpu": platform.machine() or "unknown",
         "os": platform.system() or "unknown",
         "computation_time_s": sim_result.computation_time_s,
+        # 2026-10-09 review item 12/4: the REAL uploaded names + content
+        # hashes (not the tempfile path's own basename - "tmpshl83cqk.ork"
+        # meant nothing to a reader) and the fin geometry/Cd status
+        # actually used, so a reader can confirm this report reflects the
+        # file they think it does instead of trusting a possibly-stale
+        # cached title.
         "model_files": [
-            ("OpenRocket design file", os.path.basename(load_result.ork_path) if getattr(load_result, "ork_path", None) else "not recorded"),
-            ("Motor data file (.eng)", os.path.basename(load_result.eng_path) if load_result.eng_path else "not recorded"),
+            ("OpenRocket design file", f"{load_result.ork_filename or os.path.basename(load_result.ork_path)} (hash {load_result.ork_hash})" if getattr(load_result, "ork_path", None) else "not recorded"),
+            ("Motor data file (.eng)", f"{load_result.eng_filename or os.path.basename(load_result.eng_path)} (hash {load_result.eng_hash})" if load_result.eng_path else "not recorded"),
             ("Drag curve source", load_result.drag_curve_source),
+            ("Fin geometry", load_result.fin_summary or "n/a"),
         ],
+        "cd_curve_stale": getattr(load_result, "cd_curve_stale", False),
+        "cd_curve_freshness_note": getattr(load_result, "cd_curve_freshness_note", ""),
         "integrator": integrator,
     }
 
@@ -378,6 +387,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     from bup_rocketpy import barrowman, competition_profiles, translate
 
     parsed = load_result.parsed_ork
+    vehicle_display_name = getattr(load_result, "display_name", None) or parsed.name  # 2026-10-09 review item 4: the ONE name every page/report/history must show
     eng_header = load_result.parsed_eng.header
     launch = parsed.launch
 
@@ -512,14 +522,14 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         "The vehicle does NOT satisfy the RCSM's static margin requirement (FLT 4.3.5/4.3.6) throughout the ascent and should be reconfigured before flight."
     )
     text_format_data = {
-        "vehicle_name": parsed.name, "apogee_m": apogee_agl_m, "t_apogee": sim_result.time_to_apogee_s,
+        "vehicle_name": vehicle_display_name, "apogee_m": apogee_agl_m, "t_apogee": sim_result.time_to_apogee_s,
         "max_speed": max_speed, "max_mach": max_mach, "min_margin": min_margin, "max_margin": max_margin,
         "stability_word": stability_word, "stability_sentence": stability_sentence,
     }
     resolved_text = _resolve_text_blocks(report_text, text_format_data)
 
     return {
-        "mission_id": mission_id, "vehicle_name": parsed.name, "author": author or "-",
+        "mission_id": mission_id, "vehicle_name": vehicle_display_name, "author": author or "-",
         "event_name": event_name,
         "app_commit_hash": app_commit_hash, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "report_text": resolved_text,

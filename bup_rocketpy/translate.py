@@ -218,6 +218,82 @@ def component_table(parsed):
     return sorted(rows, key=lambda r: (r.position_m is None, r.position_m if r.position_m is not None else 0.0))
 
 
+def fin_summary_text(parsed):
+    """2026-10-09 review item 12: a short, human-readable fingerprint of
+    the CURRENTLY loaded fin geometry - "every output (CSV, zip, report,
+    history entry) records... fin set summary (type, count, root/tip/
+    span/sweep or point list, thickness)". Exists so a report/CSV/history
+    row makes it immediately obvious whether it actually reflects the fin
+    design it claims to, instead of a reader having to trust a cached
+    title. Trapezoid-only for now (this reader's only supported fin
+    shape, see ork_reader.py's FinSet) - a freeform/elliptical set would
+    show up as "(unhandled tag)" in the import table, not silently
+    missing from this summary.
+    """
+    if not parsed.fins:
+        return "no fins parsed"
+    parts = []
+    for f in parsed.fins:
+        parts.append(
+            f"{f.name}: trapezoid x{f.count}, root={f.root_chord*1000:.1f}mm "
+            f"tip={f.tip_chord*1000:.1f}mm span={f.span*1000:.1f}mm "
+            f"sweep={f.sweep_length*1000:.1f}mm thickness={f.thickness*1000:.1f}mm"
+        )
+    return "; ".join(parts)
+
+
+CD_CURVE_CP_STALENESS_TOLERANCE_PCT = 2.0  # same tolerance openrocket_comparison.py already uses for CP (model-difference noise floor)
+
+
+def check_drag_curve_freshness(parsed, ork_path, simulation_name=None):
+    """2026-10-09 review item 12: "If that stored data is out of date
+    (fins changed but sims not re-run in OpenRocket) or missing, show a
+    clear warning... Detect it from the stored sim status and by
+    comparing the stored CG/CP at t=0 against the geometry you parsed."
+
+    The .ork's own <databranch> Cd curve (extract_drag_curves_from_stored_
+    sim) and its stored CP-at-Mach-0.3 both come from the SAME OpenRocket
+    run - if that run is stale (geometry edited in OpenRocket but the
+    simulation never re-run+saved before export), the stored CP will
+    disagree with a fresh hand-Barrowman CP computed from the geometry
+    actually parsed just now, even though both "look" present/valid.
+    Returns a (is_stale, message) tuple; is_stale=False with a message
+    still means "could not check" (no stored CP, or no fins to hand-
+    calculate against) - never a false "fresh" claim from missing data.
+    """
+    from bup_rocketpy import barrowman
+    from bup_rocketpy.ork_reader import parse_stored_simulation_references, pick_simulation_reference
+
+    refs = parse_stored_simulation_references(ork_path)
+    ref = pick_simulation_reference(refs, simulation_name)
+    if ref is None or ref.cp_at_mach_0_3_m is None:
+        return False, "Could not check Cd curve freshness - no stored CP-vs-Mach data in this simulation."
+
+    hand = barrowman.hand_calc_cp(parsed)
+    if hand is None:
+        return False, "Could not check Cd curve freshness - no nose/fins parsed to hand-calculate a comparison CP."
+
+    # Barrowman neglects body/transition lift, so it never matches
+    # OpenRocket's own (more complete) CP exactly - CP_TOLERANCE_PCT
+    # already captures that expected gap; staleness needs to look
+    # noticeably worse than that normal model-difference noise.
+    diff_pct = abs(hand["cp_m"] - ref.cp_at_mach_0_3_m) / abs(ref.cp_at_mach_0_3_m) * 100.0 if ref.cp_at_mach_0_3_m else None
+    if diff_pct is None:
+        return False, "Could not check Cd curve freshness - stored CP is zero."
+    stale_threshold = CD_CURVE_CP_STALENESS_TOLERANCE_PCT * 3  # clearly beyond normal Barrowman-vs-OpenRocket model noise, not a tight false-positive trigger
+    if diff_pct > stale_threshold:
+        return True, (
+            f"Cd curve may be from an OUTDATED OpenRocket simulation: the stored CP at Mach 0.3 "
+            f"({ref.cp_at_mach_0_3_m:.3f} m) disagrees with the geometry just parsed from this .ork "
+            f"(hand-calculated CP {hand['cp_m']:.3f} m, {diff_pct:+.1f}% off - well beyond the "
+            f"~{CD_CURVE_CP_STALENESS_TOLERANCE_PCT:.0f}% gap expected from the Barrowman-vs-OpenRocket "
+            "model difference alone). If the fins (or other lifting surfaces) were edited in OpenRocket "
+            "after this simulation was last run, re-run and save all simulations in OpenRocket, then "
+            "reload this .ork - the drag curve and stability numbers below may otherwise reflect the OLD design."
+        )
+    return False, f"Cd curve consistent with the parsed geometry (hand-calc CP {diff_pct:+.1f}% from the stored OpenRocket CP, within the expected model-difference range)."
+
+
 def estimate_dry_mass_and_cg(parsed):
     """Returns MassEstimate for the whole dry (no-motor) airframe.
 

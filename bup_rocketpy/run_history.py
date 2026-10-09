@@ -163,10 +163,13 @@ def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path
     power_on_saved = bool(load_result.power_on_drag_path and os.path.exists(load_result.power_on_drag_path))
     record = RunRecord(
         run_id=run_id, timestamp=datetime.now(timezone.utc).isoformat(),
-        vehicle_name=load_result.parsed_ork.name,
+        vehicle_name=getattr(load_result, "display_name", None) or load_result.parsed_ork.name,
         # ork_path is the actual uploaded file's path - load_result.parsed_ork.name
         # is the ROCKET's declared name from inside the .ork's own XML, not a
         # filename at all (a pre-existing display bug this also fixes).
+        # display_name (2026-10-09 review item 4) additionally falls back to
+        # the uploaded file's own name when the .ork never had a custom
+        # rocket name set in OpenRocket ("Rocket", its own new-doc default).
         ork_filename=ork_filename or (os.path.basename(ork_path) if ork_path else "unknown.ork"),
         eng_filename=eng_filename or os.path.basename(load_result.eng_path),
         dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m,

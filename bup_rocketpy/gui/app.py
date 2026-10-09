@@ -102,13 +102,24 @@ def simulate_page():
                     _render_sim_selector()
                     extra = f" - {len(sim_names)} stored simulations found, pick one below" if len(sim_names) > 1 else ""
                     ui.notify(f"Loaded {name}{extra}")
-                components.dropzone(".ork file", on_ork_upload, accept=".ork")
+                    # 2026-10-09 review item 12: Quasar's QUploader keeps
+                    # every uploaded file in its own visual queue (it does
+                    # NOT clear itself after a successful upload) - a 2nd
+                    # .ork upload in the same session left BOTH the old and
+                    # new file listed, which is confusing to read at a
+                    # glance even though s["ork_path"] itself does update
+                    # correctly underneath. Reset the widget so only the
+                    # file just loaded ever shows, removing any doubt about
+                    # which one is actually active.
+                    ork_upload.reset()
+                ork_upload = components.dropzone(".ork file", on_ork_upload, accept=".ork")
 
                 async def on_eng_upload(e):
                     s["eng_path"], name = await _save_upload(e, ".eng")
                     s["eng_filename"] = name
                     ui.notify(f"Loaded {name}")
-                components.dropzone(".eng file", on_eng_upload, accept=".eng")
+                    eng_upload.reset()
+                eng_upload = components.dropzone(".eng file", on_eng_upload, accept=".eng")
 
             sim_selector_container = ui.column().classes("w-full")
 
@@ -243,6 +254,7 @@ def simulate_page():
             ui.label("2. Review import").classes("font-bold")
             simulation_name_label = ui.label("")
             drag_source_label = ui.label("")
+            load_stamp_container = ui.column().classes("w-full")
             import_table_container = ui.column().classes("w-full")
 
         with components.card(classes="w-full"):
@@ -273,9 +285,10 @@ def simulate_page():
                 s["ork_path"], s["eng_path"],
                 power_off_drag_path=s["drag_off_path"], power_on_drag_path=s["drag_on_path"],
                 outputs_dir=OUTPUTS_DIR, simulation_name=s["selected_simulation_name"],
+                ork_filename=s["ork_filename"], eng_filename=s["eng_filename"],
             )
             s["load_result"] = result
-            s["vehicle_name"] = result.parsed_ork.name
+            s["vehicle_name"] = result.display_name  # 2026-10-09 review item 4: the ONE name every page/report/history must show - see LoadResult.display_name's own note
             # Loading a NEW .ork invalidates every downstream result from
             # the PREVIOUS rocket - without this, the Rocket page (and MC/
             # RCSM/Analysis) kept showing the old rocket's dry_cg_m/margin/
@@ -292,6 +305,22 @@ def simulate_page():
             else:
                 simulation_name_label.set_text("")
             drag_source_label.set_text(f"Drag curve source: {result.drag_curve_source}")
+            # 2026-10-09 review item 12: "every output records file name,
+            # file hash, rocket name, fin set summary, and the Cd source" -
+            # shown right where the file was just loaded, so a stale/wrong
+            # file is visible immediately rather than trusted silently.
+            load_stamp_container.clear()
+            with load_stamp_container:
+                ui.label(
+                    f"Loaded: {result.ork_filename or os.path.basename(result.ork_path)} (hash {result.ork_hash}) + "
+                    f"{result.eng_filename or os.path.basename(result.eng_path)} (hash {result.eng_hash})  |  "
+                    f"Rocket: {s['vehicle_name']}  |  Fins: {result.fin_summary}"
+                ).classes("text-xs font-mono").style("color: var(--bup-muted)")
+                if result.cd_curve_stale:
+                    with components.card(classes="w-full mt-2") as c:
+                        c.style("border-left: 4px solid var(--bup-warning)")
+                        ui.label("Cd curve may be outdated").classes("font-bold").style("color: var(--bup-warning)")
+                        ui.label(result.cd_curve_freshness_note).classes("text-sm")
             import_table_container.clear()
             with import_table_container:
                 ui.label("Imported / approximated / ignored components (nothing is half-imported silently):").classes("font-bold mt-2")

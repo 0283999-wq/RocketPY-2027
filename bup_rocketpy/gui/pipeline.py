@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 from bup_rocketpy import translate
 from bup_rocketpy.motor_reader import read_eng
 from bup_rocketpy.ork_reader import components_outside_airframe, extract_drag_curves_from_stored_sim, list_simulation_names, read_ork
+# 2026-10-09 review item 12: reuses run_history's own file-hash helper
+# (it already existed, for the exact same "reproducibility record"
+# purpose) rather than a second copy of the same sha256-truncate logic -
+# CLAUDE.md's "never let two code paths disagree" rule.
+from bup_rocketpy.run_history import _file_hash
 
 # 2026-09-26 review item 2: the wall-clock backstop app.py's do_simulate
 # races Simulate against - see its own comment for why this can only
@@ -57,6 +62,22 @@ class LoadResult:
     motor_mismatch: object = None  # translate.MotorMassMismatch or None - 2026-09-30 review item 2, also read by the Rocket page and report (not just the import table)
     simulation_name: str = None  # 2026-10-05 review: which of the .ork's stored simulations (e.g. Pachuca/LASC/IREC) this load used - None means "the first one in the file" (the original, unchanged default). Threaded into every other "which stored sim" lookup (motor mass mismatch, drag curve, best mass/CG estimate, OpenRocket comparison) so they can never silently disagree about which site/mission this load represents.
     available_simulation_names: list = field(default_factory=list)  # every stored simulation name in the .ork, in file order - lets the Simulate page offer a picker when there's more than one
+    # 2026-10-09 review item 12: "I loaded Major Tom A... then loaded
+    # Major Tom B... the app is not using the newly loaded rocket" - ork_path/
+    # eng_path are this app's own tempfile paths (see _save_upload in
+    # app.py), useless to a human trying to confirm which real file a
+    # result reflects. These 6 fields are that confirmation, carried
+    # through to every output (CSV, zip, report, history entry) per this
+    # review's explicit requirement, so a stale/wrong-file result is
+    # visible on the output itself instead of silently trusted.
+    ork_filename: str = None  # the REAL uploaded .ork name (app.py's own s["ork_filename"]), not the tempfile basename
+    eng_filename: str = None
+    ork_hash: str = None  # sha256 of the .ork's bytes, first 12 hex chars - changes iff the file's CONTENT changes, unlike a filename a user might reuse
+    eng_hash: str = None
+    fin_summary: str = ""  # translate.fin_summary_text(parsed_ork) - a human-checkable fingerprint of the fin geometry actually parsed
+    cd_curve_stale: bool = False  # translate.check_drag_curve_freshness() - True if the stored OpenRocket simulation's own CP disagrees with the geometry just parsed (fins edited but sims not re-run+saved in OpenRocket)
+    cd_curve_freshness_note: str = ""  # always set (explains why staleness could/couldn't be checked, or that it checked out fine) - never silently blank
+    display_name: str = None  # parsed_ork.name, or ork_filename (no extension) when the .ork never had a custom name set in OpenRocket ("Rocket") - the ONE name every page/report/history entry must show, see this field's own note in load_files()
 
 
 @dataclass
@@ -104,7 +125,7 @@ class SimResult:
     descent_mass_kg: float = None  # dry rocket + motor DRY (casing) - what the recovery system actually descends under after the propellant is spent
 
 
-def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, simulation_name=None):
+def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, simulation_name=None, ork_filename=None, eng_filename=None):
     """Parses the .ork + .eng, and resolves a drag curve per CLAUDE.md Sec
     4.2's preference order: (1) explicit CSV paths if the caller supplied
     them, (2) the .ork's own stored simulation data, (3) placeholder with a
@@ -120,10 +141,37 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
     silently default to the first simulation in the file. None (the
     default) keeps that original behavior, so loading with no selection
     is unchanged. See ork_reader.list_simulation_names() to list what a
-    given .ork actually has."""
+    given .ork actually has.
+
+    ork_filename/eng_filename (2026-10-09 review item 12): the REAL
+    uploaded file name (app.py only ever has a tempfile path to pass as
+    ork_path/eng_path - see LoadResult.ork_path's own note). Threaded
+    all the way into LoadResult, and from there into the report/CSV/
+    history outputs, specifically so a mismatch between "the file I just
+    loaded" and "what the report says it used" is visible instead of
+    silently trusted - the whole point of this review's "every output
+    records file name, file hash, rocket name, fin set summary, Cd
+    source" requirement."""
     parsed_ork = read_ork(ork_path, simulation_name=simulation_name)
     available_simulation_names = list_simulation_names(ork_path)
     parsed_eng = read_eng(eng_path)
+    ork_hash = _file_hash(ork_path)
+    eng_hash = _file_hash(eng_path)
+    fin_summary = translate.fin_summary_text(parsed_ork)
+    cd_curve_stale, cd_curve_freshness_note = translate.check_drag_curve_freshness(parsed_ork, ork_path, simulation_name=simulation_name)
+    # 2026-10-09 review item 4: "the Rocket page shows 'Rocket' for one
+    # file... Use the .ork <rocket><name>; if it is OpenRocket's default
+    # 'Rocket', use the file name without extension. The report, history,
+    # exports and header chip must always use the name of the CURRENTLY
+    # loaded file." Computed ONCE here (not separately by each page/report/
+    # history call site, which is how this bug happened - 5 different
+    # places each read parsed_ork.name straight, none applying the
+    # fallback) so there is exactly one answer to "what is this rocket
+    # called", unified the same way dry_mass_kg/dry_cg_m already are.
+    if parsed_ork.name == "Rocket" and ork_filename:
+        display_name = os.path.splitext(ork_filename)[0]
+    else:
+        display_name = parsed_ork.name
 
     curve_warnings = []
     if power_off_drag_path and power_on_drag_path:
@@ -160,10 +208,10 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
                 f.write("\n".join(f"{m},{c}" for m, c in boost))
             with open(power_off_drag_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(f"{m},{c}" for m, c in coast))
-            source = "the .ork's own stored simulation data (CLAUDE.md Sec 4.2 top preference)"
+            source = "the .ork's own stored simulation data"
         else:
             power_off_drag_path = power_on_drag_path = None
-            source = "NONE AVAILABLE - this .ork has no stored simulation with drag data and no CSV was supplied. A constant placeholder Cd will be used if you simulate anyway (low confidence, CLAUDE.md Sec 4.2 point 4)."
+            source = "NONE AVAILABLE - this .ork has no stored simulation with drag data and no CSV was supplied. A constant placeholder Cd will be used if you simulate anyway (low confidence)."
 
     import_table = [(row.component, row.status, row.detail) for row in parsed_ork.import_log]
     for w in parsed_eng.warnings:
@@ -193,6 +241,9 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         power_off_drag_path=power_off_drag_path, power_on_drag_path=power_on_drag_path,
         import_table=import_table, ork_path=ork_path, motor_mismatch=motor_mismatch,
         simulation_name=simulation_name, available_simulation_names=available_simulation_names,
+        ork_filename=ork_filename, eng_filename=eng_filename, ork_hash=ork_hash, eng_hash=eng_hash,
+        fin_summary=fin_summary, cd_curve_stale=cd_curve_stale, cd_curve_freshness_note=cd_curve_freshness_note,
+        display_name=display_name,
     )
 
 
@@ -481,6 +532,16 @@ class SimulationComparisonRow:
     rail_exit_velocity_ms: float = None
     min_static_margin_cal: float = None
     is_stable: bool = None
+    # 2026-10-09 review item 12: "every output records: file name, file
+    # hash, rocket name, fin set summary... and the Cd source" - same
+    # .ork across every row of one comparison, but carried per-row so a
+    # reader never has to trust that two CSVs weren't accidentally
+    # concatenated from different files, and so a stale-looking apogee
+    # can be checked against its own fin geometry right there in the row.
+    ork_filename: str = None
+    ork_hash: str = None
+    fin_summary: str = None
+    cd_curve_stale: bool = False
 
 
 def export_comparison_csv(rows, csv_path):
@@ -494,7 +555,8 @@ def export_comparison_csv(rows, csv_path):
     import csv
     fieldnames = ["name", "success", "error", "site_altitude_m_msl", "latitude", "longitude",
                   "apogee_agl_m", "max_speed_ms", "max_mach", "max_acceleration_ms2",
-                  "rail_exit_velocity_ms", "min_static_margin_cal", "is_stable"]
+                  "rail_exit_velocity_ms", "min_static_margin_cal", "is_stable",
+                  "ork_filename", "ork_hash", "fin_summary", "cd_curve_stale"]
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
@@ -504,6 +566,7 @@ def export_comparison_csv(rows, csv_path):
                 r.altitude_m, r.latitude, r.longitude,
                 r.apogee_agl_m, r.max_speed_ms, r.max_mach, r.max_acceleration_ms2,
                 r.rail_exit_velocity_ms, r.min_static_margin_cal, r.is_stable,
+                r.ork_filename or "", r.ork_hash or "", r.fin_summary or "", r.cd_curve_stale,
             ])
     return csv_path
 
@@ -557,6 +620,7 @@ def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_
                 apogee_agl_m=sim.apogee_agl_m, max_speed_ms=sim.max_speed_ms, max_mach=sim.max_mach,
                 max_acceleration_ms2=sim.max_acceleration_ms2, rail_exit_velocity_ms=sim.rail_exit_velocity_ms,
                 min_static_margin_cal=sim.min_static_margin_cal, is_stable=sim.is_stable,
+                ork_filename=lr.ork_filename, ork_hash=lr.ork_hash, fin_summary=lr.fin_summary, cd_curve_stale=lr.cd_curve_stale,
             ))
         except Exception as e:  # one bad site must not take down the whole comparison
             rows.append(SimulationComparisonRow(name=name, success=False, error=str(e)))

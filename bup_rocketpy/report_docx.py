@@ -22,6 +22,7 @@ WINE_RGB = RGBColor(0x8A, 0x15, 0x38)
 GOLD_RGB = RGBColor(0xB7, 0x93, 0x57)
 INK_RGB = RGBColor(0x21, 0x1A, 0x16)
 MUTED_RGB = RGBColor(0x6B, 0x62, 0x59)
+WARNING_RGB = RGBColor(0x95, 0x59, 0x00)  # matches report_html.py's WARNING="#955900"
 
 
 def _add_toc_field(doc):
@@ -225,6 +226,11 @@ def generate_docx(output_path, data):
         ])
         _style_heading(doc, "1.2 Model information", 2)
         kv_table(gi["model_files"])
+        if gi.get("cd_curve_stale"):
+            p = doc.add_paragraph()
+            run = p.add_run(f"Cd curve may be outdated: {gi['cd_curve_freshness_note']}")
+            run.bold = True
+            run.font.color.rgb = WARNING_RGB
         if gi["integrator"]:
             _style_heading(doc, "1.3 Simulation parameters", 2)
             integ = gi["integrator"]
