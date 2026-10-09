@@ -70,15 +70,26 @@ def check_compliance(category, flight, rocket, payload_mass_kg, fin_flutter_velo
     margins = [flight.stability_margin(t) for t in ascent_times] or [flight.stability_margin(flight.apogee_time)]
     min_margin = min(margins)
     max_margin = max(margins)
-    if min_margin >= MIN_STATIC_MARGIN_CAL:
-        rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "PASS", f"min {min_margin:.2f} cal"))
+    # 2026-10-09 review item 1: judge FLT 4.3.5/4.3.6 on whichever of
+    # "static margin (Mach 0)" and "stability incl. Mach effects"
+    # (rocketpy's own flight.stability_margin, which already varies CP
+    # with the actual flight Mach) is more conservative at each end of
+    # the 1.5-4 cal band - see pipeline.run_simulation()'s own note on
+    # the same distinction for the KPI numbers.
+    margins_mach0 = [flight.rocket.stability_margin(0, t) for t in ascent_times] or [flight.rocket.stability_margin(0, flight.apogee_time)]
+    min_margin_mach0 = min(margins_mach0)
+    max_margin_mach0 = max(margins_mach0)
+    conservative_min = min(min_margin, min_margin_mach0)
+    conservative_max = max(max_margin, max_margin_mach0)
+    if conservative_min >= MIN_STATIC_MARGIN_CAL:
+        rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "PASS", f"min {conservative_min:.2f} cal (Mach-varying: {min_margin:.2f}, Mach 0: {min_margin_mach0:.2f})"))
     else:
-        rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "FAIL", f"min {min_margin:.2f} cal"))
+        rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "FAIL", f"min {conservative_min:.2f} cal (Mach-varying: {min_margin:.2f}, Mach 0: {min_margin_mach0:.2f})"))
 
-    if max_margin < MAX_STATIC_MARGIN_CAL:
-        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "PASS", f"max {max_margin:.2f} cal"))
+    if conservative_max < MAX_STATIC_MARGIN_CAL:
+        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "PASS", f"max {conservative_max:.2f} cal (Mach-varying: {max_margin:.2f}, Mach 0: {max_margin_mach0:.2f})"))
     else:
-        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "FAIL", f"max {max_margin:.2f} cal"))
+        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "FAIL", f"max {conservative_max:.2f} cal (Mach-varying: {max_margin:.2f}, Mach 0: {max_margin_mach0:.2f})"))
 
     # PRS 5.1.4 says "initial thrust... or average thrust, whichever is
     # greater" - a RASP curve's literal t=0 sample is 0 N by convention, so

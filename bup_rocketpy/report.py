@@ -503,8 +503,10 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         (".ork design file", os.path.basename(load_result.ork_path) if getattr(load_result, "ork_path", None) else "not recorded"),
         (".eng motor file", os.path.basename(load_result.eng_path) if load_result.eng_path else "not recorded"),
         ("Drag curve source", load_result.drag_curve_source),
-        ("Flight data CSV", os.path.basename(sim_result.csv_path) if sim_result.csv_path else "not generated"),
-        ("OpenRocket-format flight data CSV", os.path.basename(sim_result.openrocket_csv_path) if getattr(sim_result, "openrocket_csv_path", None) else "not generated"),
+        # 2026-10-09 review item 10: "CSV export = OpenRocket format
+        # only" - one row, not two (sim_result.csv_path IS the
+        # OpenRocket-format file now, see pipeline.py's run_simulation).
+        ("Flight data CSV (OpenRocket format)", os.path.basename(sim_result.csv_path) if sim_result.csv_path else "not generated"),
     ]
     if mc_result is not None:
         delivered_files.append(("Monte Carlo dispersion data", f"{mc_result.n_completed} completed trajectories"))
@@ -528,8 +530,17 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
     }
     resolved_text = _resolve_text_blocks(report_text, text_format_data)
 
+    # 2026-10-09 review item 5: "Mission ID default empty, not 0. PDF:
+    # omit it when empty." - every header/footer/title line below used to
+    # hand-format "Mission {mission_id}" itself, which read as the
+    # literal word "Mission" with nothing after it once the default
+    # became "" instead of "0". Computed once here so every renderer
+    # (PDF template, DOCX) shows the same thing: "Mission 44 - " when
+    # set, nothing at all when not.
+    mission_id_phrase = f"Mission {mission_id} - " if mission_id else ""
+
     return {
-        "mission_id": mission_id, "vehicle_name": vehicle_display_name, "author": author or "-",
+        "mission_id": mission_id, "mission_id_phrase": mission_id_phrase, "vehicle_name": vehicle_display_name, "author": author or "-",
         "event_name": event_name,
         "app_commit_hash": app_commit_hash, "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "report_text": resolved_text,
@@ -538,7 +549,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
             ("Max speed", f"{sim_result.max_speed_ms:.1f} m/s"),
             ("Max Mach", f"{sim_result.max_mach:.3f}"),
             ("Max boost acceleration", f"{sim_result.max_acceleration_ms2:.1f} m/s2"),
-            ("Rail exit velocity", f"{sim_result.rail_exit_velocity_ms:.1f} m/s"),
+            ("Rail exit velocity", f"{sim_result.rail_exit_velocity_ms:.1f} m/s (RocketPy definition, used by LASC judges - see Section 6.2 for OpenRocket's own full-rod-length number)"),
             ("Max-Q", f"{sim_result.max_dynamic_pressure_pa/1000.0:.2f} kPa @ t={sim_result.max_dynamic_pressure_time_s:.1f}s" if sim_result.max_dynamic_pressure_pa else "-"),
             ("Time to apogee", f"{sim_result.time_to_apogee_s:.1f} s"),
             ("Flight time", f"{sim_result.flight_time_s:.1f} s"),
@@ -565,6 +576,7 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
             "motor_dry_kg": sim_result.motor_dry_kg, "liftoff_mass_kg": sim_result.liftoff_mass_kg,
             "descent_mass_kg": sim_result.descent_mass_kg,
             "min_margin_cal": sim_result.min_static_margin_cal, "max_margin_cal": sim_result.max_static_margin_cal,
+            "min_margin_mach0_cal": sim_result.min_static_margin_mach0_cal, "max_margin_mach0_cal": sim_result.max_static_margin_mach0_cal,
             "is_stable": sim_result.is_stable,
             "parachutes": [(c.name, c.diameter, math.pi * (c.diameter / 2.0) ** 2, c.cd) for c in parsed.parachutes],
         },
@@ -706,9 +718,17 @@ def _prose_stability(data, fig_margin, fig_barrowman=None):
     text = (
         f"Figure {fig_margin} shows the static margin through the flight against the RCSM's required "
         f"1.5-4.0 cal band (FLT 4.3.5/4.3.6, shaded). The minimum margin is {v['min_margin_cal']:.2f} cal "
-        f"and the maximum is {v['max_margin_cal']:.2f} cal, so the vehicle is "
+        f"and the maximum is {v['max_margin_cal']:.2f} cal (RocketPy's own model, which already varies the "
+        f"center of pressure with the actual flight Mach number), so the vehicle is "
         f"{'compliant' if v['is_stable'] else 'NOT compliant'} throughout the ascent."
     )
+    if v.get("min_margin_mach0_cal") is not None:
+        text += (
+            f" Forcing Mach 0 into that same model instead (ignoring the real flight Mach entirely) gives a "
+            f"minimum of {v['min_margin_mach0_cal']:.2f} cal and a maximum of {v['max_margin_mach0_cal']:.2f} cal - "
+            "shown because the two can disagree by a safety-relevant amount; the compliance check above is judged "
+            "on whichever of the two is more conservative at each end of the band."
+        )
     if bw is not None:
         if bw.get("rocketpy_cp_m") is not None and bw.get("diff_pct") is not None:
             text += (

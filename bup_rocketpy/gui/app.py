@@ -188,7 +188,15 @@ def simulate_page():
                         with compare_all_results:
                             csv_path = os.path.join(OUTPUTS_DIR, "compare_all_simulations.csv")
                             pipeline.export_comparison_csv(rows, csv_path)
-                            ui.link("Download CSV (all rows above)", f"/outputs/{os.path.basename(csv_path)}").classes("mb-2")
+                            ui.link("Download summary CSV (all rows above, one line per site)", f"/outputs/{os.path.basename(csv_path)}").classes("mb-2")
+                            # 2026-10-09 review item 10: "per-sim CSV zip
+                            # for compare-all" - the summary CSV above has
+                            # only the headline numbers; this is every
+                            # site's own FULL flight-data CSV (OpenRocket
+                            # format), one file per site, in one zip.
+                            zip_path = os.path.join(OUTPUTS_DIR, "compare_all_simulations_flight_data.zip")
+                            pipeline.export_comparison_zip(rows, zip_path)
+                            ui.link("Download per-site flight data (zip, one OpenRocket-format CSV per site)", f"/outputs/{os.path.basename(zip_path)}").classes("mb-2")
                             components.data_table(
                                 columns=[
                                     {"name": "name", "label": "Simulation", "field": "name"},
@@ -460,16 +468,26 @@ def simulate_page():
                 components.status_chip(sim.validation_summary_text, sim.validation_summary_kind).classes("cursor-pointer").on("click", lambda: ui.navigate.to("/validation")).tooltip("Open the Validation page for the full breakdown")
                 with ui.grid(columns=4).classes("gap-3 mt-2 w-full"):
                     kpi_i = 0
-                    for label, target, unit, decimals, good in [
-                        ("Apogee AGL", sim.apogee_agl_m, "m", 1, True),
-                        ("Max speed", sim.max_speed_ms, "m/s", 1, True),
-                        ("Max Mach", sim.max_mach, "", 3, True),
-                        ("Max acceleration (boost)", sim.max_acceleration_ms2, "m/s2", 1, True),
-                        ("Rail exit velocity", sim.rail_exit_velocity_ms, "m/s", 1, sim.rail_exit_velocity_ms >= 30),
-                        ("Flight time", sim.flight_time_s, "s", 1, True),
-                        ("Min static margin (rail exit-apogee)", sim.min_static_margin_cal, "cal", 2, sim.is_stable),
+                    for label, target, unit, decimals, good, caption in [
+                        ("Apogee AGL", sim.apogee_agl_m, "m", 1, True, None),
+                        ("Max speed", sim.max_speed_ms, "m/s", 1, True, None),
+                        ("Max Mach", sim.max_mach, "", 3, True, None),
+                        ("Max acceleration (boost)", sim.max_acceleration_ms2, "m/s2", 1, True, None),
+                        # 2026-10-09 review item 1: "Show both definitions
+                        # next to the number ('RocketPy definition, used
+                        # by LASC judges')." - OpenRocket's own number
+                        # (full rod length, not upper-rail-button) is in
+                        # the Rocket page's OpenRocket comparison table.
+                        ("Rail exit velocity", sim.rail_exit_velocity_ms, "m/s", 1, sim.rail_exit_velocity_ms >= 30, "RocketPy definition (upper rail button clears the rail) - used by LASC judges. See the Rocket page for OpenRocket's own full-rod-length number."),
+                        ("Flight time", sim.flight_time_s, "s", 1, True, None),
+                        # "static margin (Mach 0)" vs "stability incl.
+                        # Mach effects" - this KPI is the latter (what it
+                        # always was); the caption points at where both
+                        # numbers live side by side instead of cramming
+                        # a second value into one KPI card.
+                        ("Min static margin (rail exit-apogee)", sim.min_static_margin_cal, "cal", 2, sim.is_stable, f"Mach-varying model. Mach-0 minimum: {sim.min_static_margin_mach0_cal:.2f} cal - Stable? above already judges FLT 4.3.5 on whichever is lower." if sim.min_static_margin_mach0_cal is not None else None),
                     ]:
-                        components.kpi_card(label, None, unit, status="good" if good else "bad", countup_target=target, decimals=decimals, stagger_index=kpi_i)
+                        components.kpi_card(label, None, unit, status="good" if good else "bad", countup_target=target, decimals=decimals, stagger_index=kpi_i, caption=caption)
                         kpi_i += 1
                     components.kpi_card("Stable? (FLT 4.3.5: 1.5-4 cal)", "YES" if sim.is_stable else "NO", "", status="good" if sim.is_stable else "bad", stagger_index=kpi_i)
                     kpi_i += 1
@@ -572,6 +590,7 @@ def simulate_page():
                 fig = rocket_drawing.draw_side_profile(
                     s["load_result"].parsed_ork, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
                     static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+                    title=s["load_result"].display_name,  # 2026-10-09 review item 4: never the raw, possibly-"Rocket"-placeholder parsed.name
                 )
                 rocket_png = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_profile")
                 fig.savefig(rocket_png)
@@ -608,7 +627,7 @@ def simulate_page():
                                 ui.image(path).classes("w-full max-w-3xl")
                                 ui.link("Download PNG", f"/outputs/{os.path.basename(path)}")
                 if sim.csv_path:
-                    ui.link("Download flight data CSV", f"/outputs/{os.path.basename(sim.csv_path)}")
+                    ui.link("Download flight data CSV (OpenRocket format)", f"/outputs/{os.path.basename(sim.csv_path)}")
             components.finish_motion()
 
         with ui.row():
@@ -643,7 +662,12 @@ def main():
     # to 30s so a brief stall reconnects instead of dropping the session;
     # this does NOT change how long a truly closed browser tab is kept
     # around, only how patient the server is with a flaky/delayed socket.
-    ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port, reconnect_timeout=30.0)
+    # 2026-10-09 review item 6: app.storage.user (layout.py's dark-mode
+    # persistence) requires a storage_secret or NiceGUI refuses to start.
+    # A fixed local value is fine here - single-operator desktop tool,
+    # never exposed past localhost (see start.bat), nothing multi-tenant
+    # to protect the cookie from.
+    ui.run(title="Beyond UP RocketPy", reload=False, show=show, port=port, reconnect_timeout=30.0, storage_secret="bup-rocketpy-local-desktop-tool")
 
 
 # 2026-09-30 review item 1: NOT "__mp_main__" (nicegui's own quickstart

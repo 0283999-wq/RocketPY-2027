@@ -65,21 +65,60 @@ def _cone_shell_mass_cg(length, radius, density, fore_m, thickness_assumed=0.002
     return mass, cg, i_axial, i_transverse
 
 
+def _polygon_area_and_centroid_x(points):
+    """Standard signed-polygon-area/centroid formula (shoelace), applied to
+    a fin's own (x, y) outline (x = chordwise from root LE, y = spanwise) -
+    2026-10-09 review item 2's freeform fin support. Works for ANY simple
+    polygon, closing the last point back to the first implicitly (the same
+    convention OpenRocket's own <finpoints> list uses). Returns
+    (area, x_centroid); area is returned positive regardless of point
+    winding order."""
+    n = len(points)
+    signed_area = 0.0
+    cx = 0.0
+    for i in range(n):
+        x0, y0 = points[i]
+        x1, y1 = points[(i + 1) % n]
+        cross = x0 * y1 - x1 * y0
+        signed_area += cross
+        cx += (x0 + x1) * cross
+    signed_area *= 0.5
+    if abs(signed_area) < 1e-12:
+        return 0.0, sum(p[0] for p in points) / n if n else 0.0
+    cx = cx / (6.0 * signed_area)
+    return abs(signed_area), cx
+
+
 def _fin_set_mass_cg(fin, body_radius):
-    """Flat trapezoidal fin, uniform thickness, planform area from the
-    stored root/tip/span/sweep - CG at the standard trapezoid centroid."""
+    """Flat fin, uniform thickness. Planform area/centroid depend on
+    fin.shape (2026-10-09 review item 2):
+      - "trapezoid" (default): stored root/tip/span/sweep, standard
+        trapezoid centroid formula - UNCHANGED from before item 2.
+      - "elliptical": half-ellipse area pi/4 * root_chord * span (verified
+        against OpenRocket's own EllipticalFinSet.java point generator,
+        which traces exactly this half-ellipse) - symmetric about the
+        midchord, so x_bar = root_chord / 2 exactly.
+      - "freeform": real polygon area/centroid from fin.fin_points via
+        _polygon_area_and_centroid_x - no shape assumption at all."""
     if fin.material_density is None:
         return 0.0, fin.position_m, 0.0, 0.0
-    area_one = 0.5 * (fin.root_chord + fin.tip_chord) * fin.span
+
+    if fin.shape == "elliptical":
+        area_one = math.pi / 4.0 * fin.root_chord * fin.span
+        x_bar = fin.root_chord / 2.0
+    elif fin.shape == "freeform" and fin.fin_points:
+        area_one, x_bar = _polygon_area_and_centroid_x(fin.fin_points)
+    else:
+        area_one = 0.5 * (fin.root_chord + fin.tip_chord) * fin.span
+        # trapezoid centroid along the chordwise (axial) direction, from root-chord LE
+        rc, tc, sw = fin.root_chord, fin.tip_chord, fin.sweep_length
+        if (rc + tc) > 1e-9:
+            x_bar = sw * (2 * tc + rc) / (3 * (rc + tc)) + rc * (rc + 2 * tc) / (3 * (rc + tc))
+        else:
+            x_bar = rc / 2.0
+
     mass_one = area_one * fin.thickness * fin.material_density
     mass = mass_one * fin.count
-    # trapezoid centroid, measured from root-chord leading edge along the axial direction
-    # trapezoid centroid along the chordwise (axial) direction, from root-chord LE
-    rc, tc, sw = fin.root_chord, fin.tip_chord, fin.sweep_length
-    if (rc + tc) > 1e-9:
-        x_bar = sw * (2 * tc + rc) / (3 * (rc + tc)) + rc * (rc + 2 * tc) / (3 * (rc + tc))
-    else:
-        x_bar = rc / 2.0
     cg = fin.position_m + x_bar
     r_eff = body_radius + fin.span / 2.0
     i_axial = mass * r_eff**2  # fins as point masses at mean span radius, about roll axis
@@ -131,10 +170,17 @@ def _geometric_components(parsed):
     # for PROMETEO's own, more than any other single component here) and
     # was not counted at all before ork_reader.py started recording its
     # <overridemass> - see that file's parachute-branch comment.
+    # 2026-10-09 review item 3: falls back to the parachute's own
+    # computed_mass_kg (ork_reader.py's canopy-area + line-length
+    # estimate, OpenRocket's own formula) when there's no <overridemass> -
+    # previously a parachute with no override contributed NOTHING to the
+    # dry mass/CG at all, even though it has real, estimable mass.
     for chute in parsed.parachutes:
         override = per_component_override.get(chute.name)
         if override is not None:
             components.append((override, chute.position_m, 0.0, 0.0))
+        elif chute.computed_mass_kg is not None:
+            components.append((chute.computed_mass_kg, chute.position_m, 0.0, 0.0))
     return components
 
 
@@ -207,13 +253,34 @@ def component_table(parsed):
             "position outside modeled airframe" if pm.name in out_of_bounds else "",
         ))
     for chute in parsed.parachutes:
-        row = make_row(chute.name, "Parachute", chute.position_m, None, 0.0, False)
+        # 2026-10-09 review item 3: a parachute with no <overridemass>
+        # used to always show mass=None/IGNORED, in red, even though it's
+        # obviously used for recovery - make_row's own geometric-estimate
+        # branch (canopy area + line length, ork_reader.py's own formula)
+        # now applies here exactly like every other component kind.
+        row = make_row(chute.name, "Parachute", chute.position_m, None, chute.computed_mass_kg or 0.0, chute.computed_mass_kg is not None)
         if chute.name in out_of_bounds and "position outside modeled airframe" not in row.flag:
             row.flag = "; ".join(f for f in (row.flag, "position outside modeled airframe") if f)
         rows.append(row)
     for ignored in parsed.import_log:
         if ignored.status == "IGNORED":
             rows.append(ComponentRow(ignored.component, "(unhandled tag)", None, None, None, "IGNORED", ignored.detail))
+
+    # 2026-10-09 review item 3: "if a parent has 'override subcomponents'
+    # on, label children 'covered by parent override (not double-
+    # counted)' in grey, not red IGNORED." When override_subcomponents_
+    # mass=True, estimate_dry_mass_and_cg() (confirm by reading that
+    # function's own total_override branch) replaces EVERY component's
+    # geometric/ignored mass wholesale with that ONE number - so every
+    # OTHER row's own mass/status here is genuinely irrelevant to the
+    # dry mass actually flown, not a gap worth a red flag.
+    blanket_override = next((o for o in parsed.mass_overrides if o.override_mass is not None and o.override_subcomponents_mass), None)
+    if blanket_override is not None:
+        for row in rows:
+            if row.name == blanket_override.component:
+                continue
+            row.status = "COVERED"
+            row.flag = f"covered by '{blanket_override.component}' override subcomponents mass ({blanket_override.override_mass:.4f} kg total, not double-counted)"
 
     return sorted(rows, key=lambda r: (r.position_m is None, r.position_m if r.position_m is not None else 0.0))
 
@@ -225,20 +292,24 @@ def fin_summary_text(parsed):
     span/sweep or point list, thickness)". Exists so a report/CSV/history
     row makes it immediately obvious whether it actually reflects the fin
     design it claims to, instead of a reader having to trust a cached
-    title. Trapezoid-only for now (this reader's only supported fin
-    shape, see ork_reader.py's FinSet) - a freeform/elliptical set would
-    show up as "(unhandled tag)" in the import table, not silently
-    missing from this summary.
+    title. Covers all three shapes this reader supports (2026-10-09 review
+    item 2 added elliptical/freeform - see ork_reader.py's FinSet).
     """
     if not parsed.fins:
         return "no fins parsed"
     parts = []
     for f in parsed.fins:
-        parts.append(
-            f"{f.name}: trapezoid x{f.count}, root={f.root_chord*1000:.1f}mm "
-            f"tip={f.tip_chord*1000:.1f}mm span={f.span*1000:.1f}mm "
-            f"sweep={f.sweep_length*1000:.1f}mm thickness={f.thickness*1000:.1f}mm"
-        )
+        if f.shape == "elliptical":
+            parts.append(f"{f.name}: elliptical x{f.count}, root_chord={f.root_chord*1000:.1f}mm span={f.span*1000:.1f}mm thickness={f.thickness*1000:.1f}mm")
+        elif f.shape == "freeform":
+            n_pts = len(f.fin_points) if f.fin_points else 0
+            parts.append(f"{f.name}: freeform x{f.count}, {n_pts} points, bounding box {f.root_chord*1000:.1f}mm x {f.span*1000:.1f}mm, thickness={f.thickness*1000:.1f}mm")
+        else:
+            parts.append(
+                f"{f.name}: trapezoid x{f.count}, root={f.root_chord*1000:.1f}mm "
+                f"tip={f.tip_chord*1000:.1f}mm span={f.span*1000:.1f}mm "
+                f"sweep={f.sweep_length*1000:.1f}mm thickness={f.thickness*1000:.1f}mm"
+            )
     return "; ".join(parts)
 
 
@@ -910,15 +981,37 @@ def build_rocket(parsed, motor, dry_mass_estimate, i_axial, i_transverse, radius
         rocket.add_nose(length=parsed.nose.length, kind=rocketpy_nose_kind(parsed.nose.shape), position=nose_tip_rpy)
 
     for fin in parsed.fins:
-        rocket.add_trapezoidal_fins(
-            n=fin.count,
-            root_chord=fin.root_chord,
-            tip_chord=fin.tip_chord,
-            span=fin.span,
-            sweep_length=fin.sweep_length,
-            cant_angle=fin.cant_angle,
-            position=to_rpy(fin.position_m),
-        )
+        # 2026-10-09 review item 2: elliptical/freeform fins now go into
+        # the REAL simulation with their EXACT geometry via rocketpy's own
+        # add_elliptical_fins/add_free_form_fins - fin.root_chord/tip_chord/
+        # span/sweep_length are only a trapezoid SURROGATE for the hand-calc
+        # cross-check and the drawing (see ork_reader.FinSet's docstring),
+        # never used for the actual flown shape.
+        if fin.shape == "elliptical":
+            rocket.add_elliptical_fins(
+                n=fin.count,
+                root_chord=fin.root_chord,
+                span=fin.span,
+                cant_angle=fin.cant_angle,
+                position=to_rpy(fin.position_m),
+            )
+        elif fin.shape == "freeform" and fin.fin_points:
+            rocket.add_free_form_fins(
+                n=fin.count,
+                shape_points=fin.fin_points,
+                cant_angle=fin.cant_angle,
+                position=to_rpy(fin.position_m),
+            )
+        else:
+            rocket.add_trapezoidal_fins(
+                n=fin.count,
+                root_chord=fin.root_chord,
+                tip_chord=fin.tip_chord,
+                span=fin.span,
+                sweep_length=fin.sweep_length,
+                cant_angle=fin.cant_angle,
+                position=to_rpy(fin.position_m),
+            )
 
     if parsed.rail_buttons is not None:
         rocket.set_rail_buttons(

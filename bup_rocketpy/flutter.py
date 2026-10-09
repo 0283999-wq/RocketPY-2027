@@ -58,11 +58,14 @@ class FlutterResult:
 
 
 def _equivalent_trapezoid(finset):
-    """A freeform fin's own bounding root/tip/span, for the formula above
-    - this reader currently only parses trapezoid fin sets (see
-    ork_reader.FinSet) so this is a forward-compatibility hook, not yet
-    reachable; kept here so item 2's freeform-fin work has somewhere to
-    plug in without touching this module again."""
+    """2026-10-09 review item 2: for an elliptical or freeform fin set,
+    finset.root_chord/tip_chord/span are the trapezoid SURROGATE fields
+    (see ork_reader.FinSet's docstring) - the exact real shape flies in
+    the actual simulation, but NACA TN 4197 is itself a trapezoid-planform
+    formula with no general closed form for an arbitrary outline, so the
+    bounding/equivalent trapezoid is the only honest way to get a flutter
+    number at all for these shapes (flagged via is_freeform_approximation
+    below, same as before this item's own fin support existed)."""
     return finset.root_chord, finset.tip_chord, finset.span, finset.thickness
 
 
@@ -116,7 +119,7 @@ def worst_case_flutter(parsed, speed_of_sound_ms, static_pressure_pa, shear_modu
         return None
     results = []
     for finset in parsed.fins:
-        r = hand_calc_flutter_velocity(finset, speed_of_sound_ms, static_pressure_pa, shear_modulus_pa, shear_modulus_source)
+        r = hand_calc_flutter_velocity(finset, speed_of_sound_ms, static_pressure_pa, shear_modulus_pa, shear_modulus_source, is_freeform=(finset.shape != "trapezoid"))
         if r is not None:
             results.append(r)
     if not results:

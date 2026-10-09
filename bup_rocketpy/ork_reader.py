@@ -11,9 +11,12 @@ Sec 4.1, since no PROMETEO/Major Tom .ork exists in this repo yet) - not
 reconstructed from memory of the format.
 
 Scope: single-stage rockets, one active motor configuration (the LASC
-K/L-class competition shape this whole program targets). Multi-stage,
-clustered, pod and booster components are recorded in the import log as
-IGNORED rather than silently dropped or guessed at - see ImportRow.
+K/L-class competition shape this whole program targets). Multi-stage and
+clustered/booster components are recorded in the import log as IGNORED
+rather than silently dropped or guessed at - see ImportRow. A pod set's
+own mass IS recursed into (axial position only - its radial offset is
+not modeled, no verified schema was available for those tags; see the
+"podset" branch in _parse_subcomponents_of).
 
 Position resolution (the one genuinely ambiguous part of this format):
 top-level stage children (nosecone, bodytube, transition...) carry NO
@@ -86,6 +89,16 @@ class FinSet:
     cant_angle: float
     position_m: float  # root chord leading edge, m from nose tip
     material_density: float = None  # kg/m3
+    # 2026-10-09 review item 2: "trapezoid" (default, unchanged), "elliptical"
+    # or "freeform". root_chord/tip_chord/span/sweep_length above are a
+    # TRAPEZOID SURROGATE for elliptical/freeform shapes (used only by the
+    # hand-calc Barrowman cross-check in barrowman.py and the rocket
+    # drawing, both explicitly approximate already) - the real simulation
+    # (translate.build_rocket) uses `shape`/`fin_points` to call rocketpy's
+    # own add_elliptical_fins/add_free_form_fins with the EXACT geometry,
+    # not this surrogate.
+    shape: str = "trapezoid"
+    fin_points: list = None  # [(x, y), ...] from nose-ward root LE, freeform only
 
 
 @dataclass
@@ -119,6 +132,12 @@ class Parachute:
     reefed_cd: float = None
     cutter_altitude_m: float = None
     cutter_delay_s: float = 0.0
+    # 2026-10-09 review item 3: a geometric mass ESTIMATE (canopy area x
+    # canopy surface density + total line length x line density) - the
+    # same two-term formula OpenRocket's own UI uses - for when the .ork
+    # has no <overridemass> on this parachute. None if the material/line
+    # data needed wasn't present (never fabricated).
+    computed_mass_kg: float = None
 
 
 @dataclass
@@ -230,6 +249,45 @@ def _material_density(elem):
         return float(mat.get("density"))
     except (TypeError, ValueError):
         return None
+
+
+def _line_material_density(elem):
+    """2026-10-09 review item 3: a parachute's shroud lines or a shock
+    cord's own cord carry a SEPARATE <linematerial type="line" ...>
+    element (not <material>) whose density= is LINEAR (kg/m), not
+    surface or volumetric - OpenRocket's own convention for any 1-D
+    line-like part."""
+    mat = _find(elem, "linematerial")
+    if mat is None:
+        return None
+    try:
+        return float(mat.get("density"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_finpoints(comp):
+    """2026-10-09 review item 2: a <freeformfinset>'s own <finpoints><point
+    x=".." y=".."/>...</finpoints> - verified against OpenRocket's real
+    saver/importer source (FreeformFinSetSaver.java /
+    FinSetPointHandler.java, github.com/openrocket/openrocket): a plain
+    ordered list of (x, y) pairs, (0, 0) is the root leading edge, positive
+    x rearward, positive y spanwise outward - the EXACT convention
+    rocketpy's own add_free_form_fins(shape_points=...) docstring asks for,
+    so these pairs are passed straight through with no transform. Returns
+    None if there's no <finpoints> or it has no points."""
+    finpoints = _find(comp, "finpoints")
+    if finpoints is None:
+        return None
+    points = []
+    for p in finpoints:
+        if _local(p.tag) != "point":
+            continue
+        try:
+            points.append((float(p.get("x")), float(p.get("y"))))
+        except (TypeError, ValueError):
+            continue
+    return points or None
 
 
 def _hollow_cylinder_mass(outer_r, inner_r, length, density):
@@ -507,6 +565,77 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
             prev_aft = fore + root_chord
 
+        elif tag == "ellipticalfinset":
+            # 2026-10-09 review item 2: previously fell into the generic
+            # "unhandled nested tag" IGNORED branch (see the else: branch
+            # below), silently dropping the whole fin set - a far worse
+            # outcome than an approximate trapezoid, since a rocket with no
+            # fins modeled at all has no real CP and can't fly in
+            # rocketpy. <rootchord>/<height> confirmed from OpenRocket's
+            # own EllipticalFinSetSaver.java source (not guessed): a half-
+            # ellipse of chord=rootchord, span=height - rocketpy's own
+            # add_elliptical_fins() takes exactly these two numbers, so the
+            # REAL simulation (translate.build_rocket) uses them directly,
+            # not an approximation.
+            root_chord = _child_text_num(comp, "rootchord", 0.0)
+            span = _child_text_num(comp, "height", 0.0)
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, root_chord, prev_aft, log, cname)
+            fin = FinSet(
+                name=cname,
+                count=int(_child_text_num(comp, "fincount", 3)),
+                root_chord=root_chord,
+                tip_chord=0.0,
+                span=span,
+                sweep_length=0.0,
+                thickness=_child_text_num(comp, "thickness", 0.003),
+                cant_angle=_child_text_num(comp, "cant", 0.0),
+                position_m=fore,
+                material_density=_material_density(comp),
+                shape="elliptical",
+            )
+            parsed.fins.append(fin)
+            log.append(ImportRow(cname, "IMPORTED", f"elliptical, n={fin.count}, root_chord={root_chord:.4f}, span={span:.4f}"))
+            _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
+            prev_aft = fore + root_chord
+
+        elif tag == "freeformfinset":
+            # 2026-10-09 review item 2: same previously-IGNORED gap as
+            # ellipticalfinset above. <finpoints> parsed by _parse_finpoints
+            # (verified against OpenRocket's own saver/importer source) -
+            # root_chord/span below are only a bounding-box SURROGATE for
+            # this reader's own hand-calc cross-check and the rocket
+            # drawing (both already documented as approximate); the REAL
+            # simulation uses fin.fin_points directly via rocketpy's own
+            # add_free_form_fins().
+            fin_points = _parse_finpoints(comp)
+            if fin_points:
+                max_x = max(p[0] for p in fin_points)
+                max_y = max(p[1] for p in fin_points)
+            else:
+                max_x = max_y = 0.0
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, max_x, prev_aft, log, cname)
+            fin = FinSet(
+                name=cname,
+                count=int(_child_text_num(comp, "fincount", 3)),
+                root_chord=max_x,
+                tip_chord=0.0,
+                span=max_y,
+                sweep_length=0.0,
+                thickness=_child_text_num(comp, "thickness", 0.003),
+                cant_angle=_child_text_num(comp, "cant", 0.0),
+                position_m=fore,
+                material_density=_material_density(comp),
+                shape="freeform",
+                fin_points=fin_points,
+            )
+            if fin_points:
+                parsed.fins.append(fin)
+                log.append(ImportRow(cname, "IMPORTED", f"freeform, n={fin.count}, {len(fin_points)} points, bounding box {max_x:.4f} x {max_y:.4f}"))
+                _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
+            else:
+                log.append(ImportRow(cname, "IGNORED", "<freeformfinset> had no usable <finpoints><point x=.. y=..>/> - cannot build this fin's shape"))
+            prev_aft = fore + max_x
+
         elif tag == "masscomponent":
             mass = _child_text_num(comp, "mass", 0.0)
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, 0.0, prev_aft, log, cname)
@@ -557,7 +686,23 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             prev_aft = fore + length
 
         elif tag == "shockcord":
-            log.append(ImportRow(cname, "IGNORED", "<shockcord> is a structural/mounting part with negligible or hard-to-isolate mass - not added as a point mass; add manually if it's significant"))
+            # 2026-10-09 review item 3: "OpenRocket computes... shock-cord
+            # mass (length x line density); do the same." <cordlength> x
+            # <material type="line" density=...> (linear density, kg/m) -
+            # the exact two fields OpenRocket's own UI multiplies. Usually
+            # small, but "usually small" is a different claim than
+            # "negligible", and CLAUDE.md Rule 2 says never assume either
+            # way - compute it and let the number speak for itself.
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, 0.0, prev_aft, log, cname)
+            cord_length = _child_text_num(comp, "cordlength", None)
+            cord_density = _line_material_density(comp)
+            if cord_length is not None and cord_density is not None:
+                mass = cord_length * cord_density
+                parsed.point_masses.append(PointMass(name=cname, mass=mass, position_m=fore))
+                log.append(ImportRow(cname, "APPROXIMATED", f"mass={mass:.4f} kg (cord: {cord_length} m x {cord_density} kg/m) @ {fore:.4f} m - same formula OpenRocket's own UI uses"))
+            else:
+                log.append(ImportRow(cname, "IGNORED", "no <cordlength>/line material density in this .ork - cannot estimate mass, add manually if significant"))
+            prev_aft = fore
 
         elif tag == "bulkhead":
             # A bulkhead IS a real, often non-trivial mass (a solid disk) -
@@ -588,14 +733,36 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             cd = _text_num(cd_elem) if cd_elem is not None else None
             fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, 0.0, prev_aft, log, cname)
             deploy_event = _find(comp, "deployevent")
+            diameter = _child_text_num(comp, "diameter", 0.0)
+
+            # 2026-10-09 review item 3: "OpenRocket computes parachute
+            # mass (canopy area x material area density + lines x length
+            # x line density); do the same" - used ONLY when there's no
+            # <overridemass> (checked below, override always wins - it's
+            # a team-measured number). Flat-circle canopy area (pi*r^2)
+            # is OpenRocket's own convention for ANY canopy shape here,
+            # not just a true flat/round chute - a standard, documented
+            # approximation, not this app inventing one.
+            canopy_density = _material_density(comp)  # kg/m^2 (<material type="surface">)
+            line_count = _child_text_num(comp, "linecount", None)
+            line_length = _child_text_num(comp, "linelength", None)
+            line_density = _line_material_density(comp)  # kg/m (<linematerial type="line">)
+            computed_mass = None
+            if diameter and canopy_density is not None:
+                canopy_area = math.pi * (diameter / 2.0) ** 2
+                computed_mass = canopy_area * canopy_density
+                if line_count is not None and line_length is not None and line_density is not None:
+                    computed_mass += line_count * line_length * line_density
+
             chute = Parachute(
                 name=cname,
                 cd=cd,
-                diameter=_child_text_num(comp, "diameter", 0.0),
+                diameter=diameter,
                 deploy_event=(deploy_event.text if deploy_event is not None else "unknown"),
                 deploy_altitude=_child_text_num(comp, "deployaltitude", 0.0),
                 deploy_delay=_child_text_num(comp, "deploydelay", 0.0),
                 position_m=fore,
+                computed_mass_kg=computed_mass,
             )
             parsed.parachutes.append(chute)
             status = "IMPORTED" if cd is not None else "APPROXIMATED"
@@ -607,7 +774,13 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
             # one of translate.py's other geometric component types.
             # Recording its override here lets _geometric_components pick
             # it up the same way it already does for the one bodytube case.
-            _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
+            override_mass = _read_overridemass_cg(comp, component_fore_m=fore)[0]
+            if override_mass is not None:
+                _apply_overrides(comp, cname, parsed, log, component_fore_m=fore)
+            elif computed_mass is not None:
+                log.append(ImportRow(f"{cname} (mass)", "APPROXIMATED", f"mass={computed_mass:.4f} kg (canopy: pi*r^2={math.pi*(diameter/2.0)**2:.4f} m2 x {canopy_density} kg/m2" + (f" + lines: {line_count}x{line_length}m x {line_density} kg/m" if line_count is not None and line_length is not None and line_density is not None else " - no line data, canopy only") + ") - no <overridemass> in this .ork, same formula OpenRocket's own UI uses"))
+            else:
+                log.append(ImportRow(f"{cname} (mass)", "IGNORED", "no <overridemass> and no canopy material/line data to estimate from - add an override mass in OpenRocket if this parachute's mass matters to the result"))
             prev_aft = fore
 
         elif tag == "railbutton":
@@ -664,6 +837,32 @@ def _parse_subcomponents_of(parent_elem, parent_fore_m, parent_aft_m, parsed, lo
                 log.append(ImportRow(cname, "IGNORED", f"<{tag}> radius/thickness/material were not resolvable ('auto' with no parent tube to infer from, or no material) - cannot estimate mass, add manually if significant. Its own subcomponents (if any) ARE still parsed, positioned relative to it."))
             _parse_subcomponents_of(comp, fore, fore + length, parsed, log, parent_inner_radius_m=own_inner_radius_m)
             prev_aft = fore + length
+
+        elif tag == "podset":
+            # 2026-10-09 review item 3: previously fell into the generic
+            # "unhandled nested tag" IGNORED branch below, silently
+            # dropping every mass nested inside a pod (a side-mounted
+            # structure - e.g. a booster or camera pod - on a multi-pod
+            # competition rocket). This reader has no verified schema for
+            # a <podset>'s own RADIAL offset/count tags (no real OpenRocket
+            # Java source or example file with a non-empty pod set was
+            # available to check against), so it deliberately does NOT
+            # model the pod's radial position or its own aerodynamic
+            # surfaces (out of this module's documented single-stage scope
+            # - see the module docstring). It DOES recurse into the pod's
+            # own <subcomponents> for axial mass/CG, the same way every
+            # other container tag in this schema does, since a pod's mass
+            # still affects the whole rocket's dry mass/CG regardless of
+            # its radial placement.
+            fore = _resolve_child_position(pos_elem, parent_fore_m, parent_aft_m, 0.0, prev_aft, log, cname)
+            pod_sub = _find(comp, "subcomponents")
+            has_children = pod_sub is not None and len(pod_sub) > 0
+            if has_children:
+                log.append(ImportRow(cname, "APPROXIMATED", f"pod set with {len(pod_sub)} nested component(s) @ {fore:.4f} m - axial position only, this reader does not model the pod's RADIAL offset/count - verify total mass manually if the pod is not centered on the rocket's axis"))
+            else:
+                log.append(ImportRow(cname, "IGNORED", "empty pod set (or only aerodynamic/structural children this reader doesn't parse) - no mass/aero contribution"))
+            _parse_subcomponents_of(comp, fore, fore, parsed, log, parent_inner_radius_m=parent_inner_radius_m)
+            prev_aft = fore
 
         else:
             log.append(ImportRow(cname, "IGNORED", f"unhandled nested tag <{tag}>"))

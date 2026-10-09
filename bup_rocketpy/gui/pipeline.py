@@ -123,6 +123,17 @@ class SimResult:
     motor_dry_kg: float = None  # casing, no propellant
     liftoff_mass_kg: float = None  # dry rocket + motor LOADED
     descent_mass_kg: float = None  # dry rocket + motor DRY (casing) - what the recovery system actually descends under after the propellant is spent
+    # 2026-10-09 review item 1: "Stability: OpenRocket minimum 1.67 cal at
+    # rail exit, app minimum 2.17 cal (static margin, Mach 0)." -
+    # min/max_static_margin_cal ABOVE already vary CP with the actual
+    # flight Mach at each instant (rocket.stability_margin is a Function
+    # of (mach, time), not just time - see run_simulation()'s own note);
+    # these two force mach=0 into that same model instead, isolating the
+    # Mach-dependent CP shift. Shown side by side, never blended into one
+    # number - is_stable above already judges FLT 4.3.5 on whichever of
+    # the two is more conservative at each end of the 1.5-4 cal band.
+    min_static_margin_mach0_cal: float = None
+    max_static_margin_mach0_cal: float = None
 
 
 def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, simulation_name=None, ork_filename=None, eng_filename=None):
@@ -371,11 +382,28 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     ascent_times = [t for t in flight.time if flight.out_of_rail_time <= t <= flight.apogee_time]
     margins = [flight.stability_margin(t) for t in ascent_times] or [flight.stability_margin(flight.apogee_time)]
     min_margin, max_margin = min(margins), max(margins)
+    # 2026-10-09 review item 1: "Show both 'static margin (Mach 0)' and
+    # 'stability incl. Mach/AoA effects'... judge FLT 4.3.5 on the lower
+    # (conservative) of the two." flight.stability_margin(t) ABOVE
+    # already varies CP with the ACTUAL flight Mach at each instant
+    # (rocket.stability_margin is a Function of (mach, time) - verified
+    # against rocketpy's own evaluate_stability_margin()) - that's
+    # "incl. Mach effects". The Mach-0 variant forces mach=0 into that
+    # SAME function regardless of the real flight Mach, isolating how
+    # much of the margin comes from Mach-dependent CP movement alone.
+    # Diego's real report (OpenRocket 1.67 cal vs. our 2.17 cal minimum)
+    # shows these two CAN disagree by a safety-relevant amount - neither
+    # number alone should be trusted as "the" margin.
+    margins_mach0 = [flight.rocket.stability_margin(0, t) for t in ascent_times] or [flight.rocket.stability_margin(0, flight.apogee_time)]
+    min_margin_mach0, max_margin_mach0 = min(margins_mach0), max(margins_mach0)
+    conservative_min_margin = min(min_margin, min_margin_mach0)
+    conservative_max_margin = max(max_margin, max_margin_mach0)
     # FLT 4.3.5: static margin must stay within 1.5-4 cal throughout
     # ascent - "Stable?" is now a pass/fail against that window, not
     # just "margin > 0" (which let a razor-thin or absurdly high margin
-    # both silently read "YES").
-    is_stable = 1.5 <= min_margin and max_margin <= 4.0
+    # both silently read "YES"). Judged on the CONSERVATIVE (lower min,
+    # higher max) of the Mach-0 and Mach-varying margins per this review.
+    is_stable = 1.5 <= conservative_min_margin and conservative_max_margin <= 4.0
 
     deployment_events = []
     for t, chute in getattr(flight, "parachute_events", []):
@@ -435,25 +463,24 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     except Exception as exc:
         print(f"WARNING: per-quantity plots failed: {exc}")
 
-    csv_path = os.path.join(outputs_dir, "flight_data.csv")
-    try:
-        from rocketpy.simulation import FlightDataExporter
-        FlightDataExporter(flight).export_data(csv_path)
-    except Exception as exc:
-        csv_path = None
-        print(f"WARNING: CSV export failed: {exc}")
-
-    # 2026-09-26 review item G: an OpenRocket-style export (same 58
-    # columns/layout as the CSVs OpenRocket itself produces - see
-    # bup_rocketpy/openrocket_csv_export.py) alongside rocketpy's own
-    # generic one above, for a judge/teammate used to reading OR's format.
+    # 2026-10-09 review item 10: "CSV export = OpenRocket format only" -
+    # rocketpy's own generic FlightDataExporter column layout used to be
+    # offered as a SEPARATE download next to this one, which was exactly
+    # the "two CSV formats, which one do I even open" confusion item 10
+    # reported. There is now exactly one CSV per simulation - the
+    # OpenRocket-style 58-column layout (bup_rocketpy/openrocket_csv_
+    # export.py) - and `csv_path` IS `openrocket_csv_path` (same file,
+    # not a second copy) so every existing reader of sim_result.csv_path
+    # (report.py, run_history.py, history_page.py) keeps working unchanged.
     openrocket_csv_path = os.path.join(outputs_dir, "flight_data_openrocket_style.csv")
     try:
         from bup_rocketpy.openrocket_csv_export import export_openrocket_style_csv
-        export_openrocket_style_csv(flight, radius_m, openrocket_csv_path, simulation_name=f"{parsed.name} (Beyond UP RocketPy)")
+        # 2026-10-09 review item 4: never the raw, possibly-"Rocket"-placeholder parsed.name - this CSV's own header must match every other output.
+        export_openrocket_style_csv(flight, radius_m, openrocket_csv_path, simulation_name=f"{getattr(load_result, 'display_name', None) or parsed.name} (Beyond UP RocketPy)")
     except Exception as exc:
         openrocket_csv_path = None
         print(f"WARNING: OpenRocket-style CSV export failed: {exc}")
+    csv_path = openrocket_csv_path
 
     # 2026-09-28 review item 1: the model's real-flight validation track
     # record doesn't depend on which rocket is being simulated right now
@@ -478,6 +505,8 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
         flight_time_s=flight.t_final,
         min_static_margin_cal=min_margin,
         max_static_margin_cal=max_margin,
+        min_static_margin_mach0_cal=min_margin_mach0,
+        max_static_margin_mach0_cal=max_margin_mach0,
         is_stable=is_stable,
         plot_paths=plot_paths,
         csv_path=csv_path,
@@ -542,6 +571,7 @@ class SimulationComparisonRow:
     ork_hash: str = None
     fin_summary: str = None
     cd_curve_stale: bool = False
+    csv_path: str = None  # 2026-10-09 review item 10: this site's own OpenRocket-format flight-data CSV, copied to a per-site stable filename (run_simulation always writes to the SAME path inside outputs_dir, which the NEXT site's run would otherwise silently overwrite before anyone downloads it)
 
 
 def export_comparison_csv(rows, csv_path):
@@ -569,6 +599,23 @@ def export_comparison_csv(rows, csv_path):
                 r.ork_filename or "", r.ork_hash or "", r.fin_summary or "", r.cd_curve_stale,
             ])
     return csv_path
+
+
+def export_comparison_zip(rows, zip_path):
+    """2026-10-09 review item 10: "per-sim CSV zip for compare-all" - the
+    summary CSV above (export_comparison_csv) has one row per site with
+    only the headline numbers; this bundles each site's own FULL flight-
+    data CSV (OpenRocket format, one file per site - see
+    compare_all_simulations' site_csv_path handling) into a single
+    download, same convention as compare_designs.export_comparison_zip.
+    Rows with no csv_path (a site whose Simulate run failed) are skipped,
+    not padded with an empty file."""
+    import zipfile
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for r in rows:
+            if r.csv_path and os.path.exists(r.csv_path):
+                zf.write(r.csv_path, arcname=os.path.basename(r.csv_path))
+    return zip_path
 
 
 def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=None, outputs_dir=None, dry_mass_override_kg=None, dry_cg_override_m=None, motor_total_mass_override_kg=None, progress_callback=None):
@@ -612,6 +659,19 @@ def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_
                 motor_total_mass_override_kg=motor_total_mass_override_kg,
             )
             launch = lr.parsed_ork.launch
+            # 2026-10-09 review item 10: "per-sim CSV zip for compare-all" -
+            # run_simulation() always writes this site's CSV to the SAME
+            # fixed filename inside outputs_dir, which the NEXT site's run
+            # (next loop iteration) would silently overwrite before the
+            # caller ever gets to zip them up - copy it to a stable,
+            # per-site name right away, while it's still this site's own.
+            site_csv_path = None
+            if sim.csv_path and os.path.exists(sim.csv_path):
+                import re as _re
+                import shutil as _shutil
+                safe_name = _re.sub(r'[^A-Za-z0-9_-]+', "_", name).strip("_") or f"site_{i}"
+                site_csv_path = os.path.join(outputs_dir, f"compare_all_{safe_name}_flight_data_openrocket_style.csv")
+                _shutil.copy(sim.csv_path, site_csv_path)
             rows.append(SimulationComparisonRow(
                 name=name, success=True,
                 altitude_m=launch.altitude_m if launch else None,
@@ -621,6 +681,7 @@ def compare_all_simulations(ork_path, eng_path, power_off_drag_path=None, power_
                 max_acceleration_ms2=sim.max_acceleration_ms2, rail_exit_velocity_ms=sim.rail_exit_velocity_ms,
                 min_static_margin_cal=sim.min_static_margin_cal, is_stable=sim.is_stable,
                 ork_filename=lr.ork_filename, ork_hash=lr.ork_hash, fin_summary=lr.fin_summary, cd_curve_stale=lr.cd_curve_stale,
+                csv_path=site_csv_path,
             ))
         except Exception as e:  # one bad site must not take down the whole comparison
             rows.append(SimulationComparisonRow(name=name, success=False, error=str(e)))

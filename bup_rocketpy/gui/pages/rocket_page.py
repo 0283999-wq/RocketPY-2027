@@ -59,12 +59,32 @@ def _component_table_card(parsed):
     with components.card(classes="w-full mt-4"):
         ui.label("Component-by-component check").classes("font-bold")
         ui.label("Every component the .ork defines, in the order it appears along the airframe (nose to tail). Flagged rows need a closer look.").classes("text-sm").style("color: var(--bup-muted)")
+        # 2026-10-09 review item 3: "say how much mass is ignored in
+        # total at the top of the table." A truly IGNORED row has
+        # mass_kg=None - BY DEFINITION its real mass is unknown (that's
+        # what "ignored" means here), so there is no number to sum; what
+        # CAN be said honestly is which/how many components have no
+        # resolvable mass, so a reader can judge for themselves whether
+        # any of them look significant enough to add an override for in
+        # OpenRocket. Never fabricates a mass total from unknowns.
+        ignored_rows = [r for r in rows if r.status == "IGNORED"]
+        if ignored_rows:
+            names = ", ".join(r.name for r in ignored_rows)
+            with components.card(classes="w-full mt-2") as c:
+                c.style("border-left: 4px solid var(--bup-warning)")
+                ui.label(f"{len(ignored_rows)} component(s) with no computable mass (not counted in the dry mass below - impact unknown, not assumed negligible)").classes("font-bold").style("color: var(--bup-warning)")
+                ui.label(names).classes("text-sm")
         with ui.grid(columns=6).classes("gap-2 w-full mt-2 items-start"):
             for header in ["Component", "Type", "Position (m)", "Length (m)", "Mass (kg)", "Status"]:
                 ui.label(header).classes("font-bold text-xs")
             for row in rows:
-                flagged = bool(row.flag)
-                text_style = "color: var(--bup-error)" if flagged else ""
+                # 2026-10-09 review item 3: "COVERED" (a blanket parent
+                # override already accounts for this component's mass)
+                # is informational, not a problem to look at - grey, not
+                # the same red flag as a genuine IGNORED/out-of-bounds row.
+                covered = row.status == "COVERED"
+                flagged = bool(row.flag) and not covered
+                text_style = "color: var(--bup-error)" if flagged else ("color: var(--bup-muted)" if covered else "")
                 ui.label(row.name).classes("text-sm").style(text_style)
                 ui.label(row.kind).classes("text-sm").style(text_style)
                 ui.label(f"{row.position_m:.3f}" if row.position_m is not None else "n/a").classes("text-sm").style(text_style)
@@ -73,7 +93,7 @@ def _component_table_card(parsed):
                 with ui.column().classes("gap-0"):
                     ui.label(row.status).classes("text-sm font-bold").style(text_style)
                     if row.flag:
-                        ui.label(row.flag).classes("text-xs").style("color: var(--bup-error)")
+                        ui.label(row.flag).classes("text-xs").style("color: var(--bup-muted)" if covered else "color: var(--bup-error)")
 
 
 @ui.page("/rocket")
@@ -142,6 +162,7 @@ def rocket_page():
             fig = rocket_drawing.draw_side_profile(
                 parsed, dry_cg_m=cg, cp_m=cp_m03, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
                 static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+                title=s["load_result"].display_name,  # 2026-10-09 review item 4: never the raw, possibly-"Rocket"-placeholder parsed.name
             )
             path = pipeline.fresh_image_path(OUTPUTS_DIR, "rocket_page_profile")
             fig.savefig(path)

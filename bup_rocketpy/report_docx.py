@@ -104,7 +104,7 @@ def _style_heading(doc, text, level, color=INK_RGB):
 def _add_header_footer(doc, data):
     section = doc.sections[0]
     header_p = section.header.paragraphs[0]
-    header_p.text = f"Beyond UP · Mission {data['mission_id']} · {data['vehicle_name']}"
+    header_p.text = f"Beyond UP · {data['mission_id_phrase']}{data['vehicle_name']}"
     header_p.runs[0].font.size = Pt(8)
     header_p.runs[0].font.color.rgb = MUTED_RGB
 
@@ -150,9 +150,11 @@ def generate_docx(output_path, data):
     run.bold = True
     run.font.size = Pt(22)
     run.font.color.rgb = INK_RGB
-    sub_p = doc.add_paragraph(f"Mission {data['mission_id']} · {data['vehicle_name']} · Trajectory, aerodynamics and flight-dynamics analysis")
+    sub_p = doc.add_paragraph(f"{data['mission_id_phrase']}{data['vehicle_name']} · Trajectory, aerodynamics and flight-dynamics analysis")
     sub_p.runs[0].font.size = Pt(12)
     sub_p.runs[0].font.color.rgb = MUTED_RGB
+    if not data["mission_id"]:
+        _edit_mark(sub_p, "Mission ID")
 
     org_p = doc.add_paragraph()
     org_run = org_p.add_run("BEYOND UP")

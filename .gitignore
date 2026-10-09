@@ -12,3 +12,7 @@ runs/*
 PROGRESS.md
 MORNING_REPORT*.md
 NOTES_FOR_DIEGO.md
+
+# NiceGUI's own runtime cache/storage directory (created on `python -m
+# bup_rocketpy.gui.app`) - local run state, not part of the repo.
+.nicegui/

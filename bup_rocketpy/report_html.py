@@ -18,7 +18,7 @@ import re
 import jinja2
 
 from bup_rocketpy import report as report_module  # WINE/GOLD/INK/LIGHT_GREY - the one place these brand colors are pinned
-from bup_rocketpy.browser_launch import launch_chromium
+from bup_rocketpy.browser_launch import NoBrowserFoundError, launch_chromium, print_to_pdf_via_cli
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "report_templates")
 
@@ -157,7 +157,7 @@ def _render_html(data, toc_pages):
 
 
 def _footer_template(data):
-    left = f"Beyond UP &middot; Mission {data['mission_id']} &middot; {data['vehicle_name']} &middot; Computational Simulation Report"
+    left = f"Beyond UP &middot; {data['mission_id_phrase']}{data['vehicle_name']} &middot; Computational Simulation Report"
     return f"""
     <div style="font-size:7.5pt; width:100%; padding:0 16mm; display:flex; justify-content:space-between; color:#6B6259; font-family: Helvetica, Arial, sans-serif;">
       <span>{left}</span>
@@ -173,22 +173,36 @@ def _print_pdf(html, data, output_path):
     with open(tmp_html_path, "w", encoding="utf-8") as f:
         f.write(html)
     try:
-        with sync_playwright() as p:
-            # See bup_rocketpy/browser_launch.py - `playwright install
-            # chromium` (see README) must have been run once first.
-            browser = launch_chromium(p)
-            page = browser.new_page()
-            page.goto("file://" + os.path.abspath(tmp_html_path), wait_until="networkidle")
-            page.pdf(
-                path=output_path,
-                format="A4",
-                print_background=True,
-                display_header_footer=True,
-                header_template="<div></div>",
-                footer_template=_footer_template(data),
-                margin={"top": "10mm", "bottom": "14mm", "left": "0mm", "right": "0mm"},
-            )
-            browser.close()
+        try:
+            with sync_playwright() as p:
+                # See bup_rocketpy/browser_launch.py - `playwright install
+                # chromium` (see README) must have been run once first.
+                browser = launch_chromium(p)
+                page = browser.new_page()
+                page.goto("file://" + os.path.abspath(tmp_html_path), wait_until="networkidle")
+                page.pdf(
+                    path=output_path,
+                    format="A4",
+                    print_background=True,
+                    display_header_footer=True,
+                    header_template="<div></div>",
+                    footer_template=_footer_template(data),
+                    margin={"top": "10mm", "bottom": "14mm", "left": "0mm", "right": "0mm"},
+                )
+                browser.close()
+        except NoBrowserFoundError:
+            # 2026-10-09 review item 5: "PDF export does not work on my
+            # Windows machine. Make it work out of the box... silently.
+            # Only if both fail, show the real error message." Playwright
+            # couldn't launch ANY browser (msedge/chrome channel launch
+            # AND its own bundled Chromium all failed) - fall back to a
+            # direct `--print-to-pdf` CLI call, which doesn't go through
+            # Playwright/CDP at all and so survives the class of Windows-
+            # only failure where the CDP driver can't find/drive an Edge
+            # install that otherwise works fine. No custom footer (the
+            # CLI flag doesn't support header/footer templates) - a
+            # plainer PDF beats no PDF.
+            print_to_pdf_via_cli(tmp_html_path, output_path)
     finally:
         try:
             os.remove(tmp_html_path)

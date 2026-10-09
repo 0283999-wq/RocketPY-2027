@@ -93,6 +93,7 @@ def home_page():
                 fig = rocket_drawing.draw_side_profile(
                     parsed, dry_cg_m=sim.dry_cg_m, motor_length_m=s["load_result"].parsed_eng.header.length_mm / 1000.0,
                     static_margin_mach0_cal=static_margin_mach0_cal, stability_mach03_cal=stability_mach03_cal,
+                    title=s["load_result"].display_name,  # 2026-10-09 review item 4: never the raw, possibly-"Rocket"-placeholder parsed.name
                 )
                 from bup_rocketpy.gui import pipeline
                 png_path = pipeline.fresh_image_path(OUTPUTS_DIR, "home_rocket_profile")

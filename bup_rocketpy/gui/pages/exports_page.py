@@ -2,6 +2,7 @@
 report, and the LASC .zip with the per-case .py files.
 """
 import os
+import re
 
 from nicegui import run, ui
 
@@ -12,6 +13,19 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 s = state.state
 OUTPUTS_DIR = os.path.join(os.getcwd(), "outputs", "gui_run")
+
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _sanitize_filename(name):
+    """Strips characters Windows (the only OS this app's users run on,
+    per CLAUDE.md) refuses in a file name, and collapses whitespace to
+    underscores - a rocket/site name can freely contain spaces, slashes,
+    quotes (e.g. a parachute size like 4" showing up via some other
+    field) that would otherwise make the OS reject the save outright."""
+    name = _INVALID_FILENAME_CHARS.sub("", name)
+    name = re.sub(r"\s+", "_", name.strip())
+    return name or "Simulation_Report"
 
 
 @ui.page("/exports")
@@ -25,10 +39,11 @@ def exports_page():
         with ui.row().classes("gap-4 w-full items-start flex-wrap"):
             with components.card(classes="flex-1 min-w-[320px]"):
                 ui.label("Flight data / plots").classes("font-bold")
+                # 2026-10-09 review item 10: "CSV export = OpenRocket
+                # format only" - one CSV per simulation now (pipeline.py's
+                # csv_path IS openrocket_csv_path, not a second file).
                 if s["sim_result"].csv_path:
-                    ui.link("Download flight data CSV", f"/outputs/{os.path.basename(s['sim_result'].csv_path)}")
-                if s["sim_result"].openrocket_csv_path:
-                    ui.link("Download flight data CSV (OpenRocket format - 58 columns, event markers)", f"/outputs/{os.path.basename(s['sim_result'].openrocket_csv_path)}")
+                    ui.link("Download flight data CSV (OpenRocket format - 58 columns, event markers)", f"/outputs/{os.path.basename(s['sim_result'].csv_path)}")
                 for name, path in s["sim_result"].plot_paths.items():
                     if path:
                         ui.link(f"Download {name}.png", f"/outputs/{os.path.basename(path)}")
@@ -41,8 +56,20 @@ def exports_page():
             with components.card(classes="flex-1 min-w-[320px]"):
                 ui.label("Report (PDF / DOCX)").classes("font-bold")
                 ui.label("A formal simulation report - vehicle, propulsion, aerodynamics, environment, every plot, recovery, flight cases, Monte Carlo, assumptions. Not a compliance report (see the RCSM Cases page for that table).").classes("text-sm").style("color: var(--bup-muted)")
-                mission_id_input = ui.input(label="Mission ID", value=s["mission_id"])
+                mission_id_input = ui.input(label="Mission ID (optional)", value=s["mission_id"])
                 author_input = ui.input(label="Author (optional)")
+                # 2026-10-09 review item 5: "let me type it, default
+                # '<RocketName>_<Site>_<YYYY-MM-DD>_Simulation_Report'
+                # (never 'report (7).docx')." - the old code always wrote
+                # to the SAME fixed "report.pdf"/"report.docx", so a
+                # browser's own download mechanism renamed every repeat
+                # download "report (1).pdf", "report (2).pdf"... Typing a
+                # real, distinct name each time means every generated
+                # report keeps its own identity.
+                import datetime as _datetime
+                _site = (s["load_result"].simulation_name if s["load_result"] else None) or "Site"
+                _default_filename = _sanitize_filename(f"{s['vehicle_name']}_{_site}_{_datetime.date.today().isoformat()}_Simulation_Report")
+                filename_input = ui.input(label="File name (no extension - .pdf/.docx added automatically)", value=_default_filename).classes("w-full")
                 appendix_checkbox = ui.checkbox("Include validation appendix (model's track record vs. real PROMETEO flights - computed live, takes a couple extra seconds) + RCSM compliance table", value=False)
                 report_status = ui.label("")
 
@@ -97,7 +124,8 @@ def exports_page():
                         report_text=s["report_text"], competition_profile_key=s["competition_profile"],
                         compliance_rows=compliance_rows,
                     )
-                    path = os.path.join(OUTPUTS_DIR, f"report.{fmt}")
+                    chosen_name = _sanitize_filename(filename_input.value or _default_filename)
+                    path = os.path.join(OUTPUTS_DIR, f"{chosen_name}.{fmt}")
                     # 2026-09-29 review item 4: generate_pdf() launches
                     # Playwright's SYNC API (Chromium) - calling that
                     # directly from a plain on_click handler runs it on
@@ -118,6 +146,19 @@ def exports_page():
                             report_status.set_text(str(e))
                             ui.notify(str(e), type="negative", multi_line=True, close_button=True)
                             return
+                        except RuntimeError as e:
+                            # 2026-10-09 review item 5: "try Playwright
+                            # Chromium, then Microsoft Edge... silently.
+                            # Only if both fail, show the real error
+                            # message in one line." - a browser WAS found
+                            # for the --print-to-pdf CLI fallback but that
+                            # subprocess itself failed (report_html.py's
+                            # _print_pdf raises plain RuntimeError for
+                            # this, distinct from "no browser at all").
+                            msg = f"PDF generation failed: {e}"
+                            report_status.set_text(msg)
+                            ui.notify(msg, type="negative", multi_line=True, close_button=True)
+                            return
                     report_status.set_text(f"Report written: {os.path.basename(path)}")
                     report_preview_container.clear()
                     with report_preview_container:
@@ -130,6 +171,14 @@ def exports_page():
                 with ui.row():
                     components.button("Generate PDF report", kind="primary", icon="picture_as_pdf", on_click=lambda: build_report("pdf"))
                     components.button("Generate DOCX report", kind="secondary", icon="description", on_click=lambda: build_report("docx"))
+
+        # 2026-10-09 review item 10: "new 'Compare with OpenRocket' card" -
+        # reuses rocket_page.py's own card (same function, not a
+        # re-implementation) so this can never silently disagree with
+        # what the Rocket page itself shows for the same run.
+        if s["load_result"].ork_path:
+            from bup_rocketpy.gui.pages.rocket_page import _openrocket_comparison_card
+            _openrocket_comparison_card(s["load_result"].parsed_ork, s["sim_result"], s["load_result"].ork_path, simulation_name=s["load_result"].simulation_name)
 
         with components.card(classes="w-full mt-4"):
             ui.label("Competition profile").classes("font-bold")

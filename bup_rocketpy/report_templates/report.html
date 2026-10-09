@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{{ data.mission_id }} - {{ data.vehicle_name }} - Computational Simulation Report</title>
+<title>{% if data.mission_id %}{{ data.mission_id }} - {% endif %}{{ data.vehicle_name }} - Computational Simulation Report</title>
 <style>
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
@@ -91,7 +91,7 @@
   <div class="title-block">
     <div class="title-left">
       <h1>Computational Simulation Report</h1>
-      <p class="subtitle">Mission {{ data.mission_id }} &middot; {{ data.vehicle_name }} &middot; Trajectory, aerodynamics and flight-dynamics analysis</p>
+      <p class="subtitle">{{ data.mission_id_phrase }}{{ data.vehicle_name }} &middot; Trajectory, aerodynamics and flight-dynamics analysis</p>
     </div>
     <div class="title-right">
       <div class="org">BEYOND UP</div>

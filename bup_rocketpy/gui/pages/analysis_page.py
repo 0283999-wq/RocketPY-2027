@@ -27,6 +27,19 @@ def analysis_page():
             with components.card(classes="flex-1 min-w-[380px]"):
                 ui.label("Weathercocking: apogee vs. static margin").classes("font-bold")
                 ui.label("Sweeps nose-tip ballast (how you'd tune it on the real rocket), searching for the apogee optimum within the mandatory 1.5-4 cal window.").classes("text-sm").style("color: var(--bup-muted)")
+                # 2026-10-09 review item 9: "explanation paragraphs" - Diego
+                # doesn't program and the card used to jump straight from a
+                # one-line subtitle to a scatter plot with no explanation of
+                # WHY margin changes apogee at all.
+                ui.label(
+                    "In real wind, a more stable rocket (higher static margin) weathercocks harder - it turns "
+                    "into the wind during ascent, so more of its thrust goes sideways instead of straight up, "
+                    "and apogee drops. A less stable rocket flies straighter but risks tumbling if the margin "
+                    "gets too low. This sweep adds ballast mass in the nose cone (the same fix you'd use on the "
+                    "real rocket) to find the margin that gives the HIGHEST apogee while staying inside the "
+                    "1.5-4 cal window FLT 4.3.5/4.3.6 requires - it is not searching for the most stable rocket, "
+                    "it's searching for the best-performing one that is still legal."
+                ).classes("text-sm mt-2")
                 wc_container = ui.column().classes("w-full mt-2")
 
                 def run_weathercocking():

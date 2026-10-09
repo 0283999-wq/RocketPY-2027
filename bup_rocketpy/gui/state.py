@@ -15,8 +15,14 @@ state = {
     "case_results": None,  # dict from rcsm_cases.run_all_cases
     "compliance_rows": None,
     "mc_result": None, "mc_uncertainties": None,
+    # 2026-10-09 review item 7: "global progress chip" - Monte Carlo runs
+    # in a background thread already (see montecarlo_page.py's run_mc),
+    # so the operator can navigate to another page while it runs; these
+    # let layout.py's header show a live "Monte Carlo: i/total" chip on
+    # EVERY page, not just the one that started the run.
+    "mc_running": False, "mc_progress_text": "", "mc_progress_fraction": 0.0,
     "weathercocking_result": None,
-    "vehicle_name": "Vehicle", "mission_id": "0",
+    "vehicle_name": "Vehicle", "mission_id": "",  # 2026-10-09 review item 5: "Mission ID default empty, not 0" - "0" read as a real (wrong) assigned ID, not "unset"
     "competition_profile": "lasc",  # 2026-09-26 review item H.2 - "lasc" preserves every existing default-path behavior/test
     "weather_profile": None, "launch_override": None,  # 2026-09-26 review item H - cached real-weather + the LaunchConditions override built from it
     "report_text": {},  # 2026-09-27 review item 6: editable report blocks (introduction/objectives/discussion/conclusions/team) - empty values fall back to report.py's auto-generated defaults, never blank

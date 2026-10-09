@@ -29,6 +29,14 @@ import math
 CP_TOLERANCE_PCT = 2.0
 DEFAULT_TOLERANCE_PCT = 1.0
 _CP_LABELS = ("CP at Mach 0.3", "Stability at Mach 0.3 (t=0)")
+# 2026-10-09 review item 1: rows that are EXPECTED to disagree by a
+# real, understood amount because the two tools use different
+# DEFINITIONS, not because anything is wrong - a generous tolerance
+# keeps these from rendering as a red "FAIL" chip (which would read as
+# "go fix this") when there's nothing to fix. Their own `note` explains
+# the real reason instead.
+_DEFINITIONAL_DIFFERENCE_LABELS = ("Rail exit velocity",)
+DEFINITIONAL_DIFFERENCE_TOLERANCE_PCT = 100.0
 
 
 @dataclasses.dataclass
@@ -42,7 +50,11 @@ class ComparisonRow:
 
     @property
     def tolerance_pct(self):
-        return CP_TOLERANCE_PCT if self.label in _CP_LABELS else DEFAULT_TOLERANCE_PCT
+        if self.label in _CP_LABELS:
+            return CP_TOLERANCE_PCT
+        if self.label in _DEFINITIONAL_DIFFERENCE_LABELS:
+            return DEFINITIONAL_DIFFERENCE_TOLERANCE_PCT
+        return DEFAULT_TOLERANCE_PCT
 
     @property
     def pct_diff(self):
@@ -145,5 +157,17 @@ def compare_to_openrocket(parsed, sim_result, ork_path, simulation_name=None):
         ComparisonRow("Apogee AGL", sim_result.apogee_agl_m, ref.apogee_agl_m, "m", 1,
                        "OpenRocket's own stored simulation, not real flight data - see the Validation page for the only comparisons against a real flight."),
         ComparisonRow("Max Mach", sim_result.max_mach, ref.max_mach, "", 3),
+        # 2026-10-09 review item 1: "RocketPy counts rail exit when the
+        # UPPER rail button leaves the rail; OpenRocket uses the full rod
+        # length" (confirmed against rocketpy's own source -
+        # effective_rail_length = rail_length - |nozzle - upper_button|,
+        # so rocketpy's event fires once the upper button clears, before
+        # the rocket's own reference point has travelled the full rail).
+        # A real difference in DEFINITION, not a bug - shown here with no
+        # tolerance check (over_threshold stays off: the 1%/2% columns
+        # above are for genuine agreement checks, this pair is expected
+        # to disagree) rather than "fixed" to force a match.
+        ComparisonRow("Rail exit velocity", sim_result.rail_exit_velocity_ms, ref.rail_exit_velocity_ms, "m/s", 1,
+                       "Different DEFINITIONS, not a disagreement to resolve: ours (RocketPy's own convention, used by LASC judges per CRS 10.1.5) fires when the UPPER rail button clears the rail; OpenRocket's own stored value uses the full rail/rod length. Both are 'correct' for their own convention."),
     ]
     return ref.name, rows

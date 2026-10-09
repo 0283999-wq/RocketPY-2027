@@ -104,9 +104,18 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
         tail_x = airframe_length_m(parsed)
         ax.add_patch(plt.Rectangle((tail_x - motor_length_m, -body_radius * 0.6), motor_length_m, body_radius * 1.2, fill=True, facecolor="#555555", alpha=0.6))
 
-    for pm in parsed.point_masses:
-        ax.plot([pm.position_m], [0], marker="s", color="#3A6EA5", markersize=6)
-        ax.annotate(pm.name, (pm.position_m, 0), xytext=(0, 10), textcoords="offset points", fontsize=6, color=fg, rotation=90, ha="center")
+    # 2026-10-09 review item 11: vertical point-mass name labels, each
+    # placed at a fixed small offset above its own marker with no
+    # collision avoidance, overlapped each other illegibly whenever two
+    # point masses sat close together along the airframe. A numbered
+    # marker + a legend listed separately (below the drawing, outside
+    # the geometry entirely) can never overlap no matter how many point
+    # masses there are or how close together they sit.
+    point_mass_legend = []
+    for i, pm in enumerate(parsed.point_masses, start=1):
+        ax.plot([pm.position_m], [0], marker="s", color="#3A6EA5", markersize=9)
+        ax.annotate(str(i), (pm.position_m, 0), color="white", fontsize=6, fontweight="bold", ha="center", va="center")
+        point_mass_legend.append(f"{i}={pm.name}")
 
     if dry_cg_m is not None:
         ax.axvline(dry_cg_m, color=theme.WINE, linestyle="--", linewidth=1.5)
@@ -128,10 +137,25 @@ def draw_side_profile(parsed, dry_cg_m=None, cp_m=None, motor_length_m=None, sta
             subtitle += f" · Stability @ M0.3: {stability_mach03_cal:.2f} cal"
     elif static_margin_cal is not None:
         subtitle += f", static margin {static_margin_cal:.2f} cal"
-    ax.set_title((title or parsed.name) + "\n" + subtitle, color=fg, fontsize=11)
+    # 2026-10-09 review item 11: "the title overlaps the 'Length ...'
+    # line" - a 2-line title string (name + subtitle, joined by "\n")
+    # rendered at matplotlib's default linespacing (1.2) was tight
+    # enough to visually collide at this figure's font size/DPI;
+    # linespacing=1.6 plus pad=14 gives the two lines real separation.
+    ax.set_title((title or parsed.name) + "\n" + subtitle, color=fg, fontsize=11, linespacing=1.6, pad=14)
     ax.set_xlim(-0.05 * total_length, total_length * 1.15)
     ax.set_ylim(-body_radius * 3.2, body_radius * 3.2)
     ax.set_aspect("equal")
     ax.axis("off")
+    if point_mass_legend:
+        # Left-aligned + wrapped (not one long centered line) - with
+        # many point masses (a real rocket can easily have 10+, see
+        # PROMETEO's own .ork) a single centered line overflowed past
+        # BOTH edges of the figure, cutting off the first and last
+        # entries rather than just being long.
+        import textwrap
+        wrapped = textwrap.wrap("Point masses: " + "   ".join(point_mass_legend), width=140)
+        for i, line in enumerate(wrapped):
+            ax.text(0.0, -0.08 - i * 0.07, line, transform=ax.transAxes, color=fg, fontsize=7, ha="left", va="top")
     fig.tight_layout()
     return fig

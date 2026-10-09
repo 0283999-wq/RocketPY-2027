@@ -46,7 +46,7 @@ def test_prometeo_geometry_rows_within_tolerance():
     sim_name, rows = openrocket_comparison.compare_to_openrocket(load_result.parsed_ork, sim, ORK_PATH)
 
     assert sim_name is not None, "PROMETEO's .ork has a stored simulation - compare_to_openrocket should never return None here"
-    assert len(rows) == 13  # 9 vehicle/aero rows + 4 atmosphere rows (2026-09-30 review item 7)
+    assert len(rows) == 14  # 9 vehicle/aero rows + 4 atmosphere rows (2026-09-30 review item 7) + 1 rail exit velocity row (2026-10-09 review item 1)
 
     length_row = _row(rows, "Overall length")
     assert length_row.openrocket is None, "overall length is never stored in the design file - see the module docstring"

@@ -121,11 +121,27 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
         from bup_rocketpy.translate import rocketpy_nose_kind
         a(f'rocket.add_nose(length={_fmt(parsed.nose.length)}, kind="{rocketpy_nose_kind(parsed.nose.shape)}", position={_fmt(nose_pos)})')
     for fin in parsed.fins:
-        a("rocket.add_trapezoidal_fins(")
-        a(f"    n={fin.count}, root_chord={_fmt(fin.root_chord)}, tip_chord={_fmt(fin.tip_chord)},")
-        a(f"    span={_fmt(fin.span)}, sweep_length={_fmt(fin.sweep_length)}, cant_angle={_fmt(fin.cant_angle)},")
-        a(f"    position={_fmt(to_rpy_sign * fin.position_m)},")
-        a(")")
+        # 2026-10-09 review item 2: this exported script is the ACTUAL CRS
+        # 10.1.6 deliverable LASC runs - it must build the SAME fin shape
+        # translate.build_rocket does, not the trapezoid surrogate (see
+        # ork_reader.FinSet's docstring) every other fin field here is
+        # borrowed from for the hand-calc/drawing paths only.
+        if fin.shape == "elliptical":
+            a("rocket.add_elliptical_fins(")
+            a(f"    n={fin.count}, root_chord={_fmt(fin.root_chord)}, span={_fmt(fin.span)},")
+            a(f"    cant_angle={_fmt(fin.cant_angle)}, position={_fmt(to_rpy_sign * fin.position_m)},")
+            a(")")
+        elif fin.shape == "freeform" and fin.fin_points:
+            a("rocket.add_free_form_fins(")
+            a(f"    n={fin.count}, shape_points={fin.fin_points!r},")
+            a(f"    cant_angle={_fmt(fin.cant_angle)}, position={_fmt(to_rpy_sign * fin.position_m)},")
+            a(")")
+        else:
+            a("rocket.add_trapezoidal_fins(")
+            a(f"    n={fin.count}, root_chord={_fmt(fin.root_chord)}, tip_chord={_fmt(fin.tip_chord)},")
+            a(f"    span={_fmt(fin.span)}, sweep_length={_fmt(fin.sweep_length)}, cant_angle={_fmt(fin.cant_angle)},")
+            a(f"    position={_fmt(to_rpy_sign * fin.position_m)},")
+            a(")")
     if parsed.rail_buttons is not None:
         a(f"rocket.set_rail_buttons(upper_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.upper_position_m)}, lower_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.lower_position_m)})")
     a("")

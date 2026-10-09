@@ -55,6 +55,15 @@ def hand_calc_cp(parsed):
     for finset in parsed.fins:
         n = finset.count
         s = finset.span
+        # 2026-10-09 review item 2: elliptical/freeform fins reuse this
+        # classical trapezoid formula via their root_chord/tip_chord(=0)/
+        # sweep_length(=0) SURROGATE fields (see ork_reader.FinSet's
+        # docstring) - this cross-check was never meant to need a shape-
+        # specific formula for every planform; it reduces to treating the
+        # fin as a zero-sweep triangle of the same chord/span, a known,
+        # reasonable Barrowman approximation, not an exact match to the
+        # REAL simulated CP (which uses the exact geometry - see
+        # translate.build_rocket).
         cr, ct = finset.root_chord, finset.tip_chord
         xr = finset.sweep_length
         if n <= 0 or s <= 0 or (cr + ct) <= 0:

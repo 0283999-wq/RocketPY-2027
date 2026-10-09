@@ -214,7 +214,7 @@ def montecarlo_page():
         # on the main event loop polls it and is the only thing that
         # actually touches NiceGUI elements, which is not safe to do
         # directly from a worker thread.
-        mc_progress = {"text": "", "done": False}
+        mc_progress = {"text": "", "done": False, "fraction": 0.0}
         cancel_flag = threading.Event()
         # 2026-09-27 review item 7: on_sample_complete (called from the
         # SAME background thread as progress_cb) appends to this plain
@@ -226,6 +226,15 @@ def montecarlo_page():
 
         def poll_progress():
             progress_label.set_text(mc_progress["text"])
+            # 2026-10-09 review item 7: the progress bar's own VALUE was
+            # never set anywhere - only the text label was - so it stayed
+            # visually stuck at the value=0 it was constructed with for
+            # the whole run, exactly the reported "stuck at 0" bug. Fix:
+            # actually read the fraction progress_cb computed below.
+            progress_bar.set_value(mc_progress["fraction"])
+            s["mc_running"] = not mc_progress["done"]
+            s["mc_progress_text"] = mc_progress["text"]
+            s["mc_progress_fraction"] = mc_progress["fraction"]
             container_id = live_mc_state["container_id"]
             while mc_live_queue:
                 trajectory, x_impact, y_impact = mc_live_queue.pop(0)
@@ -259,16 +268,22 @@ def montecarlo_page():
 
             def progress_cb(i, total):
                 mc_progress["text"] = f"Running {i}/{total}..."
+                mc_progress["fraction"] = (i / total) if total else 0.0
 
             def on_sample_complete(trajectory, x_impact, y_impact):
                 mc_live_queue.append((trajectory, x_impact, y_impact))
 
             cancel_flag.clear()
             mc_progress["done"] = False
+            mc_progress["fraction"] = 0.0
             mc_live_queue.clear()
             progress_bar.props(remove="hidden")
+            progress_bar.set_value(0.0)
             run_button.props("hidden")
             cancel_button.props(remove="hidden")
+            s["mc_running"] = True
+            s["mc_progress_text"] = "Starting..."
+            s["mc_progress_fraction"] = 0.0
 
             container_id = f"livemc-{uuid.uuid4().hex[:8]}"
             live_mc_state["container_id"] = container_id
@@ -304,6 +319,8 @@ def montecarlo_page():
                 progress_bar.props("hidden")
                 run_button.props(remove="hidden")
                 cancel_button.props("hidden")
+                s["mc_running"] = False
+                s["mc_progress_text"] = ""
 
             # Drain any samples that finished after the last poll tick, then
             # draw the final 1/2/3-sigma ellipses on the live view too - the
