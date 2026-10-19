@@ -113,7 +113,7 @@ def compare_designs(
     outputs_dir=None, ork_filename_a=None, eng_filename_a=None, ork_filename_b=None, eng_filename_b=None,
     simulation_name_a=None, simulation_name_b=None,
     mass_override_kg_a=None, cg_override_m_a=None, mass_override_kg_b=None, cg_override_m_b=None,
-    mc_n=0, mc_uncertainties=None, mc_seed=12345,
+    mc_n=0, mc_uncertainties=None, mc_seed=12345, progress_callback=None,
 ):
     """Runs BOTH designs through the exact same load_files()+run_simulation()
     pipeline a single Simulate run uses (never a separate "lite" re-
@@ -121,7 +121,15 @@ def compare_designs(
     pair (mc_n > 0) for a statistically defensible apogee difference.
     eng_path_b/eng_filename_b default to design A's own motor when not
     given - the common real case is comparing two fin options on the
-    SAME airframe/motor, not two different vehicles entirely."""
+    SAME airframe/motor, not two different vehicles entirely.
+
+    progress_callback(label, i, total) (2026-10-19 review): called
+    during each design's own Monte Carlo run (label is "Design A" or
+    "Design B", same (i, total) convention monte_carlo.run_monte_carlo's
+    own progress_callback already uses) - lets the UI show which design
+    is running and how far along it is, since with mc_n > 0 this
+    function runs TWO full Monte Carlo batches back to back and
+    previously gave no visibility into either one."""
     eng_path_b = eng_path_b or eng_path_a
     eng_filename_b = eng_filename_b or eng_filename_a
 
@@ -136,15 +144,35 @@ def compare_designs(
 
     if mc_n and mc_n > 0:
         from bup_rocketpy import monte_carlo
+
+        def _cb_a(i, total):
+            if progress_callback:
+                progress_callback("Design A", i, total)
+
+        def _cb_b(i, total):
+            if progress_callback:
+                progress_callback("Design B", i, total)
+
+        # 2026-10-19 review ("check every bug" audit, task #78): this used
+        # body_tubes[0].radius unconditionally - a body tube with an
+        # unset/zero radius (e.g. a pure transition-shaped first tube) or
+        # one whose radius is None would pass that straight through as
+        # the rocket's reference radius (used for the static-margin-cal
+        # conversion inside monte_carlo's own run_case), instead of
+        # falling back. Matches the defensive pattern already used by
+        # pipeline.py/rcsm_cases.py/analysis_page.py: the first body tube
+        # that actually HAS a radius, else the nose cone's aft radius.
+        radius_a = next((t.radius for t in lr_a.parsed_ork.body_tubes if t.radius), None) or (lr_a.parsed_ork.nose.aft_radius if lr_a.parsed_ork.nose else 0.05)
+        radius_b = next((t.radius for t in lr_b.parsed_ork.body_tubes if t.radius), None) or (lr_b.parsed_ork.nose.aft_radius if lr_b.parsed_ork.nose else 0.05)
         mc_a = monte_carlo.run_monte_carlo(
             lr_a.parsed_ork, lr_a.parsed_eng, lr_a.eng_path, lr_a.power_off_drag_path, lr_a.power_on_drag_path,
-            sim_a.dry_mass_kg, sim_a.dry_cg_m, sim_a.i_axial_kgm2, sim_a.i_transverse_kgm2, lr_a.parsed_ork.body_tubes[0].radius if lr_a.parsed_ork.body_tubes else 0.05,
-            mc_uncertainties or [], mc_n, (out_a + "_mc") if out_a else None, seed=mc_seed,
+            sim_a.dry_mass_kg, sim_a.dry_cg_m, sim_a.i_axial_kgm2, sim_a.i_transverse_kgm2, radius_a,
+            mc_uncertainties or [], mc_n, (out_a + "_mc") if out_a else None, seed=mc_seed, progress_callback=_cb_a,
         )
         mc_b = monte_carlo.run_monte_carlo(
             lr_b.parsed_ork, lr_b.parsed_eng, lr_b.eng_path, lr_b.power_off_drag_path, lr_b.power_on_drag_path,
-            sim_b.dry_mass_kg, sim_b.dry_cg_m, sim_b.i_axial_kgm2, sim_b.i_transverse_kgm2, lr_b.parsed_ork.body_tubes[0].radius if lr_b.parsed_ork.body_tubes else 0.05,
-            mc_uncertainties or [], mc_n, (out_b + "_mc") if out_b else None, seed=mc_seed,
+            sim_b.dry_mass_kg, sim_b.dry_cg_m, sim_b.i_axial_kgm2, sim_b.i_transverse_kgm2, radius_b,
+            mc_uncertainties or [], mc_n, (out_b + "_mc") if out_b else None, seed=mc_seed, progress_callback=_cb_b,
         )
         summary_a.apogee_mc_mean_m = mc_a.apogee_mean
         summary_a.apogee_mc_ci90 = (mc_a.apogee_p05, mc_a.apogee_p95)
@@ -153,9 +181,21 @@ def compare_designs(
         summary_b.apogee_mc_ci90 = (mc_b.apogee_p05, mc_b.apogee_p95)
         summary_b.mc_n_completed = mc_b.n_completed
 
-        n = min(mc_a.n_completed, mc_b.n_completed)
-        a_samples = np.array(mc_a.apogee_samples[:n])
-        b_samples = np.array(mc_b.apogee_samples[:n])
+        # 2026-10-19 review ("check every bug" audit, task #78): used to
+        # pair by POSITION in the compacted apogee_samples lists (first n
+        # of each) - correct only if both runs excluded the exact same
+        # sample indices. Design A and B are different vehicles and can
+        # (will, whenever one is less stable/aerodynamically marginal)
+        # exclude DIFFERENT tail samples, which silently shifts the two
+        # compacted lists out of alignment from that point on and pairs
+        # unrelated samples under the "common random numbers" banner.
+        # apogee_by_sample_index preserves true sample identity (None at
+        # any excluded/not-attempted index) - pair only where BOTH runs
+        # actually have a value at the same underlying index.
+        paired = [(a, b) for a, b in zip(mc_a.apogee_by_sample_index, mc_b.apogee_by_sample_index) if a is not None and b is not None]
+        n = len(paired)
+        a_samples = np.array([p[0] for p in paired])
+        b_samples = np.array([p[1] for p in paired])
         diffs = b_samples - a_samples
         if n > 1:
             mean_diff = float(diffs.mean())

@@ -94,9 +94,19 @@ def drag_comparison(parsed, parsed_eng, eng_path, drag_pair_a, drag_pair_b, dry_
     result_a = monte_carlo.run_monte_carlo(parsed, parsed_eng, eng_path, drag_pair_a[0], drag_pair_a[1], dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir + "_a", include_recovery=False, seed=seed)
     result_b = monte_carlo.run_monte_carlo(parsed, parsed_eng, eng_path, drag_pair_b[0], drag_pair_b[1], dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, uncertainties, n_simulations, output_dir + "_b", include_recovery=False, seed=seed)
 
-    n = min(result_a.n_completed, result_b.n_completed)
-    a = np.array(result_a.apogee_samples[:n])
-    b = np.array(result_b.apogee_samples[:n])
+    # 2026-10-19 review ("check every bug" audit, task #78): pairing by
+    # POSITION in the compacted apogee_samples lists (first n of each) is
+    # only correct if both runs excluded the exact same sample indices -
+    # two different drag curves can legitimately make different tail
+    # samples unstable, which silently shifts the compacted lists out of
+    # alignment and breaks the "common random numbers" guarantee this
+    # function exists for. apogee_by_sample_index preserves true sample
+    # identity (None at any excluded/not-attempted index); pair only
+    # where BOTH runs actually have a value at the same underlying index.
+    paired = [(x, y) for x, y in zip(result_a.apogee_by_sample_index, result_b.apogee_by_sample_index) if x is not None and y is not None]
+    n = len(paired)
+    a = np.array([p[0] for p in paired])
+    b = np.array([p[1] for p in paired])
     diffs = b - a  # b relative to a
 
     mean_diff = float(diffs.mean()) if n else float("nan")

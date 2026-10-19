@@ -92,6 +92,28 @@ def test_same_seed_same_file_twice_gives_identical_mc_samples():
     assert result.apogee_mc_diff_mean_m == 0.0 or abs(result.apogee_mc_diff_mean_m) < 1e-6
 
 
+def test_progress_callback_reports_both_designs_reaching_completion():
+    """2026-10-19 review: "a bar that says how much Monte Carlo is using
+    on the compare design" - compare_designs() used to run both designs'
+    MC batches with zero progress reporting at all. Now it calls
+    progress_callback(label, i, total) during each design's own batch -
+    this checks both labels actually fire and each one's own LAST call
+    reaches i == total (full progress), not just that the callback
+    exists."""
+    os.makedirs(OUT_DIR, exist_ok=True)
+    calls = []
+    compare_designs.compare_designs(
+        ORK_A, ENG_PATH, _ork_b(), ENG_PATH, outputs_dir=OUT_DIR, mc_n=3,
+        progress_callback=lambda label, i, total: calls.append((label, i, total)),
+    )
+    labels_seen = {label for label, _, _ in calls}
+    assert labels_seen == {"Design A", "Design B"}, f"expected both designs to report progress, got {labels_seen}"
+    for label in ("Design A", "Design B"):
+        this_label_calls = [(i, total) for lbl, i, total in calls if lbl == label]
+        last_i, last_total = this_label_calls[-1]
+        assert last_i == last_total, f"{label}'s own last progress call should reach full completion, got {last_i}/{last_total}"
+
+
 def test_export_zip_has_one_csv_per_design_with_distinct_names():
     os.makedirs(OUT_DIR, exist_ok=True)
     result = compare_designs.compare_designs(

@@ -86,9 +86,31 @@ def compare_designs_page():
             mc_n_input = ui.number(label="Monte Carlo samples per design (0 = nominal-only, fast)", value=0)
             ui.label("Both designs run with the SAME random seed per sample (common random numbers) - the apogee difference isolates the design change from sampling noise, not a side effect of comparing two independent random draws.").classes("text-xs").style("color: var(--bup-muted)")
             status_label = ui.label("").classes("text-sm")
+            # 2026-10-19 review: "a bar that says how much Monte Carlo is
+            # using on the compare design" - this page used to run BOTH
+            # designs' Monte Carlo batches with zero visible progress
+            # (just a static "Running Design A and Design B..." label for
+            # however long it took). Same progress_bar.set_value() pattern
+            # montecarlo_page.py's own fix uses - see compare_designs.py's
+            # progress_callback(label, i, total) docstring.
+            mc_progress_bar = ui.linear_progress(value=0).props("hidden").classes("mt-1")
             components.button("Run comparison", kind="primary", icon="compare_arrows", on_click=lambda: run_comparison())
 
         results_container = ui.column().classes("w-full mt-4")
+
+        # 2026-10-19 review: plain dict updated from the background thread
+        # (run.io_bound), drained by a ui.timer on the main event loop -
+        # same split montecarlo_page.py's own poll_progress() uses, since
+        # touching NiceGUI elements directly from a worker thread isn't
+        # safe.
+        mc_progress = {"text": "", "fraction": 0.0}
+
+        def poll_mc_progress():
+            if mc_progress["text"]:
+                status_label.set_text(mc_progress["text"])
+            mc_progress_bar.set_value(mc_progress["fraction"])
+
+        mc_poll_timer = ui.timer(0.3, poll_mc_progress, active=False)
 
         async def run_comparison():
             if not up["ork_a"] or not up["ork_b"] or not up["eng"]:
@@ -104,6 +126,21 @@ def compare_designs_page():
                 # keep this page's own scope focused on the A/B question.
                 mc_uncertainties = monte_carlo.default_uncertainties(5.0, 1800.0, 3.0)
 
+            def on_mc_progress(label, i, total):
+                # Design A fills the first half of the bar, Design B the
+                # second half, so the single bar reflects BOTH batches'
+                # combined progress, not just whichever one is running.
+                half = (i / total) if total else 0.0
+                mc_progress["fraction"] = (0.5 * half) if label == "Design A" else (0.5 + 0.5 * half)
+                mc_progress["text"] = f"Monte Carlo - {label}: {i}/{total}"
+
+            if mc_n > 0:
+                mc_progress["fraction"] = 0.0
+                mc_progress["text"] = "Monte Carlo - starting..."
+                mc_progress_bar.props(remove="hidden")
+                mc_progress_bar.set_value(0.0)
+                mc_poll_timer.activate()
+
             try:
                 result = await run.io_bound(
                     compare_designs.compare_designs,
@@ -111,11 +148,15 @@ def compare_designs_page():
                     outputs_dir=OUTPUTS_DIR,
                     ork_filename_a=up["ork_a_name"], ork_filename_b=up["ork_b_name"], eng_filename_a=up["eng_name"],
                     mc_n=mc_n, mc_uncertainties=mc_uncertainties,
+                    progress_callback=on_mc_progress if mc_n > 0 else None,
                 )
             except Exception as exc:
                 status_label.set_text(f"Comparison failed: {exc}")
                 ui.notify(str(exc), type="negative", multi_line=True, close_button=True)
                 return
+            finally:
+                mc_poll_timer.deactivate()
+                mc_progress_bar.props("hidden")
             status_label.set_text("Done.")
 
             a, b = result.design_a, result.design_b

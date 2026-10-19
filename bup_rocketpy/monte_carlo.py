@@ -49,7 +49,19 @@ def default_uncertainties(dry_mass_kg, total_impulse_Ns, wind_speed_ms):
     all labeled accordingly, editable, not invented as if authoritative."""
     return [
         Uncertainty("wind_speed_ms", wind_speed_ms, max(wind_speed_ms * 0.3, 1.0), "no source, low confidence - guessed as 30% of the OpenRocket-recorded wind speed"),
-        Uncertainty("wind_direction_deg", 0.0, 15.0, "no source, low confidence - typical launch-day wind direction variability"),
+        # 2026-10-19 review ("check every bug" audit): this field is
+        # EDITABLE but has NO effect on the simulation - RocketPy's own
+        # StochasticEnvironment has no wind-direction/rotation parameter
+        # at all (only x/y velocity-magnitude multiplicative factors - see
+        # _run_one_mc_sample's own comment), so a true wind-direction
+        # uncertainty cannot currently be wired in. Kept in the list
+        # (rather than silently removed) so the gap stays visible, with
+        # an honest source string instead of one that reads as if this
+        # were just another "low confidence, guessed" value like its
+        # neighbors - wind speed's own uncertainty (applied to BOTH wind
+        # axes independently) is the only real source of directional
+        # dispersion this Monte Carlo currently has.
+        Uncertainty("wind_direction_deg", 0.0, 15.0, "NOT CURRENTLY MODELED - RocketPy's StochasticEnvironment has no wind-direction parameter; editing this value has no effect. Wind SPEED uncertainty (above) is applied to both wind axes independently, which is the only source of directional dispersion in this Monte Carlo today."),
         Uncertainty("dry_mass_kg", dry_mass_kg, dry_mass_kg * 0.02, "no source, low confidence - assumed 2% (typical scale + component-count uncertainty for a student rocket)"),
         Uncertainty("dry_cg_m", 0.0, 0.01, "no source, low confidence - assumed +-1cm CG placement/measurement uncertainty. NOTE: rocketpy's StochasticRocket does NOT preserve an overridden center_of_mass_without_motor unless this is explicitly passed - found 2026-09-26, see PROGRESS.md"),
         Uncertainty("total_impulse_Ns", total_impulse_Ns, total_impulse_Ns * 0.02, "no source, low confidence - assumed 2%, typical SRAD motor-to-motor total impulse variation for KNSB"),
@@ -67,6 +79,22 @@ class MonteCarloResult:
     n_completed: int
     n_excluded: int
     apogee_samples: list
+    # 2026-10-19 review ("check every bug" audit, task #78): apogee_samples
+    # above is COMPACTED (excluded/never-attempted indices dropped, the
+    # rest shifted left) - fine for a histogram/mean/percentile, which
+    # don't care about order, but WRONG for the common-random-numbers
+    # pairing analysis.drag_comparison()/compare_designs.py both do
+    # (result_a.apogee_samples[i] vs result_b.apogee_samples[i], relying
+    # on sample i meaning "the same underlying seed" in both runs). If
+    # run A excludes a DIFFERENT sample index than run B (the realistic
+    # case when comparing two designs of differing stability), the two
+    # compacted lists silently shift out of alignment from that point on
+    # and every later "paired" diff compares two unrelated samples.
+    # apogee_by_sample_index is the same data WITHOUT compacting - length
+    # n_simulations, None at any excluded/never-attempted index - so a
+    # caller doing index-sensitive pairing can align on TRUE sample
+    # identity instead of post-filtering position.
+    apogee_by_sample_index: list
     apogee_mean: float
     apogee_p05: float
     apogee_p95: float
@@ -192,7 +220,31 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
     # free - processes never share random state the way threads/a single
     # loop would.
     with _seeded_rng(sample_seed):
-        stochastic_env = StochasticEnvironment(environment=env, wind_velocity_x_factor=(1, u["wind_speed_ms"].std_dev / max(u["wind_speed_ms"].nominal, 0.1)) if "wind_speed_ms" in u else (1, 0))
+        # 2026-10-19 review ("check every bug" audit, finding #3 of the
+        # pipeline/MC/compare_designs report): wind_velocity_y_factor was
+        # never set at all (rocketpy's own default (1, 0) - zero
+        # dispersion), so wind speed's own declared uncertainty only ever
+        # perturbed the X component. StochasticEnvironment draws
+        # wind_velocity_x_factor and wind_velocity_y_factor as TWO
+        # INDEPENDENT random samples (confirmed: they are separate
+        # stochastic parameters, not one shared draw) - applying the SAME
+        # wind-speed-derived std_dev to BOTH fixes two things at once:
+        # (1) a real wind-speed uncertainty now scales the FULL vector
+        # magnitude, not just whichever axis the deterministic wind
+        # happens to be aligned with (the "under-disperses" half of the
+        # finding); (2) because x and y are sampled independently, the
+        # RESULTANT vector's direction also varies sample-to-sample as a
+        # natural side effect, which is the only direction-dispersion
+        # mechanism available here - rocketpy's StochasticEnvironment has
+        # NO native wind-direction/rotation parameter at all (confirmed
+        # by inspecting its own __init__ signature: only x/y multiplicative
+        # factors exist), so wind_direction_deg's own std_dev genuinely
+        # cannot be wired in as a true rotation without rocketpy adding
+        # that capability - see default_uncertainties()'s own source
+        # string for this uncertainty, updated to say so honestly rather
+        # than silently doing nothing while looking editable/functional.
+        wind_factor = (1, u["wind_speed_ms"].std_dev / max(u["wind_speed_ms"].nominal, 0.1)) if "wind_speed_ms" in u else (1, 0)
+        stochastic_env = StochasticEnvironment(environment=env, wind_velocity_x_factor=wind_factor, wind_velocity_y_factor=wind_factor)
         stochastic_motor = StochasticSolidMotor(solid_motor=motor, total_impulse=(motor.total_impulse, u["total_impulse_Ns"].std_dev) if "total_impulse_Ns" in u else None)
         stochastic_rocket = StochasticRocket(
             rocket=rocket,
@@ -466,7 +518,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
         mean = p05 = p95 = float("nan")
 
     return MonteCarloResult(
-        n_completed=len(apogees), n_excluded=n_excluded, apogee_samples=apogees, apogee_mean=mean, apogee_p05=p05, apogee_p95=p95,
+        n_completed=len(apogees), n_excluded=n_excluded, apogee_samples=apogees, apogee_by_sample_index=apogees_by_index, apogee_mean=mean, apogee_p05=p05, apogee_p95=p95,
         impact_x_samples=impact_xs, impact_y_samples=impact_ys, filename=mc_filename, exclusion_reasons=exclusion_reasons,
         exclusion_by_type=dict(exclusion_by_type), first_traceback=first_traceback,
         cancelled=cancelled,
