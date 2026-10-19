@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 import matplotlib
 matplotlib.use("Agg")
 import numpy as np
-from rocketpy import Flight, StochasticEnvironment, StochasticFlight, StochasticNoseCone, StochasticParachute, StochasticRocket, StochasticSolidMotor, StochasticTrapezoidalFins
+from rocketpy import Flight, StochasticEllipticalFins, StochasticEnvironment, StochasticFlight, StochasticNoseCone, StochasticParachute, StochasticRocket, StochasticSolidMotor, StochasticTrapezoidalFins
 
 
 @dataclass
@@ -289,8 +289,40 @@ def _run_one_mc_sample(parsed, parsed_eng, eng_path, power_off_drag, power_on_dr
         # working branch of that method (it only re-wraps a plain surface).
         if parsed.nose is not None:
             stochastic_rocket.add_nose(StochasticNoseCone(nosecone=rocket.nosecones[0]))
+        # 2026-10-20 review ("judge-grade LASC package" work, found while
+        # building the standalone Monte Carlo export): this used to wrap
+        # EVERY fin surface in StochasticTrapezoidalFins unconditionally,
+        # regardless of its real shape - fine for a real TrapezoidalFins
+        # object, but StochasticTrapezoidalFins reads trapezoid-only
+        # attributes (root_chord/tip_chord) that an EllipticalFins
+        # surface simply doesn't have, so ANY elliptical-finned rocket
+        # (task #60's own feature) crashed every single Monte Carlo
+        # sample with AttributeError: 'EllipticalFins' object has no
+        # attribute 'tip_chord' - confirmed via a direct repro using
+        # PROMETEO's real .ork with its trapezoid fin set replaced by an
+        # elliptical one (same text-surgery convention as test_freeform_
+        # elliptical_fins.py). A free-form fin set has no corresponding
+        # Stochastic* class in rocketpy==1.13.0 at all (confirmed:
+        # `from rocketpy import StochasticFreeFormFins` doesn't exist) -
+        # skipped with a one-time warning rather than silently wrapping
+        # it as the wrong shape or crashing the whole batch.
         for fin_surface in rocket.fins:
-            stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
+            fin_kind = type(fin_surface).__name__
+            if fin_kind == "EllipticalFins":
+                stochastic_rocket.add_elliptical_fins(StochasticEllipticalFins(elliptical_fins=fin_surface))
+            elif fin_kind == "FreeFormFins":
+                # StochasticRocket.create_object() builds the sampled Rocket
+                # from scratch out of whatever was explicitly add_X()'d on
+                # the StochasticRocket - it does NOT start from a copy of
+                # the nominal `rocket` (see the nose/fins comment above).
+                # With no StochasticFreeFormFins class to re-register it
+                # through, this fin set is not approximated or frozen at
+                # its nominal shape - it is simply ABSENT from every
+                # sampled rocket, which measurably understates stability/
+                # overstates CP-to-CG margin for the whole Monte Carlo run.
+                print(f"[Monte Carlo] WARNING: rocketpy has no Stochastic* class for free-form fins - '{fin_surface.name}' is MISSING from every Monte Carlo sample (not just unrandomized). Use the Compare Designs/Simulate pages for a free-form-finned rocket's real stability instead.", file=sys.stderr)
+            else:
+                stochastic_rocket.add_trapezoidal_fins(StochasticTrapezoidalFins(trapezoidal_fins=fin_surface))
         # 2026-09-28 review item 3: SAME bug class as the nose/fins one
         # above (StochasticRocket.create_object() does NOT carry over
         # ANYTHING added to the nominal `rocket` via rocket.add_X() -

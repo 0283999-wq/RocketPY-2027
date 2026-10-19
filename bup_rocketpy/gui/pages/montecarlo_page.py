@@ -31,7 +31,15 @@ def montecarlo_page():
 
         if s["mc_uncertainties"] is None:
             parsed = s["load_result"].parsed_ork
-            s["mc_uncertainties"] = monte_carlo.default_uncertainties(s["dry_mass_kg"], 1871.3, parsed.launch.wind_average_ms)
+            # 2026-10-20 review ("judge-grade LASC package" work):
+            # 1871.3 was a HARDCODED total impulse (PROMETEO's own
+            # Icarus I K519, ~1871 N*s) - every OTHER rocket (Major Tom,
+            # any future vehicle) got its "total_impulse_Ns" uncertainty
+            # centered on the WRONG nominal value, silently. Uses the
+            # loaded .eng's own real thrust curve instead - the same
+            # property translate.py/rcsm_cases already treat as the
+            # single source of truth for total impulse.
+            s["mc_uncertainties"] = monte_carlo.default_uncertainties(s["dry_mass_kg"], s["load_result"].parsed_eng.total_impulse_Ns, parsed.launch.wind_average_ms)
 
         with ui.row().classes("gap-4 w-full items-start flex-wrap"):
             with components.card(classes="flex-1 min-w-[380px]"):
