@@ -107,6 +107,11 @@ def exports_page():
                             s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                             s["dry_mass_kg"], s["dry_cg_m"],
                             i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
+                            # 2026-10-19 review ("check every bug" audit): same
+                            # measured-motor-mass correction every other page
+                            # already applies - without this, the report's RCSM
+                            # appendix could silently fly the uncorrected .eng mass.
+                            motor_dry_override_kg=s["sim_result"].motor_dry_kg,
                         )
 
                     # Reuses whatever the RCSM Cases page already computed (same
@@ -211,15 +216,46 @@ def exports_page():
                 # ran - use its actually-used inertia, not a fresh geometric
                 # re-derivation.
                 i_ax, i_tr = (s["dry_i_axial_kgm2"], s["dry_i_transverse_kgm2"]) if s["dry_i_axial_kgm2"] is not None else translate.estimate_dry_inertia(parsed, mass_est)
-                radius = next(t.radius for t in parsed.body_tubes if t.radius)
-                zip_path = os.path.join(OUTPUTS_DIR, f"Mission{mission_id_input.value}_{profile.key}.zip")
+                radius = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
+                # 2026-10-19 review ("check every bug" audit, task #78):
+                # mission_id_input.value feeds directly into this zip's
+                # own filename AND every per-case .py filename inside it
+                # (case_export.py's own Mission{mission_id}_... pattern) -
+                # an ID like "44/Rev2" (a real, plausible value - LASC
+                # reused mission numbers across revisions) would silently
+                # break the save (a literal "/" is a path separator) or,
+                # on Windows, get rejected outright. Sanitized ONCE here,
+                # upstream of both call sites, rather than teaching
+                # case_export.py its own separate copy of the same rule.
+                safe_mission_id = _sanitize_filename(str(mission_id_input.value))
+                zip_path = os.path.join(OUTPUTS_DIR, f"Mission{safe_mission_id}_{profile.key}.zip")
+                # 2026-10-19 review ("check every bug" audit, finding #6
+                # of the report/export report): this always exported ONLY
+                # Ballistic + Nominal - CLAUDE.md Sec 5 (CRS 10.1.10-13)
+                # is explicit that Drogue-only and Main-at-apogee are
+                # ALSO mandatory for a real dual-deploy (drogue+main)
+                # vehicle. Reuses rcsm_cases' own drogue/main
+                # classification - the SAME logic the RCSM Cases page
+                # already uses to decide this - instead of a third,
+                # separate implementation of "is this really dual-deploy".
+                from bup_rocketpy.rcsm_cases import _classify_parachutes
+                drogue, main = _classify_parachutes(parsed)
+                cases = [("Ballistic", False), ("Nominal", True)]
+                if drogue is not None and main is not None:
+                    cases += [("DrogueOnly", True), ("MainAtApogee", True)]
                 lasc_package.build_lasc_zip(
-                    zip_path, mission_id_input.value, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                    zip_path, safe_mission_id, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                     s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                     s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
-                    cases=[("Ballistic", False), ("Nominal", True)],
+                    cases=cases,
                     eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
                     mission_id_template=profile.mission_id_template,
+                    # 2026-10-19 review ("check every bug" audit): without
+                    # these, a submission built after applying real
+                    # launch-day weather or a measured motor-mass
+                    # correction would silently fly the UNcorrected .ork/
+                    # .eng values instead of what was actually simulated.
+                    launch_override=s["launch_override"], motor_dry_override_kg=s["sim_result"].motor_dry_kg,
                 )
                 zip_status.set_text(f"Zip written: {os.path.basename(zip_path)}")
                 zip_preview_container.clear()

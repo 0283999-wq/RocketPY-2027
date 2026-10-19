@@ -66,7 +66,17 @@ def home_page():
         with ui.row().classes("gap-2 flex-wrap"):
             components.status_chip(motor_name, "neutral")
             components.status_chip(profile.display_name, "info")
-            reefed = [c for c in parsed.parachutes if c.is_reefed and c.reefed_cd is not None]
+            # 2026-10-19 review ("check every bug" audit, finding #7 of
+            # the GUI pages report): this used a WEAKER condition than
+            # layout.py's own status-bar chip (which also requires
+            # reefed_diameter_m/cutter_altitude_m - the same fields
+            # rcsm_cases._classify_parachutes needs to actually BUILD a
+            # real reefed dual-deploy). A mid-edit reefed chute (is_reefed
+            # checked, Cd typed, diameter/cutter altitude not yet filled
+            # in) showed a green "Reefing ON" here while the identical
+            # state showed nothing on every other page - now the same,
+            # stricter check everywhere.
+            reefed = [c for c in parsed.parachutes if c.is_reefed and c.reefed_cd is not None and c.reefed_diameter_m is not None and c.cutter_altitude_m is not None]
             if reefed:
                 components.status_chip("Reefing ON", "success")
             if s["sim_result"] is not None:

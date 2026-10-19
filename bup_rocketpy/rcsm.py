@@ -80,16 +80,32 @@ def check_compliance(category, flight, rocket, payload_mass_kg, fin_flutter_velo
     min_margin_mach0 = min(margins_mach0)
     max_margin_mach0 = max(margins_mach0)
     conservative_min = min(min_margin, min_margin_mach0)
-    conservative_max = max(max_margin, max_margin_mach0)
     if conservative_min >= MIN_STATIC_MARGIN_CAL:
         rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "PASS", f"min {conservative_min:.2f} cal (Mach-varying: {min_margin:.2f}, Mach 0: {min_margin_mach0:.2f})"))
     else:
         rows.append(("FLT 4.3.5", "Static margin >= 1.5 cal (ascent)", "FAIL", f"min {conservative_min:.2f} cal (Mach-varying: {min_margin:.2f}, Mach 0: {min_margin_mach0:.2f})"))
 
-    if conservative_max < MAX_STATIC_MARGIN_CAL:
-        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "PASS", f"max {conservative_max:.2f} cal (Mach-varying: {max_margin:.2f}, Mach 0: {max_margin_mach0:.2f})"))
+    # 2026-10-19 review ("check every bug" audit, task #78): FLT 4.3.6 is
+    # TWO separate conditions (docs/rcsm_reference.md: "static margin <4
+    # cal, dynamic margin <6 cal"), not one - MAX_DYNAMIC_MARGIN_CAL was
+    # defined above but never referenced anywhere. This used to fold both
+    # the Mach-0 ("static") and Mach-varying ("dynamic", rocketpy's own
+    # flight.stability_margin which already shifts CP with the actual
+    # flight Mach - see the note above on margins vs. margins_mach0)
+    # numbers into one `conservative_max` and judge BOTH against the
+    # stricter 4 cal static ceiling - a vehicle whose Mach-varying margin
+    # legitimately rose to, say, 5 cal (legal: below the 6 cal dynamic
+    # ceiling) would have wrongly FAILed this rule. Now checks each
+    # quantity against its own, correct ceiling.
+    if max_margin_mach0 < MAX_STATIC_MARGIN_CAL:
+        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "PASS", f"max {max_margin_mach0:.2f} cal"))
     else:
-        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "FAIL", f"max {conservative_max:.2f} cal (Mach-varying: {max_margin:.2f}, Mach 0: {max_margin_mach0:.2f})"))
+        rows.append(("FLT 4.3.6", "Not over-stable (< 4 cal static)", "FAIL", f"max {max_margin_mach0:.2f} cal"))
+
+    if max_margin < MAX_DYNAMIC_MARGIN_CAL:
+        rows.append(("FLT 4.3.6", "Not over-stable (< 6 cal dynamic)", "PASS", f"max {max_margin:.2f} cal"))
+    else:
+        rows.append(("FLT 4.3.6", "Not over-stable (< 6 cal dynamic)", "FAIL", f"max {max_margin:.2f} cal"))
 
     # PRS 5.1.4 says "initial thrust... or average thrust, whichever is
     # greater" - a RASP curve's literal t=0 sample is 0 N by convention, so

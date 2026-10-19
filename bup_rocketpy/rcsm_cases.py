@@ -104,19 +104,46 @@ def run_case(case_name, parsed, motor, mass_est, i_axial, i_transverse, radius_m
 
 def _add_single_parachute(rocket, chute, force_apogee_trigger=False):
     import math
+
+    from bup_rocketpy import translate
+
     cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
-    trigger = "apogee" if (force_apogee_trigger or chute.deploy_event == "apogee") else chute.deploy_altitude
+    # 2026-10-19 review ("check every bug" audit, finding #1 of the
+    # pipeline/MC/rcsm report): this used to have its OWN, separate
+    # trigger-mapping logic (`chute.deploy_altitude` for anything but a
+    # literal "apogee" deploy_event) - reproducing the exact bug
+    # translate.parachute_trigger() was already written to fix elsewhere
+    # (PROMETEO's real deploy_event="never" with a stale deploy_altitude=
+    # 200.0 - treating "never" as a live altitude trigger free-falls the
+    # rocket to ~120 m/s before "deploying", corrupting the REC 8.1.3/
+    # 8.1.4 descent-rate/release-altitude checks this exact function
+    # feeds). Now uses the SAME shared, fixed function case_export.py and
+    # report.py already call, so this can never silently disagree with
+    # either of them again.
+    if force_apogee_trigger:
+        trigger = "apogee"
+    else:
+        trigger, _warning = translate.parachute_trigger(chute)
     rocket.add_parachute(name=chute.name, cd_s=cd_s, trigger=trigger, sampling_rate=100, lag=chute.deploy_delay)
 
 
-def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial_override=None, i_transverse_override=None):
+def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, dry_mass_kg, dry_cg_m, i_axial_override=None, i_transverse_override=None, motor_dry_override_kg=None):
     """i_axial_override/i_transverse_override: 2026-09-27 review item 1 -
     use the SAME inertia Simulate itself used for this rocket (its
     caller passes state["dry_i_axial_kgm2"]/state["dry_i_transverse_kgm2"]),
     instead of this function silently re-deriving its own geometric
     estimate that could disagree with it. None (the default) keeps the
     existing geometric fallback, so every existing test/caller that
-    doesn't pass these is unaffected."""
+    doesn't pass these is unaffected.
+
+    motor_dry_override_kg (2026-10-19 review, "check every bug" audit):
+    the SAME "Measured motor mass" override pipeline.run_simulation/
+    monte_carlo already apply (translate.build_motor's own param) - this
+    function used to always build the motor straight from the raw .eng
+    header, silently flying the UNcorrected mass even when the operator
+    had typed a real, measured correction (PROGRESS.md documents a real
+    case where the .eng declared a motor 550 g too heavy). None (the
+    default) keeps the .eng header's own declared mass, unaffected."""
     from bup_rocketpy import translate
     from bup_rocketpy.ork_reader import components_outside_airframe
 
@@ -129,10 +156,10 @@ def run_all_cases(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag, d
         raise ValueError(f"cannot run RCSM cases: {len(out_of_bounds)} component(s) resolved OUTSIDE the modeled airframe: {names}. Fix the position in OpenRocket and reload.")
 
     mass_est = translate.MassEstimate(dry_mass_kg, dry_cg_m, "provided to run_all_cases")
-    motor = translate.build_motor(parsed_eng, eng_path)
+    motor = translate.build_motor(parsed_eng, eng_path, dry_mass_override_kg=motor_dry_override_kg)
     if i_axial_override is not None and i_transverse_override is not None:
         i_axial, i_transverse = i_axial_override, i_transverse_override
     else:
         i_axial, i_transverse = translate.estimate_dry_inertia(parsed, mass_est)
-    radius_m = next(t.radius for t in parsed.body_tubes if t.radius)
+    radius_m = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
     return {name: run_case(name, parsed, motor, mass_est, i_axial, i_transverse, radius_m, power_off_drag, power_on_drag) for name in CASE_NAMES}

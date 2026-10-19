@@ -18,14 +18,42 @@ def _fmt(x):
     return repr(float(x))
 
 
-def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng_filename, power_off_drag_filename, power_on_drag_filename, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, include_recovery, coordinate_system_orientation="tail_to_nose", mission_id_template=None):
+def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng_filename, power_off_drag_filename, power_on_drag_filename, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, include_recovery, coordinate_system_orientation="tail_to_nose", mission_id_template=None, launch_override=None, motor_dry_override_kg=None, recovery_chute=None, recovery_force_apogee=False):
     """Returns (filename, source_code). case_name is one of "Ballistic",
     "Nominal", "DrogueOnly", "MainAtApogee" (CRS 10.1.6/10.1.10-13).
 
     mission_id_template: 2026-09-26 review item H.2 (competition
     profiles) - an optional "{id}_{case}_{version}"-style template (see
     bup_rocketpy.competition_profiles) for a competition other than LASC.
-    None (the default) keeps CRS 10.1.6's exact naming, unchanged."""
+    None (the default) keeps CRS 10.1.6's exact naming, unchanged.
+
+    launch_override (2026-10-19 review, "check every bug" audit, finding
+    #2): a LaunchConditions to use INSTEAD of parsed.launch - e.g. real
+    launch-day weather from the Launch Day page (gui.pipeline.
+    run_simulation's own same-named parameter). Without this, a report/
+    export generated AFTER applying real weather would still describe
+    "the .ork's own recorded conditions" while actually having simulated
+    (and reported results for) the real-weather flight - a genuine
+    mismatch between what this script says it does and what the app
+    itself just flew. None (the default) keeps parsed.launch, unchanged.
+
+    motor_dry_override_kg: the same "Measured motor mass" correction
+    translate.build_motor already supports - see that function's own
+    docstring. None (the default) keeps the .eng header's own value.
+
+    recovery_chute/recovery_force_apogee (2026-10-19 review, "check
+    every bug" audit, finding #6 - this function previously had NO way
+    to represent a DrogueOnly/MainAtApogee case at all, so those names
+    were never offered for export): when recovery_chute is given (a
+    single real or reefed-surrogate Parachute, from rcsm_cases.
+    _classify_parachutes/_reefed_surrogates - the caller resolves which
+    one), ONLY that one chute is added with a plain trigger mapping (NOT
+    the reefed-expansion/dedup logic below, which is for Nominal's "every
+    real chute" case and would double-count an already-resolved
+    surrogate). recovery_force_apogee=True overrides its trigger to
+    "apogee" regardless of its own configured deploy event - the
+    Main-at-apogee case's own definition (CRS 10.1.13)."""
+    effective_launch = launch_override if launch_override is not None else parsed.launch
     if mission_id_template is not None:
         filename = mission_id_template.format(id=mission_id, case=case_name, version=version) + ".py"
     else:
@@ -74,9 +102,10 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     from bup_rocketpy.translate import motor_grain_params, wind_uv
 
     a("# --- Environment ---")
-    a(f"env = Environment(latitude={_fmt(parsed.launch.latitude)}, longitude={_fmt(parsed.launch.longitude)}, elevation={_fmt(parsed.launch.altitude_m)})")
-    a('env.set_atmospheric_model(type="standard_atmosphere")  # OpenRocket-recorded conditions; replace with real launch-day weather before submission')
-    wind_u, wind_v = wind_uv(parsed.launch)
+    a(f"env = Environment(latitude={_fmt(effective_launch.latitude)}, longitude={_fmt(effective_launch.longitude)}, elevation={_fmt(effective_launch.altitude_m)})")
+    weather_note = "real launch-day weather (Launch Day page), not the .ork's own recorded conditions" if launch_override is not None else "the .ork's own recorded conditions; replace with real launch-day weather before submission"
+    a(f'env.set_atmospheric_model(type="standard_atmosphere")  # {weather_note}')
+    wind_u, wind_v = wind_uv(effective_launch)
     if wind_u or wind_v:
         # rocketpy's set_atmospheric_model silently ignores wind_u/wind_v
         # for type="standard_atmosphere" - add_wind_gust is the supported
@@ -86,9 +115,27 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a("# --- Motor (from the .eng file - see CRS 10.1.9) ---")
     h = parsed_eng.header
     grain_outer_r, grain_inner_r, grain_height, grain_density = motor_grain_params(h)
+    # 2026-10-19 review ("check every bug" audit, finding #1 of the
+    # report/export report): this used to pass thrust_source=<path to
+    # the .eng file>, which makes rocketpy's OWN Motor.import_eng parse
+    # it at runtime - import_eng unconditionally prepends its own (0, 0)
+    # point, and a real .eng whose own first data row already starts at
+    # t=0 (a normal, common RASP layout - confirmed with a real file,
+    # "Kaboom" M1889) then has two points at x=0, a divide-by-zero in
+    # rocketpy's own thrust-curve slope fit that produces a degenerate,
+    # near-zero-thrust motor. translate.build_motor() (what the app
+    # itself actually flies) avoids this entirely by passing the
+    # ALREADY-PARSED curve as a plain list instead of a path - this
+    # script now does exactly the same, baking the curve in as a literal
+    # so it can never hit import_eng's bug, for ANY .eng layout. The
+    # .eng file itself is still shipped alongside (CRS 10.1.9 requires
+    # delivering it), just no longer used to build the SolidMotor here.
+    a(f"thrust_curve = {parsed_eng.thrust_curve!r}")
+    a("")
     a("motor = SolidMotor(")
-    a('    thrust_source=os.path.join(HERE, "' + eng_filename + '"),')
-    a(f"    dry_mass={_fmt(h.total_mass_kg - h.propellant_mass_kg)},")
+    a("    thrust_source=thrust_curve,")
+    motor_dry_mass = motor_dry_override_kg if motor_dry_override_kg is not None else (h.total_mass_kg - h.propellant_mass_kg)
+    a(f"    dry_mass={_fmt(motor_dry_mass)},{'  # measured override, not the .eng header value' if motor_dry_override_kg is not None else ''}")
     a("    dry_inertia=(0.01, 0.01, 0.001),  # not recoverable from a RASP .eng header - approximate, see reference/prometeo_mission44/src/prometeo/motor.py for the same convention")
     a(f"    nozzle_radius={_fmt((h.diameter_mm / 1000.0) * 0.15)},")
     a("    grain_number=1,")
@@ -145,20 +192,89 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     if parsed.rail_buttons is not None:
         a(f"rocket.set_rail_buttons(upper_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.upper_position_m)}, lower_button_position={_fmt(to_rpy_sign * parsed.rail_buttons.lower_position_m)})")
     a("")
-    if include_recovery:
+    if include_recovery and recovery_chute is not None:
         from bup_rocketpy.translate import parachute_trigger
+
+        a("# --- Recovery (CRS 10.1.9/10.1.13: single chute, DrogueOnly/MainAtApogee case) ---")
+        chute = recovery_chute
+        cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+        if recovery_force_apogee:
+            trigger = '"apogee"'
+        else:
+            trigger_value, trigger_warning = parachute_trigger(chute)
+            if trigger_warning:
+                a(f"# NOTE: {trigger_warning}")
+            trigger = '"apogee"' if trigger_value == "apogee" else _fmt(trigger_value)
+        a(f'rocket.add_parachute(name={chute.name!r}, cd_s={_fmt(cd_s)}, trigger={trigger}, sampling_rate=100, lag={_fmt(chute.deploy_delay or 0.0)})')
+    elif include_recovery:
+        from bup_rocketpy.translate import parachute_trigger
+
+        # 2026-10-19 review ("check every bug" audit, findings #3/#4 of
+        # the report/export report): this loop used to add exactly ONE
+        # rocketpy Parachute per <parachute> in the .ork, with no
+        # dedup - two real divergences from translate.build_rocket()
+        # (what the app itself actually flies):
+        #   - a reefed main + line cutter (a real, supported topology -
+        #     see ork_reader/rcsm_cases) is ONE physical canopy that
+        #     opens in TWO stages; flying it as a single chute here gave
+        #     this script completely different (wrong) recovery physics
+        #     and descent numbers than what the app reported.
+        #   - two parachutes resolving to the exact same (trigger, lag)
+        #     make rocketpy insert a duplicate timestamp in the flight
+        #     solution, which later crashes with "array must not contain
+        #     infs or NaNs" inside its own cubic-spline fitting -
+        #     translate.build_rocket() nudges the lag apart to avoid
+        #     this; this script didn't, so a vehicle the app itself can
+        #     simulate fine could still crash as a standalone CRS
+        #     10.1.5 submission. Both are now computed exactly the same
+        #     way translate.build_rocket() does, so this script can
+        #     never silently diverge from what the app actually flew.
+        def _chute_keys(chute):
+            trigger, _ = parachute_trigger(chute)
+            keys = [(trigger, chute.deploy_delay or 0.0)]
+            if chute.is_reefed and chute.reefed_cd is not None and chute.reefed_diameter_m is not None and chute.cutter_altitude_m is not None:
+                keys.append((chute.cutter_altitude_m, chute.cutter_delay_s or 0.0))
+            return keys
+
+        trigger_lag_counts = {}
+        for chute in parsed.parachutes:
+            if chute.cd is None:
+                continue
+            for key in _chute_keys(chute):
+                trigger_lag_counts[key] = trigger_lag_counts.get(key, 0) + 1
+        seen_trigger_lag = {}
+
+        def _dedupe_lag(trigger, lag):
+            lag = lag or 0.0
+            key = (trigger, lag)
+            if trigger_lag_counts.get(key, 0) < 2:
+                return lag
+            count = seen_trigger_lag.get(key, 0)
+            seen_trigger_lag[key] = count + 1
+            return lag + (count + 1) * 0.0137  # same nudge translate.build_rocket() uses - see that function's own comment
 
         a("# --- Recovery (CRS 10.1.9: trigger, phase, size, Cd) ---")
         for chute in parsed.parachutes:
             if chute.cd is None:
                 a(f"# SKIPPED parachute {chute.name!r}: Cd was 'auto' in OpenRocket, not resolvable from the .ork file - add it manually")
                 continue
-            cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
             trigger_value, trigger_warning = parachute_trigger(chute)
             if trigger_warning:
                 a(f"# NOTE: {trigger_warning}")
             trigger = '"apogee"' if trigger_value == "apogee" else _fmt(trigger_value)
-            a(f'rocket.add_parachute(name="{chute.name}", cd_s={_fmt(cd_s)}, trigger={trigger}, sampling_rate=100, lag={_fmt(chute.deploy_delay)})')
+
+            if chute.is_reefed and chute.reefed_cd is not None and chute.reefed_diameter_m is not None and chute.cutter_altitude_m is not None:
+                reefed_cd_s = chute.reefed_cd * math.pi * (chute.reefed_diameter_m / 2.0) ** 2
+                reefed_lag = _dedupe_lag(trigger_value, chute.deploy_delay)
+                a(f'rocket.add_parachute(name={(chute.name + " (reefed)")!r}, cd_s={_fmt(reefed_cd_s)}, trigger={trigger}, sampling_rate=100, lag={_fmt(reefed_lag)})')
+                full_cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+                full_lag = _dedupe_lag(chute.cutter_altitude_m, chute.cutter_delay_s)
+                a(f'rocket.add_parachute(name={(chute.name + " (full)")!r}, cd_s={_fmt(full_cd_s)}, trigger={_fmt(chute.cutter_altitude_m)}, sampling_rate=100, lag={_fmt(full_lag)})')
+                continue
+
+            cd_s = chute.cd * math.pi * (chute.diameter / 2.0) ** 2
+            lag = _dedupe_lag(trigger_value, chute.deploy_delay)
+            a(f'rocket.add_parachute(name={chute.name!r}, cd_s={_fmt(cd_s)}, trigger={trigger}, sampling_rate=100, lag={_fmt(lag)})')
     else:
         a("# --- Recovery: NONE (Ballistic case, CRS 10.1.11 - free-fall under drag alone) ---")
     a("")
@@ -166,9 +282,9 @@ def generate_case_script(mission_id, case_name, version, parsed, parsed_eng, eng
     a("flight = Flight(")
     a("    rocket=rocket,")
     a("    environment=env,")
-    a(f"    rail_length={_fmt(parsed.launch.rail_length_m)},")
-    a(f"    inclination={_fmt(parsed.launch.inclination_deg)},")
-    a(f"    heading={_fmt(parsed.launch.rail_direction_deg)},")
+    a(f"    rail_length={_fmt(effective_launch.rail_length_m)},")
+    a(f"    inclination={_fmt(effective_launch.inclination_deg)},")
+    a(f"    heading={_fmt(effective_launch.rail_direction_deg)},")
     a(")")
     a("")
     a("if __name__ == '__main__':")

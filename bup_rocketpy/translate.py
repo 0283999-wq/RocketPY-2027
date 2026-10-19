@@ -92,8 +92,20 @@ def _polygon_area_and_centroid_x(points):
 def _fin_set_mass_cg(fin, body_radius):
     """Flat fin, uniform thickness. Planform area/centroid depend on
     fin.shape (2026-10-09 review item 2):
-      - "trapezoid" (default): stored root/tip/span/sweep, standard
-        trapezoid centroid formula - UNCHANGED from before item 2.
+      - "trapezoid" (default): area/centroid from the EXACT 4-point
+        outline (root LE -> tip LE -> tip TE -> root TE) via
+        _polygon_area_and_centroid_x - same formula "freeform" uses below.
+        2026-10-19 review: the PREVIOUS closed-form x_bar here (sw*(2*tc+rc)
+        /(3*(rc+tc)) + rc*(rc+2*tc)/(3*(rc+tc))) was mathematically wrong
+        for any tapered fin (rc != tc) - verified independently against
+        the polygon centroid for rc=0.15, tc=0.05, sw=0.03: the old
+        formula gave x_bar=0.075 m, the correct answer is 0.0667 m, a
+        12.5% error in that one fin's own CG contribution, silently
+        feeding into the whole rocket's CG and static margin for every
+        tapered trapezoid fin this app has ever simulated. The formula
+        was only exactly correct in the two edge cases rc=tc (untapered)
+        or tc=0 (pure triangle) - which is presumably how it passed
+        unnoticed this long.
       - "elliptical": half-ellipse area pi/4 * root_chord * span (verified
         against OpenRocket's own EllipticalFinSet.java point generator,
         which traces exactly this half-ellipse) - symmetric about the
@@ -109,12 +121,12 @@ def _fin_set_mass_cg(fin, body_radius):
     elif fin.shape == "freeform" and fin.fin_points:
         area_one, x_bar = _polygon_area_and_centroid_x(fin.fin_points)
     else:
-        area_one = 0.5 * (fin.root_chord + fin.tip_chord) * fin.span
-        # trapezoid centroid along the chordwise (axial) direction, from root-chord LE
-        rc, tc, sw = fin.root_chord, fin.tip_chord, fin.sweep_length
-        if (rc + tc) > 1e-9:
-            x_bar = sw * (2 * tc + rc) / (3 * (rc + tc)) + rc * (rc + 2 * tc) / (3 * (rc + tc))
+        rc, tc, sw, span = fin.root_chord, fin.tip_chord, fin.sweep_length, fin.span
+        if (rc + tc) > 1e-9 and span > 0:
+            outline = [(0.0, 0.0), (sw, span), (sw + tc, span), (rc, 0.0)]
+            area_one, x_bar = _polygon_area_and_centroid_x(outline)
         else:
+            area_one = 0.5 * (rc + tc) * span
             x_bar = rc / 2.0
 
     mass_one = area_one * fin.thickness * fin.material_density
@@ -145,8 +157,18 @@ def _geometric_components(parsed):
 
     def apply_override(name, mass, cg, i_ax, i_tr):
         override = per_component_override.get(name)
-        if override is None or mass <= 0:
+        if override is None:
             return mass, cg, i_ax, i_tr
+        if mass <= 0:
+            # 2026-10-19 review ("check every bug" audit, finding #2): this
+            # used to return the UN-overridden (zero) mass whenever the
+            # geometric baseline was 0 - exactly the case where the
+            # override is the ONLY source of mass for this component (no
+            # <material density=...>, or an unresolved "auto" radius), so
+            # a real, team-typed override was silently discarded. No
+            # geometric basis to scale inertia by, so i_ax/i_tr stay 0
+            # (honest - not fabricated from a ratio against a zero mass).
+            return override, cg, 0.0, 0.0
         ratio = override / mass
         return override, cg, i_ax * ratio, i_tr * ratio
 
@@ -384,8 +406,18 @@ def estimate_dry_mass_and_cg(parsed):
     not build a Rocket from that; it does not raise here so the import
     table can still show why.
     """
-    total_override = next((o for o in parsed.mass_overrides if o.override_mass is not None), None)
-    cg_override = next((o for o in parsed.mass_overrides if o.override_cg_m is not None), None)
+    # 2026-10-19 review ("check every bug" audit, findings #1/#4): both of
+    # these used to pick the FIRST override in parse order carrying ANY
+    # mass/cg value, with no check of override_subcomponents_mass/_cg - so
+    # a normal, narrow PER-COMPONENT override (e.g. just one bulkhead's
+    # own measured mass, a totally ordinary OpenRocket pattern - see
+    # PROMETEO's own real overrides) could get mistaken for a rocket-wide
+    # blanket override if it happened to parse first, or could silently
+    # substitute its own tiny internal CG for the WHOLE ROCKET's CG. Both
+    # now require the explicit "applies to subcomponents too" flag, same
+    # scope OpenRocket's own UI checkbox actually means.
+    total_override = next((o for o in parsed.mass_overrides if o.override_mass is not None and o.override_subcomponents_mass), None)
+    cg_override = next((o for o in parsed.mass_overrides if o.override_cg_m is not None and o.override_subcomponents_cg), None)
 
     components = _geometric_components(parsed)
     geom_mass = sum(c[0] for c in components)
@@ -396,8 +428,33 @@ def estimate_dry_mass_and_cg(parsed):
         geom_cg = None
 
     if total_override is not None and total_override.override_subcomponents_mass:
+        # 2026-10-19 review ("check every bug" audit, finding #3): this
+        # used to replace the ENTIRE rocket's mass with just this one
+        # component's override, silently dropping every SIBLING component
+        # - most importantly the nose cone, which ork_reader.parse_rocket
+        # always parses as a stage-level sibling of the body tube/
+        # transition the override is actually set on, never nested under
+        # it (confirmed from that function's own structure). OpenRocket's
+        # "override subcomponents mass" only covers the override-bearing
+        # component and whatever's nested INSIDE it - a sibling's mass is
+        # unaffected by the flag and must still be counted.
         mass = total_override.override_mass
-        mass_source = f"override on '{total_override.component}'"
+        mass_source = f"override on '{total_override.component}' (subcomponents included)"
+        if parsed.nose is not None and total_override.component != parsed.nose.name:
+            nose_mass, _, _, _ = _cone_shell_mass_cg(parsed.nose.length, parsed.nose.aft_radius or 0.0, parsed.nose.material_density, parsed.nose.position_m)
+            if nose_mass > 0:
+                mass += nose_mass
+                mass_source += f" + nose cone '{parsed.nose.name}' ({nose_mass:.4f} kg, a sibling - not covered by that override)"
+        # A second, independent body tube or transition elsewhere in the
+        # stage (also a sibling, not nested under the override-bearing
+        # one) is a real but much rarer layout this fix does not attempt
+        # to resolve automatically - no per-component parent/child
+        # tracking exists to tell "nested under X" apart from "a second,
+        # separate tube" with confidence. Flagged honestly rather than
+        # guessed at.
+        other_siblings = [t.name for t in parsed.body_tubes if t.name != total_override.component] + [t.name for t in parsed.transitions if t.name != total_override.component]
+        if other_siblings:
+            mass_source += f" - WARNING: {len(other_siblings)} other body tube(s)/transition(s) ({', '.join(other_siblings)}) may ALSO be siblings not covered by this override; verify by hand if any of them carry real mass"
     elif geom_mass > 0:
         mass = geom_mass
         mass_source = "geometric estimate (thin-shell approximation, see translate.py docstring)"

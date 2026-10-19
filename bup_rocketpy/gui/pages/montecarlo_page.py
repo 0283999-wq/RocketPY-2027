@@ -263,7 +263,7 @@ def montecarlo_page():
         async def run_mc():
             parsed = s["load_result"].parsed_ork
             i_ax, i_tr = _get_inertia()
-            radius = next(t.radius for t in parsed.body_tubes if t.radius)
+            radius = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
             n = int(n_input.value)
 
             def progress_cb(i, total):

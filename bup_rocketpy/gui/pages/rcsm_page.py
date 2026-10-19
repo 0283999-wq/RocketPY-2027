@@ -93,6 +93,12 @@ def rcsm_case_page():
                 s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
                 s["dry_mass_kg"], s["dry_cg_m"],
                 i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
+                # 2026-10-19 review ("check every bug" audit): the SAME
+                # measured-motor-mass correction Simulate/Monte Carlo
+                # already fly - without this, RCSM Cases silently used
+                # the raw (possibly wrong) .eng header mass even when the
+                # operator had corrected it.
+                motor_dry_override_kg=s["sim_result"].motor_dry_kg,
             )
             s["case_results"] = results
 

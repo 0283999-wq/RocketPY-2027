@@ -60,6 +60,36 @@ def test_rcsm_compliance_detail_shows_both_margin_numbers():
     assert "Mach 0" in margin_row[3]
 
 
+def test_flt_4_3_6_checks_static_and_dynamic_margin_against_their_own_ceilings():
+    """2026-10-19 review ("check every bug" audit, task #78): FLT 4.3.6
+    is TWO conditions (docs/rcsm_reference.md: "static margin <4 cal,
+    dynamic margin <6 cal") - rcsm.MAX_DYNAMIC_MARGIN_CAL (6.0) used to
+    be defined but never referenced; the old code folded the Mach-0 and
+    Mach-varying numbers into one `conservative_max` and judged BOTH
+    against the stricter 4 cal static ceiling, which would wrongly FAIL
+    a vehicle whose in-flight (Mach-varying) margin legitimately rose
+    above 4 cal but stayed under the real 6 cal dynamic ceiling. Now two
+    separate FLT 4.3.6 rows exist, each checked against its own ceiling."""
+    lr, sim = _load_and_sim()
+    cases = rcsm_cases.run_all_cases(lr.parsed_ork, lr.parsed_eng, lr.eng_path, lr.power_off_drag_path, lr.power_on_drag_path, sim.dry_mass_kg, sim.dry_cg_m)
+    nominal = cases["Nominal"]
+    flight = nominal.flight
+    ascent_times = [t for t in flight.time if flight.out_of_rail_time <= t <= flight.apogee_time]
+    max_margin = max(flight.stability_margin(t) for t in ascent_times)
+    max_margin_mach0 = max(flight.rocket.stability_margin(0, t) for t in ascent_times)
+
+    rows = rcsm.check_compliance(rcsm.CATEGORIES["3km_solid"], flight, flight.rocket, payload_mass_kg=4.0)
+    margin_436_rows = [r for r in rows if r[0] == "FLT 4.3.6"]
+    assert len(margin_436_rows) == 2, "FLT 4.3.6 must report both its static and dynamic conditions as separate rows"
+
+    static_row = next(r for r in margin_436_rows if "static" in r[1])
+    dynamic_row = next(r for r in margin_436_rows if "dynamic" in r[1])
+    assert static_row[2] == ("PASS" if max_margin_mach0 < rcsm.MAX_STATIC_MARGIN_CAL else "FAIL")
+    assert dynamic_row[2] == ("PASS" if max_margin < rcsm.MAX_DYNAMIC_MARGIN_CAL else "FAIL")
+    assert f"{max_margin_mach0:.2f}" in static_row[3]
+    assert f"{max_margin:.2f}" in dynamic_row[3]
+
+
 def test_openrocket_comparison_includes_a_rail_exit_velocity_row_with_both_numbers():
     lr, sim = _load_and_sim()
     sim_name, rows = openrocket_comparison.compare_to_openrocket(lr.parsed_ork, sim, ORK_PATH)
