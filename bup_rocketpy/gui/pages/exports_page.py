@@ -292,25 +292,45 @@ def exports_page():
                     report_pdf_path = None
                     zip_status.set_text(f"Note: report PDF could not be generated ({exc}) - zip built without it.")
 
-                lasc_package.build_lasc_zip(
-                    zip_path, safe_mission_id, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                    s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
-                    s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
-                    cases=cases,
-                    eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
-                    mission_id_template=profile.mission_id_template,
-                    # 2026-10-19 review ("check every bug" audit): without
-                    # these, a submission built after applying real
-                    # launch-day weather or a measured motor-mass
-                    # correction would silently fly the UNcorrected .ork/
-                    # .eng values instead of what was actually simulated.
-                    launch_override=s["launch_override"], motor_dry_override_kg=s["sim_result"].motor_dry_kg,
-                    mass_source=s["mass_source"], inertia_source=s["inertia_source"], launch_date_time_str=launch_date_time_str,
-                    case_results=s["case_results"],
-                    mc_uncertainties=s["mc_uncertainties"],
-                    mc_n_simulations=int(mc_export_n_input.value) if mc_export_checkbox.value else 0,
-                    report_pdf_path=report_pdf_path,
-                )
+                # 2026-10-20 review ("judge-grade LASC package", item 5):
+                # build_lasc_zip now actually RUNS every exported script
+                # in a clean verification venv before ever writing the
+                # zip - a real, possibly multi-minute operation (longer
+                # the first time, which also installs rocketpy into that
+                # venv). run.io_bound so this doesn't block the server's
+                # own event loop (same reason report.generate_pdf above
+                # already uses it), and the status line says so instead
+                # of leaving a plain spinner with no explanation.
+                zip_status.set_text("Verifying every exported script in a clean environment before offering the download (can take a minute or two; longer on the very first run)...")
+                try:
+                    await run.io_bound(
+                        lasc_package.build_lasc_zip,
+                        zip_path, safe_mission_id, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                        s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                        s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
+                        cases=cases,
+                        eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
+                        mission_id_template=profile.mission_id_template,
+                        # 2026-10-19 review ("check every bug" audit): without
+                        # these, a submission built after applying real
+                        # launch-day weather or a measured motor-mass
+                        # correction would silently fly the UNcorrected .ork/
+                        # .eng values instead of what was actually simulated.
+                        launch_override=s["launch_override"], motor_dry_override_kg=s["sim_result"].motor_dry_kg,
+                        mass_source=s["mass_source"], inertia_source=s["inertia_source"], launch_date_time_str=launch_date_time_str,
+                        case_results=s["case_results"],
+                        mc_uncertainties=s["mc_uncertainties"],
+                        mc_n_simulations=int(mc_export_n_input.value) if mc_export_checkbox.value else 0,
+                        report_pdf_path=report_pdf_path,
+                    )
+                except ValueError as exc:
+                    # The verification gate (or the "no drag curve at
+                    # all" guard) raises a clear, actionable ValueError -
+                    # surfaced here instead of a raw traceback, and the
+                    # download is never offered (no zip was written).
+                    zip_status.set_text(str(exc))
+                    ui.notify(str(exc), type="negative", multi_line=True, close_button=True)
+                    return
                 zip_status.set_text(f"Zip written: {os.path.basename(zip_path)}")
                 zip_preview_container.clear()
                 with zip_preview_container:

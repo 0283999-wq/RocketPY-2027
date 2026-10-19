@@ -82,7 +82,11 @@ def test_build_submission_zip_button_produces_judge_grade_contents(tmp_path):
             n_input.fill("10")
 
             page.get_by_role("button", name=re.compile("Build submission", re.I)).click()
-            page.wait_for_selector("text=/Zip written/i", timeout=180000)
+            # 300s: the verification gate (item 5) actually runs every
+            # exported .py/.ipynb in a clean venv before offering the
+            # zip - the FIRST run on a cold cache also installs rocketpy
+            # into that venv (outputs/lasc_verify_venv/, reused after).
+            page.wait_for_selector("text=/Zip written/i", timeout=300000)
 
             # The link text is the zip's own basename - read it back to find the real file on disk.
             link_text = page.get_by_role("link", name=re.compile("Download submission", re.I)).get_attribute("href")

@@ -82,6 +82,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
     existing caller/test."""
     from bup_rocketpy import case_export, mc_export
 
+    rp_version = _rocketpy_version()
     eng_filename = eng_filename or os.path.basename(eng_path)
     ork_filename = ork_filename or os.path.basename(ork_path)
 
@@ -186,7 +187,45 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
         report_filename = f"Mission{mission_id}_Report.pdf"
         shutil.copy(report_pdf_path, os.path.join(staging_dir, report_filename))
 
-    rp_version = _rocketpy_version()
+    # 2026-10-20 review ("judge-grade LASC package", item 5): before this
+    # ever becomes a zip, every case file actually RUNS in a clean venv
+    # (no bup_rocketpy on the path - proving "pip install rocketpy" for
+    # real) and its apogee/flight-time/landing-point/parachute numbers
+    # are checked against the app's own already-computed Flight for that
+    # exact case. case_results is only ever None for a caller that has
+    # no real Flight to compare against (an existing test, or a script
+    # calling this directly) - verification is skipped for those, not
+    # faked; the real app (exports_page.py) always has it.
+    if case_results:
+        from bup_rocketpy import export_verification
+        all_mismatches = []
+        verified_any = False
+        try:
+            python_exe = export_verification.ensure_verification_venv(rp_version)
+        except Exception as exc:
+            shutil.rmtree(staging_dir)
+            raise ValueError(f"Cannot build the LASC submission zip: the verification environment could not be prepared ({exc}). Try again, or check network access for 'pip install rocketpy'.") from exc
+        for case_name, py_filename, nb_filename, _apogee_note in case_readme_rows:
+            case_result = case_results.get(case_name)
+            flight = getattr(case_result, "flight", None)
+            if flight is None:
+                continue  # no ground truth for this case - nothing to verify against, not a failure
+            verified_any = True
+            all_mismatches += export_verification.verify_case_files(python_exe, case_name, py_filename, nb_filename, staging_dir, flight)
+        if mc_readme_row:
+            mc_py_filename, mc_nb_filename, n_sims = mc_readme_row
+            verified_any = True
+            all_mismatches += export_verification.verify_mc_files(python_exe, mc_py_filename, mc_nb_filename, staging_dir, n_sims)
+        if all_mismatches:
+            shutil.rmtree(staging_dir)
+            details = "\n".join(f"  - {m}" for m in all_mismatches)
+            raise ValueError(
+                f"Cannot build the LASC submission zip: {len(all_mismatches)} exported file(s) did not match the app's "
+                f"own simulation when run standalone in a clean environment:\n{details}\n"
+                "Fix the underlying mismatch before submitting - a real divergence here means the exported script does "
+                "not actually describe the flight the app reported."
+            )
+
     readme = []
     readme.append(f"# LASC submission package - Mission {mission_id}")
     readme.append("")

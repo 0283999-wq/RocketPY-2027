@@ -374,6 +374,21 @@ def _build_case_sections(mission_id, case_name, version, parsed, parsed_eng, eng
     a("    rail_length=RAIL_LENGTH_M,")
     a("    inclination=RAIL_INCLINATION_DEG,")
     a("    heading=RAIL_HEADING_DEG,")
+    # 2026-10-20 review ("judge-grade LASC package", item 5 - caught by
+    # the new verification gate comparing this script against the app's
+    # OWN Ballistic flight): rcsm_cases.py/monte_carlo.py/analysis.py/
+    # validation.py all consistently stop the Ballistic (no-recovery)
+    # case AT APOGEE rather than simulating a genuinely out-of-control
+    # tumbling re-entry - report.py's own wording for it is literally
+    # "apogee only (recovery/descent not modeled)". The reason is
+    # physical, not a shortcut: the power-off/power-on drag curves this
+    # app uses are calibrated for a nose-forward, stable ascent, and
+    # produce an arbitrary (not a MORE complete) number for a chaotic
+    # tumble, which a real axial Cd-vs-Mach curve cannot credibly
+    # represent at all. This export used to keep integrating anyway,
+    # silently describing a different (and not more correct) flight
+    # than the one every other page of the app reports as "Ballistic".
+    a(f"    terminate_on_apogee={not include_recovery},")
     a(")")
     sections.append(s)
 
