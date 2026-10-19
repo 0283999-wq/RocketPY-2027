@@ -124,8 +124,11 @@ def test_drogue_only_and_main_at_apogee_cases_are_actually_generated():
     import zipfile
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
-        drogue_only_name = next(n for n in names if "DrogueOnly" in n)
-        main_apogee_name = next(n for n in names if "MainAtApogee" in n)
+        # 2026-10-20 review ("judge-grade LASC package"): the zip now also
+        # has a companion .ipynb per case - narrow to the .py specifically,
+        # since this test checks raw generated Python source content.
+        drogue_only_name = next(n for n in names if "DrogueOnly" in n and n.endswith(".py"))
+        main_apogee_name = next(n for n in names if "MainAtApogee" in n and n.endswith(".py"))
         drogue_source = zf.read(drogue_only_name).decode("utf-8")
         main_source = zf.read(main_apogee_name).decode("utf-8")
 

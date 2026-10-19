@@ -180,10 +180,14 @@ def test_lasc_zip_contains_expected_files():
         names = zf.namelist()
     assert "Mission44_Ballistic_RocketPy_v1.py" in names
     assert "Mission44_Nominal_RocketPy_v1.py" in names
+    # 2026-10-20 review ("judge-grade LASC package"): each case now also
+    # exports a companion .ipynb, and the README is markdown, not .txt.
+    assert "Mission44_Ballistic_RocketPy_v1.ipynb" in names
+    assert "Mission44_Nominal_RocketPy_v1.ipynb" in names
     assert "Icarus_I_K519.eng" in names
     assert "PrometeoLasc2026.ork" in names
     assert "power_off_drag.csv" in names and "power_on_drag.csv" in names
-    assert "README.txt" in names
+    assert "README.md" in names
     assert not os.path.exists(zip_path[:-4] + "_staging"), "staging dir should be cleaned up after zipping"
 
 

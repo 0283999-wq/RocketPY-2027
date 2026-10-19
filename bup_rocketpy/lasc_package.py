@@ -1,6 +1,10 @@
-"""The LASC .zip package (CLAUDE.md Sec 6 Phase 5): the per-case .py
-files named per CRS 10.1.6, plus the .eng, .ork and Cd curves.
+"""The LASC submission .zip (CLAUDE.md Sec 6 Phase 5; 2026-10-20 "judge-
+grade LASC package" review covering CRS 10.1.3-10.1.14 and 10.2.1): the
+per-case .py AND .ipynb files, a standalone Monte Carlo .py/.ipynb, the
+.eng/.ork/Cd curves, the PDF report, and a README.md documenting all of
+it with the exact pip command and expected apogee per case.
 """
+import importlib.metadata
 import os
 import shutil
 import zipfile
@@ -21,7 +25,20 @@ def _validation_status_line():
         return "Model validation status: see the app's Validation page for the current breakdown."
 
 
-def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None, mission_id_template=None, launch_override=None, motor_dry_override_kg=None):
+def _rocketpy_version():
+    """The ACTUALLY installed rocketpy version in this build/test
+    environment - read from package metadata rather than hand-copying
+    requirements.txt's own pin a second time, so it can never silently
+    drift out of sync with what this submission was generated/verified
+    against. Falls back to requirements.txt's pin only if metadata truly
+    can't be read (e.g. an unusual install method)."""
+    try:
+        return importlib.metadata.version("rocketpy")
+    except importlib.metadata.PackageNotFoundError:
+        return "1.13.0"
+
+
+def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, ork_path, power_off_drag_path, power_on_drag_path, dry_mass_kg, dry_cg_m, i_axial, i_transverse, radius_m, cases, version=1, eng_filename=None, ork_filename=None, mission_id_template=None, launch_override=None, motor_dry_override_kg=None, mass_source=None, inertia_source=None, launch_date_time_str=None, case_results=None, mc_uncertainties=None, mc_n_simulations=0, mc_seed=None, report_pdf_path=None):
     """cases: list of (case_name, include_recovery) tuples to export -
     typically [("Ballistic", False), ("Nominal", True)] at minimum
     (CRS 10.1.14: the RocketPy award requires nominal and ballistic).
@@ -40,8 +57,30 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
     generate_case_script (see its own docstring); without these, a
     submission built after applying real launch-day weather or a
     measured motor-mass correction would silently fly the UNcorrected
-    .ork/.eng values instead of what the app itself actually simulated."""
-    from bup_rocketpy import case_export
+    .ork/.eng values instead of what the app itself actually simulated.
+
+    mass_source/inertia_source/launch_date_time_str (2026-10-20 review,
+    judge-grade LASC package): passed straight through to case_export/
+    mc_export's own INPUTS block - see those modules' docstrings.
+
+    case_results: optional dict {case_name: object with a .flight
+    attribute} - typically state["case_results"] (rcsm_cases.run_all_
+    cases's own return value), reused ONLY to print each case's already-
+    computed expected apogee in the README, never to re-run anything.
+    None (the default) renders "not available" instead of guessing.
+
+    mc_uncertainties/mc_n_simulations/mc_seed: when mc_n_simulations > 0,
+    also generates a standalone Mission[ID]_MonteCarlo_RocketPy_v
+    [version].py/.ipynb (mc_export.py) using these uncertainties (None
+    falls back to monte_carlo.default_uncertainties for this exact
+    rocket/motor) - 0 (the default) skips the Monte Carlo export
+    entirely, unchanged for every existing caller/test.
+
+    report_pdf_path: an already-generated report PDF (report.
+    generate_pdf's own output) to include under a clear submission-
+    specific name. None (the default) skips it - unchanged for every
+    existing caller/test."""
+    from bup_rocketpy import case_export, mc_export
 
     eng_filename = eng_filename or os.path.basename(eng_path)
     ork_filename = ork_filename or os.path.basename(ork_path)
@@ -87,6 +126,7 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
     if any(name in ("DrogueOnly", "MainAtApogee") for name, _ in cases):
         drogue, main = _classify_parachutes(parsed)
 
+    case_readme_rows = []
     for case_name, include_recovery in cases:
         recovery_chute, recovery_force_apogee = None, False
         if case_name == "DrogueOnly":
@@ -96,36 +136,95 @@ def build_lasc_zip(output_zip_path, mission_id, parsed, parsed_eng, eng_path, or
             recovery_force_apogee = True
         if case_name in ("DrogueOnly", "MainAtApogee") and recovery_chute is None:
             continue  # no parachute with a resolvable Cd - same "can't build this case" condition rcsm_cases.run_case itself checks; skip rather than emit a broken script
-        filename, source = case_export.generate_case_script(
+
+        common_kwargs = dict(
             mission_id=mission_id, case_name=case_name, version=version,
-            parsed=parsed, parsed_eng=parsed_eng,
-            eng_filename=eng_filename,
+            parsed=parsed, parsed_eng=parsed_eng, eng_filename=eng_filename,
             power_off_drag_filename="power_off_drag.csv", power_on_drag_filename="power_on_drag.csv",
-            dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m,
-            i_axial=i_axial, i_transverse=i_transverse, radius_m=radius_m,
-            include_recovery=include_recovery,
-            mission_id_template=mission_id_template,
+            dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m, i_axial=i_axial, i_transverse=i_transverse, radius_m=radius_m,
+            include_recovery=include_recovery, mission_id_template=mission_id_template,
             launch_override=launch_override, motor_dry_override_kg=motor_dry_override_kg,
             recovery_chute=recovery_chute, recovery_force_apogee=recovery_force_apogee,
+            mass_source=mass_source, inertia_source=inertia_source, launch_date_time_str=launch_date_time_str,
         )
-        with open(os.path.join(staging_dir, filename), "w", encoding="utf-8") as f:
-            f.write(source)
+        py_filename, py_source = case_export.generate_case_script(**common_kwargs)
+        with open(os.path.join(staging_dir, py_filename), "w", encoding="utf-8") as f:
+            f.write(py_source)
+        nb_filename, nb_source = case_export.generate_case_notebook(**common_kwargs)
+        with open(os.path.join(staging_dir, nb_filename), "w", encoding="utf-8") as f:
+            f.write(nb_source)
 
-    readme = f"""LASC submission package - Mission {mission_id}
+        apogee_note = "not available - run this case on the RCSM Cases page first"
+        case_result = (case_results or {}).get(case_name)
+        flight = getattr(case_result, "flight", None)
+        if flight is not None:
+            apogee_note = f"~{flight.apogee - flight.env.elevation:.0f} m AGL (as last computed by the app)"
+        case_readme_rows.append((case_name, py_filename, nb_filename, apogee_note))
 
-Contents:
-- Mission{mission_id}_*_RocketPy_v{version}.py - self-contained simulation
-  scripts (CRS 10.1.6 naming). Each runs standalone with `pip install
-  rocketpy` - no other files from this repo are needed, only the sibling
-  files in this same folder (.eng, drag CSVs).
-- {eng_filename} - the SRAD motor thrust curve (CRS 10.1.9).
-- {ork_filename} - the OpenRocket design file this was built from.
-- power_off_drag.csv / power_on_drag.csv - the Cd-vs-Mach curves used.
+    mc_readme_row = None
+    if mc_n_simulations and mc_n_simulations > 0:
+        from bup_rocketpy import monte_carlo as _monte_carlo
+        uncertainties = mc_uncertainties if mc_uncertainties is not None else _monte_carlo.default_uncertainties(dry_mass_kg, parsed_eng.total_impulse_Ns, parsed.launch.wind_average_ms)
+        mc_kwargs = dict(
+            mission_id=mission_id, version=version, parsed=parsed, parsed_eng=parsed_eng, eng_filename=eng_filename,
+            power_off_drag_filename="power_off_drag.csv", power_on_drag_filename="power_on_drag.csv",
+            dry_mass_kg=dry_mass_kg, dry_cg_m=dry_cg_m, i_axial=i_axial, i_transverse=i_transverse, radius_m=radius_m,
+            uncertainties=uncertainties, n_simulations=mc_n_simulations, include_recovery=True,
+            mission_id_template=mission_id_template, launch_override=launch_override, motor_dry_override_kg=motor_dry_override_kg,
+            mass_source=mass_source, inertia_source=inertia_source, launch_date_time_str=launch_date_time_str, seed=mc_seed,
+        )
+        mc_py_filename, mc_py_source = mc_export.generate_mc_script(**mc_kwargs)
+        with open(os.path.join(staging_dir, mc_py_filename), "w", encoding="utf-8") as f:
+            f.write(mc_py_source)
+        mc_nb_filename, mc_nb_source = mc_export.generate_mc_notebook(**mc_kwargs)
+        with open(os.path.join(staging_dir, mc_nb_filename), "w", encoding="utf-8") as f:
+            f.write(mc_nb_source)
+        mc_readme_row = (mc_py_filename, mc_nb_filename, mc_n_simulations)
 
-{_validation_status_line()}
-"""
-    with open(os.path.join(staging_dir, "README.txt"), "w", encoding="utf-8") as f:
-        f.write(readme)
+    report_filename = None
+    if report_pdf_path and os.path.exists(report_pdf_path):
+        report_filename = f"Mission{mission_id}_Report.pdf"
+        shutil.copy(report_pdf_path, os.path.join(staging_dir, report_filename))
+
+    rp_version = _rocketpy_version()
+    readme = []
+    readme.append(f"# LASC submission package - Mission {mission_id}")
+    readme.append("")
+    readme.append(f"Every `.py`/`.ipynb` file here is self-contained: `pip install rocketpy=={rp_version}` is the only")
+    readme.append("dependency, and no file from this app's own repository is imported. Each script's own INPUTS block")
+    readme.append("(near the top) lists every mass/CG/inertia/rail/wind/site value with its units and source - edit")
+    readme.append("those in place if the Launch Readiness Review (CRS 10.2.1) measures a different value on site.")
+    readme.append("")
+    readme.append("## Setup")
+    readme.append("")
+    readme.append("```")
+    readme.append(f"pip install rocketpy=={rp_version}")
+    readme.append("python Mission<ID>_<Case>_RocketPy_v<N>.py")
+    readme.append("```")
+    readme.append("")
+    readme.append("or open the matching `.ipynb` in Jupyter and run every cell top to bottom. Either way, plots and a")
+    readme.append("`results.json`/`results_montecarlo.json` are written to a `results_<filename>/` folder next to it -")
+    readme.append("nothing opens a window, so this also runs unattended on a machine with no display.")
+    readme.append("")
+    readme.append("## Contents")
+    readme.append("")
+    readme.append("| File | What it is | Expected result |")
+    readme.append("|---|---|---|")
+    for case_name, py_filename, nb_filename, apogee_note in case_readme_rows:
+        readme.append(f"| `{py_filename}` / `{nb_filename}` | {case_name} case (CRS 10.1.6/10.1.10-13) | Apogee {apogee_note} |")
+    if mc_readme_row:
+        mc_py_filename, mc_nb_filename, n_sims = mc_readme_row
+        readme.append(f"| `{mc_py_filename}` / `{mc_nb_filename}` | Monte Carlo dispersion analysis, {n_sims} samples (CLAUDE.md Phase 4) | Apogee mean + 90% CI, landing ellipse (PNG + KML) |")
+    readme.append(f"| `{eng_filename}` | The SRAD motor thrust curve (CRS 10.1.9) |  |")
+    readme.append(f"| `{ork_filename}` | The OpenRocket design file this was built from |  |")
+    readme.append("| `power_off_drag.csv` / `power_on_drag.csv` | The Cd-vs-Mach curves used (CLAUDE.md Sec 4.2) |  |")
+    if report_filename:
+        readme.append(f"| `{report_filename}` | The full written report: validation, every case, Monte Carlo, compliance |  |")
+    readme.append("")
+    readme.append(_validation_status_line())
+    readme.append("")
+    with open(os.path.join(staging_dir, "README.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(readme) + "\n")
 
     if os.path.exists(output_zip_path):
         os.remove(output_zip_path)

@@ -203,11 +203,19 @@ def exports_page():
 
         with components.card(classes="w-full mt-4"):
             ui.label("Competition submission .zip").classes("font-bold")
-            ui.label("Per-case .py scripts + .eng + .ork + Cd curves, tested to run standalone. Naming follows the selected competition profile above (CRS 10.1.6 for LASC).").classes("text-sm").style("color: var(--bup-muted)")
+            ui.label("Per-case .py/.ipynb scripts + .eng + .ork + Cd curves + report PDF + README, tested to run standalone. Naming follows the selected competition profile above (CRS 10.1.6 for LASC).").classes("text-sm").style("color: var(--bup-muted)")
+            with ui.row().classes("items-center gap-2 mt-2"):
+                # 2026-10-20 review ("judge-grade LASC package"): a full
+                # standalone Monte Carlo run takes real time (~0.5s per
+                # sample) - unchecked by default so "Build submission
+                # .zip" stays fast unless the user explicitly asks for it,
+                # rather than silently adding a 1-2 minute wait.
+                mc_export_checkbox = ui.checkbox("Include a standalone Monte Carlo script/notebook", value=False)
+                mc_export_n_input = ui.number(label="N simulations", value=200, min=10).classes("w-32")
             zip_status = ui.label("")
             zip_preview_container = ui.column().classes("w-full mt-2")
 
-            def build_zip():
+            async def build_zip():
                 profile = competition_profiles.get_profile(s["competition_profile"])
                 parsed = s["load_result"].parsed_ork
                 mass_est = translate.MassEstimate(s["dry_mass_kg"], s["dry_cg_m"], "UI export")
@@ -243,6 +251,47 @@ def exports_page():
                 cases = [("Ballistic", False), ("Nominal", True)]
                 if drogue is not None and main is not None:
                     cases += [("DrogueOnly", True), ("MainAtApogee", True)]
+
+                # 2026-10-20 review ("judge-grade LASC package"):
+                # - mass_source/inertia_source feed the INPUTS block's
+                #   "source" notes (state["mass_source"]/["inertia_source"]
+                #   are the SAME strings the Rocket page itself shows for
+                #   this exact run - never a second, separately-worded copy).
+                # - launch_date_time_str is the real fetched-weather date
+                #   when the Launch Day page was used, honestly "not
+                #   recorded" otherwise - never invented.
+                # - case_results lets the zip's README print each case's
+                #   already-computed expected apogee instead of "not
+                #   available", with zero extra simulation work.
+                if s["case_results"] is None:
+                    s["case_results"] = rcsm_cases.run_all_cases(
+                        s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
+                        s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                        s["dry_mass_kg"], s["dry_cg_m"],
+                        i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
+                        motor_dry_override_kg=s["sim_result"].motor_dry_kg,
+                    )
+                launch_date_time_str = f"{s['weather_profile'].date} (Launch Day page weather fetch)" if s["weather_profile"] else None
+
+                report_pdf_path = None
+                try:
+                    data = report.build_report_data(
+                        safe_mission_id, author_input.value, s["load_result"], s["sim_result"], s["case_results"],
+                        s["mc_result"], s["mc_uncertainties"], OUTPUTS_DIR,
+                        app_commit_hash=run_history.current_app_commit_hash(REPO_ROOT),
+                        include_appendix=appendix_checkbox.value,
+                        report_text=s["report_text"], competition_profile_key=s["competition_profile"],
+                        compliance_rows=s["compliance_rows"] if appendix_checkbox.value else None,
+                    )
+                    report_pdf_path = os.path.join(OUTPUTS_DIR, f"Mission{safe_mission_id}_Report_for_zip.pdf")
+                    await run.io_bound(report.generate_pdf, report_pdf_path, data)
+                except Exception as exc:
+                    # The submission scripts themselves are the mandatory
+                    # deliverable (CRS 10.1.3/10.1.5) - a report-rendering
+                    # hiccup (no browser found, etc.) must not block them.
+                    report_pdf_path = None
+                    zip_status.set_text(f"Note: report PDF could not be generated ({exc}) - zip built without it.")
+
                 lasc_package.build_lasc_zip(
                     zip_path, safe_mission_id, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
                     s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
@@ -256,6 +305,11 @@ def exports_page():
                     # correction would silently fly the UNcorrected .ork/
                     # .eng values instead of what was actually simulated.
                     launch_override=s["launch_override"], motor_dry_override_kg=s["sim_result"].motor_dry_kg,
+                    mass_source=s["mass_source"], inertia_source=s["inertia_source"], launch_date_time_str=launch_date_time_str,
+                    case_results=s["case_results"],
+                    mc_uncertainties=s["mc_uncertainties"],
+                    mc_n_simulations=int(mc_export_n_input.value) if mc_export_checkbox.value else 0,
+                    report_pdf_path=report_pdf_path,
                 )
                 zip_status.set_text(f"Zip written: {os.path.basename(zip_path)}")
                 zip_preview_container.clear()
