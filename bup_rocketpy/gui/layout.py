@@ -18,6 +18,7 @@ PAGES = [
     ("/montecarlo", "scatter_plot", "Monte Carlo"),
     ("/rcsm", "checklist", "RCSM Cases"),
     ("/compare-designs", "compare_arrows", "Compare Designs"),
+    ("/calculations", "calculate", "Calculations"),
     ("/analysis", "insights", "Analysis"),
     ("/history", "history", "History"),
     ("/exports", "download", "Exports"),

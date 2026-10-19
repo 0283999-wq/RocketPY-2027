@@ -47,6 +47,22 @@ def _reopen_mission(run_id):
     s["case_results"] = None
     s["compliance_rows"] = None
     s["mc_result"] = None
+    # 2026-10-19 review: "check every bug" audit - this reset list used
+    # to be smaller than app.py's do_load() reset for the exact same
+    # "a different rocket is now the active one" event, so reopening an
+    # older mission from History could keep showing a PREVIOUS session's
+    # Monte Carlo uncertainty table, weathercocking sweep, payload
+    # selection, or flutter material/override as if they belonged to the
+    # reopened rocket.
+    s["mc_uncertainties"] = None
+    s["weathercocking_result"] = None
+    s["payload_component_names"] = []
+    s["payload_mass_override_kg"] = None
+    s["flutter_shear_modulus_pa"] = None
+    s["flutter_shear_modulus_source"] = None
+    s["flutter_manual_override_ms"] = None
+    s["flutter_manual_override_source"] = None
+    s["weather_profile"] = None  # the reopened launch_override's own source label - a stale one here would mislabel it
     ui.notify(f"Reopened mission '{run_id}' - click Simulate to fly it.", type="positive")
     ui.navigate.to("/simulate")
 
