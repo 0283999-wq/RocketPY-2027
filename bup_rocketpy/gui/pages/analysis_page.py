@@ -54,7 +54,7 @@ def analysis_page():
                     radius = next((t.radius for t in parsed.body_tubes if t.radius), None) or (parsed.nose.aft_radius if parsed.nose else 0.05)
                     result = analysis.weathercocking_sweep(
                         parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                        s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                        *s["load_result"].drag_curves(),
                         s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                     )
                     s["weathercocking_result"] = result

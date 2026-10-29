@@ -289,8 +289,8 @@ def _appendix_input_data(parsed, load_result, eng_header):
         return rows[::step][:n]
 
     drag_excerpt = {
-        "power_off": _sample_curve(getattr(load_result, "power_off_drag_path", None)),
-        "power_on": _sample_curve(getattr(load_result, "power_on_drag_path", None)),
+        "power_off": _sample_curve(load_result.drag_curves()[0]),
+        "power_on": _sample_curve(load_result.drag_curves()[1]),
     }
 
     from bup_rocketpy import translate
@@ -495,6 +495,8 @@ def build_report_data(mission_id, author, load_result, sim_result, case_results,
         f"Drag curve: {load_result.drag_curve_source}",
         "Atmosphere: standard atmosphere model with the .ork's own recorded average wind speed/direction (not a live weather download, not a full altitude profile).",
     ]
+    if getattr(load_result, "drag_is_placeholder", False):
+        assumptions.insert(0, "WARNING - LOW CONFIDENCE: no drag (Cd) data in the source file; every result in this report uses a constant placeholder Cd, not measured or simulated drag.")
     if sim_result.mach_extrapolated:
         assumptions.append(f"WARNING: this flight reaches Mach {sim_result.max_mach:.2f}, past the drag curve's own {sim_result.drag_curve_max_mach:.2f} Mach coverage - results above that speed are constant-Cd extrapolation, not measured drag.")
 

@@ -308,7 +308,7 @@ def montecarlo_page():
                 result = await run.io_bound(
                     monte_carlo.run_monte_carlo,
                     parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                    s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                    *s["load_result"].drag_curves(),
                     s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                     s["mc_uncertainties"], n, os.path.join(OUTPUTS_DIR, "monte_carlo"),
                     include_recovery=True, progress_callback=progress_cb, cancel_check=cancel_flag.is_set,

@@ -49,6 +49,30 @@ def fresh_image_path(outputs_dir, basename):
     return os.path.join(outputs_dir, f"{basename}_{uuid.uuid4().hex[:8]}.png")
 
 
+LOW_CONFIDENCE_DRAG_BANNER = (
+    "No drag (Cd) data in this file - results use a constant Cd and are LOW CONFIDENCE. "
+    "Fix: in OpenRocket run all simulations and save the file with simulation data, "
+    "or drop an OpenRocket CSV export here."
+)
+PLACEHOLDER_DRAG_SOURCE = (
+    f"NONE AVAILABLE - constant placeholder Cd {translate.DRAG_CURVE_PLACEHOLDER_CD} (LOW CONFIDENCE). "
+    "This .ork has no stored simulation with drag data and no CSV was supplied."
+)
+
+
+def write_placeholder_drag_csvs(directory):
+    """Writes the constant-Cd placeholder as real Mach,Cd CSV files and
+    returns (power_off_path, power_on_path)."""
+    os.makedirs(directory, exist_ok=True)
+    rows = "\n".join(f"{m},{translate.DRAG_CURVE_PLACEHOLDER_CD}" for m in (0.0, 0.5, 1.0, 2.0, 5.0))
+    off = os.path.join(directory, "power_off_drag_placeholder.csv")
+    on = os.path.join(directory, "power_on_drag_placeholder.csv")
+    for path in (off, on):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(rows)
+    return off, on
+
+
 @dataclass
 class LoadResult:
     parsed_ork: object
@@ -78,6 +102,24 @@ class LoadResult:
     cd_curve_stale: bool = False  # translate.check_drag_curve_freshness() - True if the stored OpenRocket simulation's own CP disagrees with the geometry just parsed (fins edited but sims not re-run+saved in OpenRocket)
     cd_curve_freshness_note: str = ""  # always set (explains why staleness could/couldn't be checked, or that it checked out fine) - never silently blank
     display_name: str = None  # parsed_ork.name, or ork_filename (no extension) when the .ork never had a custom name set in OpenRocket ("Rocket") - the ONE name every page/report/history entry must show, see this field's own note in load_files()
+    drag_is_placeholder: bool = False  # True when no drag source existed and a constant-Cd placeholder is flown instead - every page/export/report must label that LOW CONFIDENCE
+
+    def drag_curves(self):
+        """The ONE place every caller (Simulate, Monte Carlo, RCSM cases,
+        Analysis, Compare Designs, report, history, exports) gets the two
+        drag-curve CSV paths to fly. Never None: when this load had no
+        drag source, the constant placeholder Cd is written to real CSV
+        files (so exported .py scripts still run) and drag_is_placeholder
+        stays True so the UI can label it."""
+        off, on = self.power_off_drag_path, self.power_on_drag_path
+        if not (off and on and os.path.exists(off) and os.path.exists(on)):
+            import tempfile
+            off, on = write_placeholder_drag_csvs(tempfile.mkdtemp(prefix="bup_placeholder_drag_"))
+            self.power_off_drag_path, self.power_on_drag_path = off, on
+            self.drag_is_placeholder = True
+            if "LOW CONFIDENCE" not in (self.drag_curve_source or ""):
+                self.drag_curve_source = PLACEHOLDER_DRAG_SOURCE
+        return off, on
 
 
 @dataclass
@@ -185,6 +227,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         display_name = parsed_ork.name
 
     curve_warnings = []
+    drag_is_placeholder = False
     if power_off_drag_path and power_on_drag_path:
         source = f"user-supplied CSV files ({os.path.basename(power_off_drag_path)}, {os.path.basename(power_on_drag_path)})"
         # crash (f), 2026-09-26 review: unlike the .ork's own stored-sim
@@ -221,8 +264,11 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
                 f.write("\n".join(f"{m},{c}" for m, c in coast))
             source = "the .ork's own stored simulation data"
         else:
-            power_off_drag_path = power_on_drag_path = None
-            source = "NONE AVAILABLE - this .ork has no stored simulation with drag data and no CSV was supplied. A constant placeholder Cd will be used if you simulate anyway (low confidence)."
+            import tempfile
+            placeholder_dir = outputs_dir or tempfile.mkdtemp(prefix="bup_placeholder_drag_")
+            power_off_drag_path, power_on_drag_path = write_placeholder_drag_csvs(placeholder_dir)
+            drag_is_placeholder = True
+            source = PLACEHOLDER_DRAG_SOURCE
 
     import_table = [(row.component, row.status, row.detail) for row in parsed_ork.import_log]
     for w in parsed_eng.warnings:
@@ -254,7 +300,7 @@ def load_files(ork_path, eng_path, power_off_drag_path=None, power_on_drag_path=
         simulation_name=simulation_name, available_simulation_names=available_simulation_names,
         ork_filename=ork_filename, eng_filename=eng_filename, ork_hash=ork_hash, eng_hash=eng_hash,
         fin_summary=fin_summary, cd_curve_stale=cd_curve_stale, cd_curve_freshness_note=cd_curve_freshness_note,
-        display_name=display_name,
+        display_name=display_name, drag_is_placeholder=drag_is_placeholder,
     )
 
 
@@ -300,8 +346,7 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
             "rather than something safe to simulate through - fix it there and reload."
         )
 
-    power_off = load_result.power_off_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
-    power_on = load_result.power_on_drag_path or translate.DRAG_CURVE_PLACEHOLDER_CD
+    power_off, power_on = load_result.drag_curves()
 
     # 2026-09-26 review item B: the drag curve's own Mach coverage - a
     # flight that goes faster than this was measured at gets constant
@@ -311,6 +356,8 @@ def run_simulation(load_result, outputs_dir, dry_mass_override_kg=None, dry_cg_o
     # transonic on a curve that was only ever measured subsonic.
     from bup_rocketpy.curve_utils import curve_max_x
     drag_curve_max_mach = max((m for m in (curve_max_x(power_off), curve_max_x(power_on)) if m is not None), default=None)
+    if load_result.drag_is_placeholder:
+        drag_curve_max_mach = None  # a constant Cd has no measured Mach coverage; the LOW CONFIDENCE label covers it
 
     eng_header = load_result.parsed_eng.header
     if motor_total_mass_override_kg is not None:

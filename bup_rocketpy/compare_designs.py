@@ -102,7 +102,7 @@ def _summarize_one_design(label, ork_path, eng_path, power_off_drag_path, power_
         flutter_margin=(flutter_result.flutter_velocity_ms / sim.max_speed_ms) if flutter_result and sim.max_speed_ms else None,
         openrocket_csv_path=sim.openrocket_csv_path,
         cd_mach_plot_path=sim.plot_paths.get("cd_mach"),
-        power_off_drag_path=lr.power_off_drag_path, power_on_drag_path=lr.power_on_drag_path,
+        power_off_drag_path=lr.drag_curves()[0], power_on_drag_path=lr.drag_curves()[1],
     )
     return lr, sim, summary
 
@@ -165,12 +165,12 @@ def compare_designs(
         radius_a = next((t.radius for t in lr_a.parsed_ork.body_tubes if t.radius), None) or (lr_a.parsed_ork.nose.aft_radius if lr_a.parsed_ork.nose else 0.05)
         radius_b = next((t.radius for t in lr_b.parsed_ork.body_tubes if t.radius), None) or (lr_b.parsed_ork.nose.aft_radius if lr_b.parsed_ork.nose else 0.05)
         mc_a = monte_carlo.run_monte_carlo(
-            lr_a.parsed_ork, lr_a.parsed_eng, lr_a.eng_path, lr_a.power_off_drag_path, lr_a.power_on_drag_path,
+            lr_a.parsed_ork, lr_a.parsed_eng, lr_a.eng_path, *lr_a.drag_curves(),
             sim_a.dry_mass_kg, sim_a.dry_cg_m, sim_a.i_axial_kgm2, sim_a.i_transverse_kgm2, radius_a,
             mc_uncertainties or [], mc_n, (out_a + "_mc") if out_a else None, seed=mc_seed, progress_callback=_cb_a,
         )
         mc_b = monte_carlo.run_monte_carlo(
-            lr_b.parsed_ork, lr_b.parsed_eng, lr_b.eng_path, lr_b.power_off_drag_path, lr_b.power_on_drag_path,
+            lr_b.parsed_ork, lr_b.parsed_eng, lr_b.eng_path, *lr_b.drag_curves(),
             sim_b.dry_mass_kg, sim_b.dry_cg_m, sim_b.i_axial_kgm2, sim_b.i_transverse_kgm2, radius_b,
             mc_uncertainties or [], mc_n, (out_b + "_mc") if out_b else None, seed=mc_seed, progress_callback=_cb_b,
         )

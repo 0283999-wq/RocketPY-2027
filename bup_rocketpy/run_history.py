@@ -159,6 +159,7 @@ def save_run(repo_root, sim_result, load_result, dry_mass_kg, dry_cg_m, ork_path
     launch = load_result.parsed_ork.launch
     eng_header = getattr(load_result.parsed_eng, "header", None)
     ork_saved = bool(ork_path and os.path.exists(ork_path))
+    load_result.drag_curves()  # never-None placeholder files, see LoadResult.drag_curves
     power_off_saved = bool(load_result.power_off_drag_path and os.path.exists(load_result.power_off_drag_path))
     power_on_saved = bool(load_result.power_on_drag_path and os.path.exists(load_result.power_on_drag_path))
     record = RunRecord(

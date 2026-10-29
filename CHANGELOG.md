@@ -5,6 +5,23 @@
 > working notes (not in this repo) rather than public documentation.
 > This file is the public record of what changed and why.
 
+## 2026-10-29 demo-day fix 1 - no stored drag data no longer crashes Monte Carlo / RCSM / Analysis / Export
+
+An `.ork` whose stored simulation has no drag data made Simulate work but
+Monte Carlo, RCSM Cases, Analysis, Compare Designs, report and Export fail
+with "power_off_drag/power_on_drag are required": only Simulate fell back to
+the constant placeholder Cd; every other caller passed the raw `None`.
+
+- `LoadResult.drag_curves()` (pipeline.py) is now the ONE place every caller
+  gets the two drag CSV paths. When there is no source it writes the
+  placeholder Cd as real CSV files (so exported `.py` scripts still run) and
+  sets `drag_is_placeholder`. All callers use it.
+- Red LOW CONFIDENCE banner on every page (status bar), plus the same label
+  in the report assumptions, the zip README and each exported `.py`/`.ipynb`.
+- New test `tests/test_no_drag_data.py`: an `.ork` with the `<databranch>`
+  stripped goes through Simulate, Monte Carlo (spawn, 4 workers), RCSM cases,
+  Analysis, Compare Designs, DOCX + PDF report and the LASC zip.
+
 ## 2026-09-26 overnight run, item 2 - UI redesign
 
 - `bup_rocketpy/gui/theme.py`: gold #B79357 / wine #8A1538 palette, one

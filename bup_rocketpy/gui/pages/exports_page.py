@@ -104,7 +104,7 @@ def exports_page():
                     if s["case_results"] is None:
                         s["case_results"] = rcsm_cases.run_all_cases(
                             s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                            s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                            *s["load_result"].drag_curves(),
                             s["dry_mass_kg"], s["dry_cg_m"],
                             i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
                             # 2026-10-19 review ("check every bug" audit): same
@@ -266,7 +266,7 @@ def exports_page():
                 if s["case_results"] is None:
                     s["case_results"] = rcsm_cases.run_all_cases(
                         s["load_result"].parsed_ork, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                        s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                        *s["load_result"].drag_curves(),
                         s["dry_mass_kg"], s["dry_cg_m"],
                         i_axial_override=s["dry_i_axial_kgm2"], i_transverse_override=s["dry_i_transverse_kgm2"],
                         motor_dry_override_kg=s["sim_result"].motor_dry_kg,
@@ -306,7 +306,7 @@ def exports_page():
                     await run.io_bound(
                         lasc_package.build_lasc_zip,
                         zip_path, safe_mission_id, parsed, s["load_result"].parsed_eng, s["load_result"].eng_path,
-                        s["ork_path"], s["load_result"].power_off_drag_path, s["load_result"].power_on_drag_path,
+                        s["ork_path"], *s["load_result"].drag_curves(),
                         s["dry_mass_kg"], s["dry_cg_m"], i_ax, i_tr, radius,
                         cases=cases,
                         eng_filename=s["eng_filename"], ork_filename=s["ork_filename"],
@@ -322,6 +322,7 @@ def exports_page():
                         mc_uncertainties=s["mc_uncertainties"],
                         mc_n_simulations=int(mc_export_n_input.value) if mc_export_checkbox.value else 0,
                         report_pdf_path=report_pdf_path,
+                        drag_is_placeholder=s["load_result"].drag_is_placeholder,
                     )
                 except ValueError as exc:
                     # The verification gate (or the "no drag curve at

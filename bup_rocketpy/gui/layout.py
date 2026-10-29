@@ -117,6 +117,13 @@ def _status_bar():
         return
 
     from bup_rocketpy import competition_profiles
+    from bup_rocketpy.gui.pipeline import LOW_CONFIDENCE_DRAG_BANNER
+
+    if getattr(s["load_result"], "drag_is_placeholder", False):
+        with ui.row().classes("w-full items-center gap-2 px-4 py-2").style("background:#B3261E;color:#fff") as banner:
+            ui.icon("warning").classes("text-white")
+            ui.label(LOW_CONFIDENCE_DRAG_BANNER).classes("text-sm font-medium")
+        banner.mark("drag-placeholder-banner")
 
     parsed = s["load_result"].parsed_ork
     eng_header = getattr(s["load_result"].parsed_eng, "header", None)
