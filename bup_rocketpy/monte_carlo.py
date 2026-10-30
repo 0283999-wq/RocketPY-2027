@@ -114,6 +114,24 @@ class MonteCarloResult:
     exclusion_by_type: dict = field(default_factory=dict)
     first_traceback: str = ""
     cancelled: bool = False  # True if cancel_check() stopped the run early (n_completed+n_excluded < requested N)
+    # 2026-10-29 demo-day fix 2: "Cancelled - partial results kept: Done: 0
+    # completed, 338 excluded" hid the real error for 338 samples.
+    # exclusion_by_reason counts per "ExceptionType: first line of message"
+    # (exclusion_by_type above only knew the type); aborted_message is set
+    # (and `cancelled` too) when the run stopped ITSELF because
+    # ABORT_AFTER_SAME_FAILURES samples in a row failed with the same
+    # exception type - one plain-English line with the actual cause.
+    exclusion_by_reason: dict = field(default_factory=dict)
+    aborted_message: str = ""
+
+
+ABORT_AFTER_SAME_FAILURES = 5  # consecutive samples failing with the SAME exception type -> stop the run, show the cause
+
+
+def _reason_key(exc):
+    """'ValueError: first line of the message' - what 'excluded' is grouped by."""
+    first_line = (str(exc).strip().splitlines() or [""])[0]
+    return f"{type(exc).__name__}: {first_line[:160]}" if first_line else type(exc).__name__
 
 
 def _ellipse_params(x, y, n_std):
@@ -474,10 +492,13 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
     excluded_indices = set()
     exclusion_reasons = []
     exclusion_by_type = Counter()
+    exclusion_by_reason = Counter()
     first_traceback = ""
     n_workers = max_workers or os.cpu_count() or 1
     completed = 0
     cancelled = False
+    aborted_message = ""
+    streak_type, streak_count = None, 0
 
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=n_workers)
     try:
@@ -494,9 +515,16 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
                 if include_recovery:
                     impact_x_by_index[i] = x_impact
                     impact_y_by_index[i] = y_impact
+                streak_type, streak_count = None, 0
             except Exception as exc:  # a degenerate/unstable tail sample - exclude it, don't kill the batch
                 excluded_indices.add(i)
                 exclusion_by_type[type(exc).__name__] += 1
+                exclusion_by_reason[_reason_key(exc)] += 1
+                if type(exc).__name__ == streak_type:
+                    streak_count += 1
+                else:
+                    streak_type, streak_count = type(exc).__name__, 1
+                last_exc = exc
                 if len(exclusion_reasons) < 10:
                     exclusion_reasons.append(f"sample {i}: {type(exc).__name__}: {exc}")
                 if not first_traceback:
@@ -520,6 +548,14 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
                 progress_callback(completed, n_simulations)
             if on_sample_complete and i not in excluded_indices:
                 on_sample_complete(trajectory, impact_x_by_index[i] if include_recovery else None, impact_y_by_index[i] if include_recovery else None)
+            if streak_count >= ABORT_AFTER_SAME_FAILURES:
+                aborted_message = (
+                    f"Monte Carlo stopped: {streak_count} samples in a row failed with the same error "
+                    f"({_reason_key(last_exc)}). Every sample would fail the same way, so the run was stopped "
+                    "instead of wasting time. Open 'details' for the full traceback."
+                )
+                cancelled = True
+                break
             if cancel_check is not None and cancel_check():
                 cancelled = True
                 break
@@ -553,7 +589,7 @@ def run_monte_carlo(parsed, parsed_eng, eng_path, power_off_drag, power_on_drag,
         n_completed=len(apogees), n_excluded=n_excluded, apogee_samples=apogees, apogee_by_sample_index=apogees_by_index, apogee_mean=mean, apogee_p05=p05, apogee_p95=p95,
         impact_x_samples=impact_xs, impact_y_samples=impact_ys, filename=mc_filename, exclusion_reasons=exclusion_reasons,
         exclusion_by_type=dict(exclusion_by_type), first_traceback=first_traceback,
-        cancelled=cancelled,
+        cancelled=cancelled, exclusion_by_reason=dict(exclusion_by_reason), aborted_message=aborted_message,
     )
 
 

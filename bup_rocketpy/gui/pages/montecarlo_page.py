@@ -98,6 +98,19 @@ def montecarlo_page():
             # the whole time.
             results_container.clear()
             with results_container:
+                # 2026-10-29 demo-day fix 2: a run that stopped ITSELF
+                # because the same error kept repeating shows the real
+                # cause in one plain line (details = full traceback), and
+                # no charts of an empty sample set.
+                if getattr(result, "aborted_message", ""):
+                    with components.card(classes="w-full mt-2 border-l-4") as c:
+                        c.style("border-left-color: var(--bup-error)")
+                        ui.label(result.aborted_message).classes("font-bold").style("color: var(--bup-error)")
+                        if result.first_traceback:
+                            with ui.expansion("details").classes("w-full mt-1"):
+                                ui.label(result.first_traceback).classes("text-xs font-mono whitespace-pre-wrap")
+                    if result.n_completed == 0:
+                        return
                 with ui.grid(columns=3).classes("gap-3 w-full"):
                     components.kpi_card("Apogee mean", None, "m", status="neutral", countup_target=result.apogee_mean, decimals=1, stagger_index=0)
                     components.kpi_card("90% interval low", None, "m", status="neutral", countup_target=result.apogee_p05, decimals=1, stagger_index=1)
@@ -118,8 +131,11 @@ def montecarlo_page():
                     with components.card(classes="w-full mt-2 border-l-4") as c:
                         c.style("border-left-color: var(--bup-warning)")
                         ui.label(f"{result.n_excluded} of {result.n_completed + result.n_excluded} samples excluded").classes("font-bold").style("color: var(--bup-warning)")
-                        if result.exclusion_by_type:
-                            ui.label("By error type: " + ", ".join(f"{name} x{count}" for name, count in sorted(result.exclusion_by_type.items(), key=lambda kv: -kv[1]))).classes("text-sm mt-1")
+                        by_reason = getattr(result, "exclusion_by_reason", None) or result.exclusion_by_type
+                        if by_reason:
+                            ui.label("Excluded because:").classes("text-sm mt-1")
+                            for name, count in sorted(by_reason.items(), key=lambda kv: -kv[1]):
+                                ui.label(f"{count} x {name}").classes("text-sm")
                         if result.first_traceback:
                             with ui.expansion("First failure - full traceback (also printed to the server console)").classes("w-full mt-1"):
                                 ui.label(result.first_traceback).classes("text-xs font-mono whitespace-pre-wrap")
@@ -345,7 +361,9 @@ def montecarlo_page():
 
             s["mc_result"] = result
             status = f"Done: {result.n_completed} completed, {result.n_excluded} excluded."
-            if result.cancelled:
+            if result.aborted_message:
+                status = result.aborted_message
+            elif result.cancelled:
                 status = f"Cancelled - partial results kept: {status}"
             progress_label.set_text(status)
             render_results(result)

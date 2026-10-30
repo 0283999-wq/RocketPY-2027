@@ -5,6 +5,19 @@
 > working notes (not in this repo) rather than public documentation.
 > This file is the public record of what changed and why.
 
+## 2026-10-29 demo-day fix 2 - Monte Carlo no longer hides the real error
+
+A run where every sample failed showed "Cancelled - partial results kept:
+Done: 0 completed, 338 excluded" and never said why.
+
+- `monte_carlo.run_monte_carlo` stops itself after 5 samples in a row fail
+  with the same exception type and returns `aborted_message` (one plain
+  English line with the real cause) plus the first full traceback.
+- "Excluded" is now counted per reason (`exclusion_by_reason`, e.g.
+  `3 x ValueError: ...`), shown on the Monte Carlo page.
+- Test: `tests/test_mc_failure_abort.py` (a missing drag file makes every
+  sample fail; the run must stop early and name the cause).
+
 ## 2026-10-29 demo-day fix 1 - no stored drag data no longer crashes Monte Carlo / RCSM / Analysis / Export
 
 An `.ork` whose stored simulation has no drag data made Simulate work but
