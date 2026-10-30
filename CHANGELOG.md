@@ -5,6 +5,18 @@
 > working notes (not in this repo) rather than public documentation.
 > This file is the public record of what changed and why.
 
+## 2026-10-29 demo-day fix 3 - Monte Carlo progress display
+
+After cancelling at 338/800 and changing N to 500, pressing Run kept showing
+"Running 338/800..." and a bar at 0 until the first new sample came back.
+
+- Pressing Run now immediately clears the old status/results and shows
+  "Starting 0/<current N>" using the value in the field.
+- The bar shows a percentage ("31 %", plus "Running 156/500 (31 %)" in the
+  label), not Quasar's raw fraction ("0.312").
+- Test: `tests/test_mc_progress_e2e.py` (real browser: run N=800, cancel,
+  set N=500, Run again, the old text must be gone).
+
 ## 2026-10-29 demo-day fix 2 - Monte Carlo no longer hides the real error
 
 A run where every sample failed showed "Cancelled - partial results kept:

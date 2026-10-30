@@ -74,7 +74,10 @@ def montecarlo_page():
                     rail_heading_input = ui.number(label="Rail heading (deg)", value=parsed_for_rail.launch.rail_direction_deg if parsed_for_rail.launch else None).classes("w-40")
                 ui.label("Defaults to the .ork's saved simulation; edit to match the rail setup you actually plan to use on launch day (e.g. pointed into the wind) before running.").classes("text-xs").style("color: var(--bup-muted)")
 
-                progress_bar = ui.linear_progress(value=0).props("hidden").classes("mt-2")
+                # show_value=False: Quasar's own value text is the raw fraction
+                # ("0.312"); progress_pct_label below shows "31 %" instead.
+                progress_bar = ui.linear_progress(value=0, show_value=False).props("hidden").classes("mt-2")
+                progress_pct_label = ui.label("").classes("text-sm font-bold")
                 progress_label = ui.label("").classes("text-sm").style("color: var(--bup-muted)")
                 with ui.row().classes("gap-2 mt-1"):
                     run_button = components.button("Run Monte Carlo", kind="primary", icon="play_arrow")
@@ -256,6 +259,7 @@ def montecarlo_page():
             # the whole run, exactly the reported "stuck at 0" bug. Fix:
             # actually read the fraction progress_cb computed below.
             progress_bar.set_value(mc_progress["fraction"])
+            progress_pct_label.set_text("" if mc_progress["done"] else f"{round(mc_progress['fraction'] * 100)} %")
             s["mc_running"] = not mc_progress["done"]
             s["mc_progress_text"] = mc_progress["text"]
             s["mc_progress_fraction"] = mc_progress["fraction"]
@@ -291,22 +295,32 @@ def montecarlo_page():
             n = int(n_input.value)
 
             def progress_cb(i, total):
-                mc_progress["text"] = f"Running {i}/{total}..."
+                mc_progress["text"] = f"Running {i}/{total} ({round(100 * i / total) if total else 0} %)"
                 mc_progress["fraction"] = (i / total) if total else 0.0
 
             def on_sample_complete(trajectory, x_impact, y_impact):
                 mc_live_queue.append((trajectory, x_impact, y_impact))
 
+            # 2026-10-29 demo-day fix 3: pressing Run must IMMEDIATELY wipe
+            # the previous run's status ("Cancelled - partial results...",
+            # "Running 338/800...") and show the CURRENT field value,
+            # instead of leaving the old text until the first new sample.
+            starting_text = f"Starting 0/{n}"
             cancel_flag.clear()
             mc_progress["done"] = False
             mc_progress["fraction"] = 0.0
+            mc_progress["text"] = starting_text
             mc_live_queue.clear()
+            results_container.clear()
+            s["mc_result"] = None
+            progress_label.set_text(starting_text)
+            progress_pct_label.set_text("0 %")
             progress_bar.props(remove="hidden")
             progress_bar.set_value(0.0)
             run_button.props("hidden")
             cancel_button.props(remove="hidden")
             s["mc_running"] = True
-            s["mc_progress_text"] = "Starting..."
+            s["mc_progress_text"] = starting_text
             s["mc_progress_fraction"] = 0.0
 
             container_id = f"livemc-{uuid.uuid4().hex[:8]}"
