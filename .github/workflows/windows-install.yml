@@ -1,0 +1,23 @@
+name: windows-install
+
+# Checks that start.bat works on a clean Windows machine with Python 3.12:
+# fresh start, wrong-version .venv recreated, second launch skips pip,
+# pip.exe never used, and a clear failure when Python 3.12 is missing.
+on:
+  push:
+    paths: ["start.bat", "start.ps1", "update.bat", "requirements.txt", "scripts/test_install.ps1", ".github/workflows/windows-install.yml"]
+  pull_request:
+    paths: ["start.bat", "start.ps1", "update.bat", "requirements.txt", "scripts/test_install.ps1"]
+  workflow_dispatch:
+
+jobs:
+  install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: start.bat install checks
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts\test_install.ps1

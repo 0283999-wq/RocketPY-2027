@@ -12,7 +12,7 @@ import venv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bup_rocketpy import case_export, translate
+from bup_rocketpy import case_export, export_verification, translate
 from bup_rocketpy.motor_reader import read_eng
 from bup_rocketpy.ork_reader import read_ork
 
@@ -72,9 +72,9 @@ def test_exported_scripts_match_the_apps_own_apogee_in_a_clean_venv():
     if not os.path.exists(clean_venv_dir):
         print(f"\nBuilding clean venv at {clean_venv_dir} (rocketpy install, this is the slow part)...")
         venv.EnvBuilder(with_pip=True).create(clean_venv_dir)
-        clean_python = os.path.join(clean_venv_dir, "bin", "python3")
+        clean_python = export_verification.venv_python(clean_venv_dir)
         subprocess.run([clean_python, "-m", "pip", "install", "-q", "rocketpy==1.13.0"], check=True, timeout=300)
-    clean_python = os.path.join(clean_venv_dir, "bin", "python3")
+    clean_python = export_verification.venv_python(clean_venv_dir)
 
     for case_name, include_recovery in CASES:
         in_process_apogee = _run_in_process(parsed, parsed_eng, mass_est, i_axial, i_transverse, radius_m, include_recovery)

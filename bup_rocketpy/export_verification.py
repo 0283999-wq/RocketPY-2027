@@ -52,14 +52,26 @@ def _verification_venv_dir():
     return os.path.join(os.getcwd(), "outputs", "lasc_verify_venv")
 
 
+def venv_python(venv_dir):
+    """Path to a venv's python executable: Scripts\\python.exe on Windows,
+    bin/python3 elsewhere. (This used to hardcode the Linux path, so on
+    Windows the venv was never found, was rebuilt on every click, and the
+    first subprocess call died with FileNotFoundError - the zip could not
+    be built at all.) Only python.exe is ever executed from a venv: never
+    pip.exe or other launchers, which Device Guard can block."""
+    if os.name == "nt":
+        return os.path.join(venv_dir, "Scripts", "python.exe")
+    return os.path.join(venv_dir, "bin", "python3")
+
+
 def ensure_verification_venv(rocketpy_version):
     """Creates (if missing) and re-syncs the cached verification venv,
     returning its python executable path. No bup_rocketpy is ever
     installed into it - that's the entire point."""
     vdir = _verification_venv_dir()
-    python_exe = os.path.join(vdir, "bin", "python3")
+    python_exe = venv_python(vdir)
     if not os.path.exists(python_exe):
-        venv.EnvBuilder(with_pip=True).create(vdir)
+        venv.EnvBuilder(with_pip=True, clear=os.path.isdir(vdir)).create(vdir)  # clear: a half-built dir from an interrupted run
     subprocess.run([python_exe, "-m", "pip", "install", "-q", f"rocketpy=={rocketpy_version}"], check=True, timeout=300)
     return python_exe
 

@@ -5,6 +5,37 @@
 > working notes (not in this repo) rather than public documentation.
 > This file is the public record of what changed and why.
 
+## 2026-10-29 demo-day fix 4 - Windows installation rewritten
+
+Two real failures on a teammate's laptop: "No runtime installed that matches
+3.12" and "pip.exe was blocked by Device Guard", both reported as "check your
+internet connection".
+
+- `start.bat` rewritten (ASCII only): finds Python 3.12 via `py -3.12`, then
+  runs `py install 3.12` when the new Python install manager exists, then
+  accepts `python` on PATH only if it is 3.12; never uses 3.13/3.14.
+- Never executes anything in `.venv\Scripts` except `python.exe`
+  (`python -m pip`, `python -m bup_rocketpy.gui.app`).
+- `.venv` that is incomplete, made by another Python version, or points to a
+  Python that no longer exists is deleted and recreated, with one line saying so.
+- pip runs only when `requirements.txt` changed (hash in
+  `.venv\bup_requirements.hash`); normal launches never touch pip.
+- Specific messages: Python 3.12 missing (with download steps), Device
+  Guard / Smart App Control, real network errors only, disk full, accented
+  path, OneDrive folder. Full output always goes to `install_log.txt`.
+- New `update.bat` (`git pull`, then `start.bat`) and `start.ps1` (same logic
+  for PCs that block .bat files).
+- `export_verification.py` and its test looked for the clean venv's Python at
+  the Linux path `bin/python3`; on Windows that never exists, so "Build
+  submission .zip" could not run its verification. Now `venv_python()` picks
+  `Scripts\python.exe` on Windows.
+- `scripts/test_install.ps1` + `.github/workflows/windows-install.yml`
+  (windows-latest) check: fresh start, wrong-version .venv recreated,
+  second launch skips pip, pip.exe removed still works, no Python 3.12 gives a
+  clear message, non-zero exit and `install_log.txt`.
+- README "Install" section rewritten for non-programmers (4 steps +
+  troubleshooting table).
+
 ## 2026-10-29 demo-day fix 3 - Monte Carlo progress display
 
 After cancelling at 338/800 and changing N to 500, pressing Run kept showing

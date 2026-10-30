@@ -96,48 +96,56 @@ and shows "load files first" until you have.
 
 ### Windows (no Python knowledge required)
 
-1. [Download this repository](../../archive/refs/heads/main.zip) (or
-   `git clone` it) and unzip it anywhere.
-2. Double-click **`start.bat`**.
+Four steps, once per computer:
 
-That's it. First run creates `.venv` and installs `requirements.txt`
-(pinned versions); every run after that just re-checks that's still up
-to date (fast) and opens the app in your browser.
+1. Install **Git for Windows**: <https://git-scm.com/download/win> (accept the defaults).
+2. Install **Python 3.12** (64-bit): <https://www.python.org/downloads/release/python-3120/>.
+   In the installer tick **"Add python.exe to PATH"**. (If your computer has
+   the new "Python install manager", you can skip this: `start.bat` runs
+   `py install 3.12` for you.) Python 3.13 and 3.14 are not supported yet.
+3. Open PowerShell and clone into a plain folder **outside OneDrive**:
 
-**The PDF report needs a Chromium-based browser** (it renders the report
-exactly the way you'd print a web page) - it uses Microsoft Edge (already
-on your machine, since it ships with Windows) or Google Chrome
-automatically, with no download. Only if neither is found does
-`start.bat` try to download Playwright's own copy of Chromium, which is
-blocked on some networks (university networks in particular - if that
-download hangs or fails, just Ctrl+C past it, or edit `start.bat` isn't
-even necessary: install Edge/Chrome and it's picked up automatically next
-run). The app and the DOCX report both work regardless of any of this.
+   ```powershell
+   mkdir $env:USERPROFILE\dev
+   cd $env:USERPROFILE\dev
+   git clone https://github.com/0283999-wq/RocketPY-2027.git
+   ```
 
-**Python version: this app is tested on Python 3.11/3.12.** `start.bat`
-prefers Python **3.12** specifically, via the Windows `py` launcher
-(`py -3.12`), even if a different version is your default - a newer
-Python already on your machine (3.13, 3.14) may not have installable
-wheels yet for rocketpy/nicegui or one of their pinned dependencies, and
-`pip install` can fail or install something broken with no clear error.
+4. Open the `RocketPY-2027` folder and double-click **`start.bat`**.
 
-If `start.bat` prints "Python 3.12 was not found", install it first:
-1. Download it: <https://www.python.org/downloads/release/python-3120/>
-   ("Windows installer (64-bit)"). During install, check **"Add python.exe
-   to PATH"**.
-2. Or, with `winget`: `winget install -e --id Python.Python.3.12`
-3. Delete the `.venv` folder in this repo if one already exists (it may
-   have been created with the wrong version), then double-click
-   `start.bat` again.
+The first launch creates `.venv` and installs the requirements (a few
+minutes). Later launches skip that completely and just open the app in your
+browser. To get new versions, double-click **`update.bat`** (it runs
+`git pull` and then `start.bat`). Those two files are all you ever need.
 
-If you'd rather run it from PowerShell yourself:
+Nothing here runs `pip.exe`: everything goes through
+`.venv\Scripts\python.exe -m ...`, so computers that block Python launchers
+(Device Guard) still work. If `start.bat` fails it writes the full output to
+**`install_log.txt`** - send that file to whoever is helping you.
+
+**The PDF report needs Edge or Chrome** (Edge ships with Windows). If neither
+is found, `start.bat` tries Playwright's own Chromium, which is optional: if
+it fails the app still runs and the DOCX report works.
+
+If .bat files are blocked on your computer, use the PowerShell launcher
+instead (same logic):
 
 ```powershell
-py -3.12 -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m playwright install chromium
-.venv\Scripts\python -m bup_rocketpy.gui.app
+powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
+
+#### If something goes wrong
+
+| What you see | What it means / what to do |
+|---|---|
+| "Python 3.12 was not found and could not be installed automatically" | Install Python 3.12 (64-bit) from python.org, tick **Add python.exe to PATH**, double-click `start.bat` again. |
+| "Windows on this computer blocks Python programs (Device Guard / Smart App Control)" | The PC's security policy blocks it. Ask your IT department or use another computer. If `python.exe` itself is the blocked file, it is the same problem. |
+| "pip could not reach the internet" | A real network problem: check Wi-Fi, VPN or proxy. University networks often block downloads - try a phone hotspot. |
+| "The disk is full" | Free some space, then double-click `start.bat` again. |
+| "This folder path has accents or special characters" | Move the project to a plain path such as `C:\Users\<you>\dev\RocketPY-2027`. |
+| "NOTE: this folder is synced by OneDrive" | It works, but it is slow and risky for `.venv`. Clone into `%USERPROFILE%\dev` instead. |
+| "Recreating .venv because ..." | Normal: the old environment was broken or made with another Python version, so it is rebuilt automatically. |
+| "Installing the requirements failed (not a network problem)" | Send `install_log.txt`. |
 
 ### macOS / Linux
 
@@ -146,7 +154,7 @@ plain Python + NiceGUI and runs the same way:
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python -m playwright install chromium
 .venv/bin/python -m bup_rocketpy.gui.app
 ```

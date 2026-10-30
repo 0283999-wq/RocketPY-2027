@@ -16,3 +16,6 @@ NOTES_FOR_DIEGO.md
 # NiceGUI's own runtime cache/storage directory (created on `python -m
 # bup_rocketpy.gui.app`) - local run state, not part of the repo.
 .nicegui/
+
+# start.bat / start.ps1 failure log (per computer)
+install_log.txt
